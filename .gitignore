@@ -1,0 +1,28 @@
+# Python 虚拟环境
+venv/
+.env
+
+# 编译文件
+__pycache__/
+*.pyc
+
+# IDE 配置
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# 在程序运行过程中产生的结构文件等，与代码库无关
+*results/
+data/
+POSCAR_*
+ori_POSCAR_*
+CONTCAR_*
+OUTCAR_*
+*.gjf
+*.chk
+*.fchk
+*.log
+*.json
+*.csv
+slurm-*.out
+model.pt

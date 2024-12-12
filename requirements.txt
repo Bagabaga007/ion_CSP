@@ -1,0 +1,7 @@
+ase==3.23.0
+dpdispatcher==0.6.7
+numpy==1.26.4
+pandas==2.2.3
+paramiko==2.8.1
+pyxtal==1.0.4
+rdkit==2023.03.3
