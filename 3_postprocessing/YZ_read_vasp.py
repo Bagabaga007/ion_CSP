@@ -11,7 +11,6 @@ class vasp_processing:
         self.base_dir = os.path.dirname(__file__)
         # 寻找同一目录下的optimized文件夹
         self.folder_dir = os.path.join(self.base_dir, target_folder)
-        self.max_density_dir = os.path.join(self.folder_dir, 'max_density')
 
     def read_vaspout_save_csv(self, fine_dir=False):
         """

@@ -289,36 +289,36 @@ class empirical_estimation:
         """
         with open(csv_file, mode='r', newline='') as file:
             reader = csv.DictReader(file)
-            
             # 初始化已处理的文件夹计数
             folder_count = 0
             for index, row in enumerate(reader):
                 if folder_count >= num_folders:
                     break  # 达到指定文件夹数量，停止处理
                 # 创建 combo_n 文件夹名称
-                combo_folder = f"combo_{index + 1}"
+                combo_folder = f'combo_{index+1}'
                 combo_path = os.path.join(target_directory, combo_folder)
-                # 检查文件夹是否已存在
-                if os.path.exists(combo_path):
-                    print(f"Folder {combo_path} already exists. Skipping...")
-                    continue
-                # 创建文件夹
-                os.makedirs(combo_path)
+                os.makedirs(combo_path, exist_ok=True)
                 folder_count += 1
                 
                 # 遍历每一列（组件）并复制对应的 .gjf 文件
                 for component in row.keys():
                     if component == 'Density':
                         continue
-                    gjf_filename = f"{row[component]}.gjf"  # 使用当前列的值
+                    gjf_filename = f'{row[component]}.gjf'  # 使用当前列的值
                     gjf_source_path = os.path.join(working_directory, gjf_filename)
-                    
                     # 复制文件到对应的 combo_n 文件夹
                     if os.path.exists(gjf_source_path):
-                        shutil.copy(gjf_source_path, combo_path)
-                        print(f"Copied {gjf_filename} to {combo_path}")
+                        if os.path.exists(os.path.join(combo_path, os.path.basename(gjf_filename))):
+                            logging.info(f'{gjf_filename} of {os.path.basename(combo_path)} already exists in {os.path.abspath(combo_path)}. Skipping copy.')
+                            print(f'{gjf_filename} of {os.path.basename(combo_path)} already exists in {os.path.abspath(combo_path)}. Skipping copy.')
+                        else:
+                            # 复制对应的 .gjf 文件
+                            shutil.copy(gjf_source_path, combo_path)
+                            logging.info(f'Copied {os.path.basename(gjf_source_path)} to {combo_path}')
+                            print(f'Copied {os.path.basename(gjf_source_path)} to {combo_path}')
                     else:
-                        print(f"File {gjf_filename} does not exist in {working_directory}")
+                        logging.info(f'File of {gjf_filename} does not exist in {working_directory}')
+                        print(f'File of {gjf_filename} does not exist in {working_directory}')
 
 
 def log_and_time(func):
@@ -366,7 +366,7 @@ def main():
     # 根据配比生成离子晶体组合，读取 .json 文件并将各离子性质代入经验公式，最终将预测的离子晶体密度以及对应的组分输出到 .csv 文件并根据密度从大到小排序
     # result.empirical_estimate()
     # 基于.csv文件创建一个combo_n文件夹，并复制相应的.gjf结构文件。
-    result.make_combo_dir(csv_file='sorted_density.csv', working_directory='Optimized_gjf', target_directory='test/test_combo', num_folders=5)
+    result.make_combo_dir(csv_file='sorted_density.csv', working_directory='Optimized_gjf', target_directory='/workplace/yz/Test/yz_opt/ion_CSP/2_generation/2_1_gen_results', num_folders=150)
 
 if __name__ == '__main__':
     main()
