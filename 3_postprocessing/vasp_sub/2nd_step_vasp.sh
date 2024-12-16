@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 定义变量
-BASE_DIR="vasp_opt_from_ori"
+BASE_DIR="vasp_combo_1/primitive"
 PARA_DIR="parameter"
 INCAR_2="${PARA_DIR}/INCAR_2"
 POTCAR="${PARA_DIR}/POTCAR"

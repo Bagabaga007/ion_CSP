@@ -2,14 +2,13 @@
 
 BASE_DIR="vasp_combo_1/primitive"
 PARA_DIR="parameter"
-INCAR_1="${PARA_DIR}/INCAR_1"
-INCAR_2="${PARA_DIR}/INCAR_2"
+INCAR_0="${PARA_DIR}/INCAR_0"
 POTCAR="${PARA_DIR}/POTCAR"
 SUB_SCRIPT="sch9797_sub.sh"
 SCRIPT_PATH="${PARA_DIR}/${SUB_SCRIPT}"
 
 # 检查必要文件是否存在
-if [[ ! -f "$INCAR_1" || ! -f "$INCAR_2" || ! -f "$POTCAR" || ! -f "$SCRIPT_PATH" ]]; then
+if [[ ! -f "$INCAR_0" || ! -f "$POTCAR" || ! -f "$SCRIPT_PATH" ]]; then
     echo "必要文件缺失，请检查路径。"
     exit 1
 fi
@@ -24,7 +23,7 @@ for contcar in ${BASE_DIR}/CONTCAR_*; do
         # 拷贝CONTCAR文件并重命名
         cp "$contcar" "${sample_dir}/POSCAR"
         # 拷贝统一文件
-        cp "$INCAR_1" "${sample_dir}/INCAR"
+        cp "$INCAR_0" "${sample_dir}/INCAR"
         cp "$POTCAR" "${sample_dir}/"
         cp "$SUB_SCRIPT" "${sample_dir}/"
         # 提交任务

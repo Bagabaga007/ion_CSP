@@ -185,8 +185,9 @@ class CONTCAR_processing:
 def log_and_time(func):
     """Decorator for recording log information and script runtime"""
     # 获取脚本所在目录, 在该目录下生成日志
-    base_dir = os.path.dirname(__file__)  
-    log_file_path = os.path.join(base_dir, 'output.log')
+    base_dir = os.path.dirname(__file__)
+    script_name = os.path.basename(__file__) 
+    log_file_path = os.path.join(base_dir, f'{script_name}_output.log')
     # 配置日志记录
     logging.basicConfig(
         filename = log_file_path,  # 日志文件名
@@ -216,10 +217,11 @@ def log_and_time(func):
         return result
     return wrapper
 
+
 @ log_and_time
 def main():
     # 读取其中的CONTCAR文件的密度数据并将前n个最大密度的文件保存到max_density文件夹
-    result = CONTCAR_processing('mlp_results/combo_8/optimized')
+    result = CONTCAR_processing('mlp_results/combo_12/optimized')
     result.read_density_and_sort(n=10, N5_screen=True, count_N5=2)
     result.phonopy_processing_max_density()
 

@@ -322,10 +322,11 @@ class empirical_estimation:
 
 
 def log_and_time(func):
-    '''Decorator for recording log information and script runtime'''
+    """Decorator for recording log information and script runtime"""
     # 获取脚本所在目录, 在该目录下生成日志
-    base_dir = os.path.dirname(__file__)  
-    log_file_path = os.path.join(base_dir, 'output.log')
+    base_dir = os.path.dirname(__file__)
+    script_name = os.path.basename(__file__) 
+    log_file_path = os.path.join(base_dir, f'{script_name}_output.log')
     # 配置日志记录
     logging.basicConfig(
         filename = log_file_path,  # 日志文件名
