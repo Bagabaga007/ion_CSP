@@ -54,22 +54,20 @@ class CONTCAR_processing:
             # 将分子信息转换为可哈希的元组形式，以便合并
             molecule_tuple = frozenset(molecule.items())
             merged_molecules[molecule_tuple] += 1  # 计数相同的分子
-        N5_flag = None
+        # 设置标志表示 N5 环的检测结果，0表示并未进行检测，1表示有完整 N5 环，-1表示无完整 N5 环
+        N5_found, N5_flag = False, 0
         if check_N5:
             # 检查是否存在 N5 分子
-            N5_found = False
             for molecule in molecules:
-                if dict(molecule).get('N', 0) == 5 and len(molecule) == 1:  # 确保只有氮元素且数量为 5
+                # 确保只有氮元素且数量为 5
+                if dict(molecule).get('N', 0) == 5 and len(molecule) == 1:
                     N5_found = True
-            if N5_found:
-                N5_flag = True  # 设置标志为 True
-            else:
-                print('N5 molecule not found in the crystal.')
-                N5_flag = False  # 设置标志为 False
-        # 返回合并后的分子及其数量, flag 表示是否有完整 N5 环
+                    break
+            N5_flag = 1 if N5_found else -1
+        # 返回合并后的分子及其数量, flag 标志表示 N5 环的检测结果
         return merged_molecules, N5_flag
 
-    def molecules_information(self, molecules: List[Dict[str, int]]):
+    def _molecules_information(self, molecules: List[Dict[str, int]]):
         """
         Set the output format of the molecule. Output simplified element information in the specified order of C, N, O, H, which may include other elements.
         """
@@ -107,7 +105,7 @@ class CONTCAR_processing:
         file_index_pairs.sort(key=lambda pair: pair[0])
         return file_index_pairs
     
-    def read_density_and_sort(self, n=10, if_N5=True):
+    def read_density_and_sort(self, n=10, N5_screen=True):
         """
         Obtain the atomic mass and unit cell volume from the optimized CONTCAR file, and obtain the ion crystal density. Finally, take n CONTCAR files with the highest density and save them separately for viewing.
         
@@ -119,12 +117,23 @@ class CONTCAR_processing:
         # 逐个处理文件
         density_index_list = []
         for _, filename in CONTCAR_file_index_pairs:
-            structure = read_vasp(os.path.join(self.folder_dir, filename))
-            atoms_volume = structure.get_volume()  # 体积单位为立方埃（Å³）
-            atoms_masses = sum(structure.get_masses())  # 质量单位为原子质量单位(amu)
-            # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
-            density = 1.66054 * atoms_masses / atoms_volume       
-            density_index_list.append((density, filename))
+            atoms = read_vasp(os.path.join(self.folder_dir, filename))
+            if N5_screen:
+                molecules, flag = self._identify_molecules(atoms, check_N5=True)
+                if flag == 1:
+                    logging.info(filename)
+                    self._molecules_information(molecules)
+                    atoms_volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
+                    atoms_masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
+                    # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
+                    density = 1.66054 * atoms_masses / atoms_volume       
+                    density_index_list.append((density, filename))
+            else:
+                atoms_volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
+                atoms_masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
+                # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
+                density = 1.66054 * atoms_masses / atoms_volume       
+                density_index_list.append((density, filename))
 
         # 根据密度降序排序
         sorted_filename = sorted(density_index_list, key=lambda x: x[0], reverse=True)
@@ -209,7 +218,7 @@ def log_and_time(func):
 def main():
     # 读取其中的CONTCAR文件的密度数据并将前n个最大密度的文件保存到max_density文件夹
     result = CONTCAR_processing('mlp_results/combo_13/optimized')
-    result.read_density_and_sort(n=10)
+    result.read_density_and_sort(n=10, N5_screen=True)
     result.phonopy_processing_max_density()
 
 if __name__ == "__main__":
