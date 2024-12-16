@@ -5,8 +5,8 @@ import logging
 import subprocess
 from typing import List, Dict
 from collections import defaultdict
-from ase.neighborlist import NeighborList, natural_cutoffs
 from ase.io.vasp import read_vasp
+from ase.neighborlist import NeighborList, natural_cutoffs
 
 
 class CONTCAR_processing:
@@ -19,7 +19,7 @@ class CONTCAR_processing:
         self.max_density_dir = os.path.join(self.folder_dir, 'max_density')
         self.primitive_cell_dir = os.path.join(self.folder_dir, 'primitive_cell')
 
-    def _identify_molecules(self, atoms) -> List[Dict[str, int]]:
+    def _identify_molecules(self, atoms, check_N5=True) -> List[Dict[str, int]]:
         visited = set()  # 用于记录已经访问过的原子索引
         molecules = []   # 用于存储识别到的独立分子
         # 基于共价半径为每个原子生成径向截止
@@ -54,70 +54,71 @@ class CONTCAR_processing:
             # 将分子信息转换为可哈希的元组形式，以便合并
             molecule_tuple = frozenset(molecule.items())
             merged_molecules[molecule_tuple] += 1  # 计数相同的分子
-        # 返回合并后的分子及其数量
-        return merged_molecules
+        N5_flag = None
+        if check_N5:
+            # 检查是否存在 N5 分子
+            N5_found = False
+            for molecule in molecules:
+                if dict(molecule).get('N', 0) == 5 and len(molecule) == 1:  # 确保只有氮元素且数量为 5
+                    N5_found = True
+            if N5_found:
+                N5_flag = True  # 设置标志为 True
+            else:
+                print('N5 molecule not found in the crystal.')
+                N5_flag = False  # 设置标志为 False
+        # 返回合并后的分子及其数量, flag 表示是否有完整 N5 环
+        return merged_molecules, N5_flag
 
-    def _format_molecule_output(self, molecule: Dict[str, int]) -> str:
+    def molecules_information(self, molecules: List[Dict[str, int]]):
         """
         Set the output format of the molecule. Output simplified element information in the specified order of C, N, O, H, which may include other elements.
         """
         # 定义固定顺序的元素
         fixed_order = ['C', 'N', 'O', 'H']
-        # 构建输出字符串
-        output = []
-        for element in fixed_order:
-            if element in molecule:
-                output.append(f"{element} {molecule[element]}") 
-        # 如果有其他元素，添加到输出中
-        for element in molecule:
-            if element not in fixed_order:
-                output.append(f"{element} {molecule[element]}")
-        return ' '.join(output)
-
-    def _molecules_information(self, molecules: List[Dict[str, int]]):
-        # 检查是否存在 N5 分子
-        N5_found = False
-        for molecule in molecules:
-            if dict(molecule).get('N', 0) == 5 and len(molecule) == 1:  # 确保只有氮元素且数量为 5
-                N5_found = True
-        if N5_found:
-            N5_flag = True  # 设置标志为 True
-        else:
-            print("N5 molecule not found in the crystal.")
-            N5_flag = False  # 设置标志为 False
-
-        print("Identified independent molecules:")
+        logging.info('Identified independent molecules:')
         for idx, (molecule, count) in enumerate(molecules.items()):
-            total_atoms = sum(dict(molecule).values())  # 计算当前分子的原子总数
-            formatted_output = self._format_molecule_output(dict(molecule))
-            print(f"Molecule {idx + 1} (Total Atoms: {total_atoms}, Count: {count}): {formatted_output}")
-        # 返回 flag 表示是否有完整 N5 环
-        return N5_flag
+            molecule = dict(molecule)
+            total_atoms = sum(molecule.values())  # 计算当前分子的原子总数
+            # 构建输出字符串
+            output = []
+            for element in fixed_order:
+                if element in molecule:
+                    output.append(f"{element} {molecule[element]}") 
+            # 如果有其他元素，添加到输出中
+            for element in molecule:
+                if element not in fixed_order:
+                    output.append(f"{element} {molecule[element]}")
+            formatted_output =  ' '.join(output)
+            logging.info(f'Molecule {idx + 1} (Total Atoms: {total_atoms}, Count: {count}): {formatted_output}')
 
-    def read_density_and_sort(self, n=20):
+    def _sequentially_read_files(self, dir, prefix_name='POSCAR_'):
         """
-        Obtain the atomic mass and unit cell volume from the optimized CONTCAR file, and obtain the ion crystal density. Finally, take n CONTCAR files with the highest density and save them separately for viewing.
-        args:
-            n: 取前n个最大密度的文件
+        Private method: 
+        Extract numbers from file names, convert them to integers, sort them by sequence, and return a list containing both indexes and file names
         """
-        os.chdir(self.base_dir)
-        # 获取所有以'CONTCAR_'开头的文件
-        CONTCAR_files = [f for f in os.listdir(self.folder_dir) if f.startswith('CONTCAR_')]
-
-        # 提取文件名中的数字并转换为整数
+        # 获取dir文件夹中所有以prefix_name开头的文件，在此实例中为POSCAR_
+        files = [f for f in os.listdir(dir) if f.startswith(prefix_name)]
         file_index_pairs = []
-        for filename in CONTCAR_files:
-            # 文件名格式为'CONTCAR_'后紧跟数字
-            index_part = filename[len('CONTCAR_'):]  # 选取无前缀'CONTCAR_'的数字
+        for filename in files:
+            index_part = filename[len(prefix_name):]  # 选取去除前缀'POSCAR_'的数字
             if index_part.isdigit():  # 确保剩余部分全是数字
                 index = int(index_part)
-                file_index_pairs.append((filename, index))           
-        # 按序号排序
-        file_index_pairs.sort(key=lambda pair: pair[1])
-
+                file_index_pairs.append((index, filename))
+        file_index_pairs.sort(key=lambda pair: pair[0])
+        return file_index_pairs
+    
+    def read_density_and_sort(self, n=10, if_N5=True):
+        """
+        Obtain the atomic mass and unit cell volume from the optimized CONTCAR file, and obtain the ion crystal density. Finally, take n CONTCAR files with the highest density and save them separately for viewing.
+        
+        :param n: 取前n个最大密度的文件
+        """
+        os.chdir(self.base_dir)
+        # 获取所有以'CONTCAR_'开头的文件，并按数字顺序处理
+        CONTCAR_file_index_pairs = self._sequentially_read_files(self.folder_dir, prefix_name='CONTCAR_')
         # 逐个处理文件
         density_index_list = []
-        for filename, index in file_index_pairs:
+        for _, filename in CONTCAR_file_index_pairs:
             structure = read_vasp(os.path.join(self.folder_dir, filename))
             atoms_volume = structure.get_volume()  # 体积单位为立方埃（Å³）
             atoms_masses = sum(structure.get_masses())  # 质量单位为原子质量单位(amu)
@@ -213,4 +214,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

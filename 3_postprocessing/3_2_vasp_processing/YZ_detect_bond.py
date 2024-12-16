@@ -11,7 +11,7 @@ def identify_molecules(atoms) -> List[Dict[str, int]]:
     # 基于共价半径为每个原子生成径向截止
     # threshold = 0.48
     # cutoffs = [threshold] * len(atoms)
-    cutoffs = natural_cutoffs(atoms, mult=0.95)
+    cutoffs = natural_cutoffs(atoms, mult=0.8)
     # 获取成键原子，考虑周期性边界条件
     nl = NeighborList(cutoffs=cutoffs, bothways=True, self_interaction=False)
     nl.update(atoms)  # 更新邻居列表
@@ -67,16 +67,17 @@ def molecules_information(molecules: List[Dict[str, int]]):
         if dict(molecule).get('N', 0) == 5 and len(molecule) == 1:  # 确保只有氮元素且数量为 5
             N5_found = True
     if N5_found:
+        print('Identified N5 molecule in the ionic crystal.')
         N5_flag = True  # 设置标志为 True
     else:
-        print("N5 molecule not found in the crystal.")
+        print('N5 molecule not found in the ionic crystal.')
         N5_flag = False  # 设置标志为 False
 
-    print("Identified independent molecules:")
+    print('Identified independent molecules:')
     for idx, (molecule, count) in enumerate(molecules.items()):
         total_atoms = sum(dict(molecule).values())  # 计算当前分子的原子总数
         formatted_output = _format_molecule_output(dict(molecule))
-        print(f"Molecule {idx + 1} (Total Atoms: {total_atoms}, Count: {count}): {formatted_output}")
+        print(f'Molecule {idx + 1} (Total Atoms: {total_atoms}, Count: {count}): {formatted_output}')
     # 返回 flag 表示是否有完整 N5 环
     return N5_flag
 
