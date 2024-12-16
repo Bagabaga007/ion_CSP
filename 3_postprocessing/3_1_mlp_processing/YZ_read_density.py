@@ -18,8 +18,9 @@ class CONTCAR_processing:
         self.folder_dir = os.path.join(self.base_dir, target_folder)
         self.max_density_dir = os.path.join(self.folder_dir, 'max_density')
         self.primitive_cell_dir = os.path.join(self.folder_dir, 'primitive_cell')
+        logging.info(f'Processing CONTCAR in {target_folder}')
 
-    def _identify_molecules(self, atoms, check_N5=True) -> List[Dict[str, int]]:
+    def _identify_molecules(self, atoms, check_N5=True, count_N5=2) -> List[Dict[str, int]]:
         visited = set()  # 用于记录已经访问过的原子索引
         molecules = []   # 用于存储识别到的独立分子
         # 基于共价半径为每个原子生成径向截止
@@ -58,9 +59,9 @@ class CONTCAR_processing:
         N5_found, N5_flag = False, 0
         if check_N5:
             # 检查是否存在 N5 分子
-            for molecule in molecules:
+            for molecule, count in merged_molecules.items():
                 # 确保只有氮元素且数量为 5
-                if dict(molecule).get('N', 0) == 5 and len(molecule) == 1:
+                if (dict(molecule).get('N', 0) == 5 and len(molecule) == 1 and count == count_N5):
                     N5_found = True
                     break
             N5_flag = 1 if N5_found else -1
@@ -105,7 +106,7 @@ class CONTCAR_processing:
         file_index_pairs.sort(key=lambda pair: pair[0])
         return file_index_pairs
     
-    def read_density_and_sort(self, n=10, N5_screen=True):
+    def read_density_and_sort(self, n=10, N5_screen=True, count_N5=2):
         """
         Obtain the atomic mass and unit cell volume from the optimized CONTCAR file, and obtain the ion crystal density. Finally, take n CONTCAR files with the highest density and save them separately for viewing.
         
@@ -119,9 +120,9 @@ class CONTCAR_processing:
         for _, filename in CONTCAR_file_index_pairs:
             atoms = read_vasp(os.path.join(self.folder_dir, filename))
             if N5_screen:
-                molecules, flag = self._identify_molecules(atoms, check_N5=True)
+                molecules, flag = self._identify_molecules(atoms, check_N5=True, count_N5=count_N5)
                 if flag == 1:
-                    logging.info(filename)
+                    logging.info(f'{filename} with independent N5 molecules')
                     self._molecules_information(molecules)
                     atoms_volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
                     atoms_masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
@@ -147,6 +148,7 @@ class CONTCAR_processing:
             new_OUTCAR_filename = f'OUTCAR_{density_str}_{filename.split("_")[1]}'
             shutil.copy(f'{self.folder_dir}/{filename}', f'{self.max_density_dir}/{new_CONTCAR_filename}')
             shutil.copy(f'{self.folder_dir}/{CONTCAR_filename}', f'{self.max_density_dir}/{new_OUTCAR_filename}')
+            logging.info(f'{new_CONTCAR_filename} and {new_OUTCAR_filename} Downloaded and renamed')
             print(f'{new_CONTCAR_filename} and {new_OUTCAR_filename} Downloaded and renamed')
 
     def phonopy_processing_max_density(self, specific_directory=None):
@@ -217,8 +219,8 @@ def log_and_time(func):
 @ log_and_time
 def main():
     # 读取其中的CONTCAR文件的密度数据并将前n个最大密度的文件保存到max_density文件夹
-    result = CONTCAR_processing('mlp_results/combo_13/optimized')
-    result.read_density_and_sort(n=10, N5_screen=True)
+    result = CONTCAR_processing('mlp_results/combo_8/optimized')
+    result.read_density_and_sort(n=10, N5_screen=True, count_N5=2)
     result.phonopy_processing_max_density()
 
 if __name__ == "__main__":

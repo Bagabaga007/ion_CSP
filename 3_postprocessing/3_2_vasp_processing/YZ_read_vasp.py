@@ -101,7 +101,6 @@ def log_and_time(func):
 
 @ log_and_time
 def main():
-    # 读取其中的CONTCAR文件的密度数据并将前n个最大密度的文件保存到max_density文件夹
     result = vasp_processing('vasp_results/vasp_combo_3/vasp_opt')
     result.read_vaspout_save_csv(fine_dir='fine')
 
