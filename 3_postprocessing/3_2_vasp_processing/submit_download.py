@@ -1,11 +1,12 @@
 import os
+import re
 import json
 import time
 import logging
 import paramiko
 
 class SSHBatchJob:
-    def __init__(self, machine_json, resources_json, folder):
+    def __init__(self, folder, machine_json, machine_type='ssh_direct'):
         self.base_dir = os.path.dirname(__file__)
         os.chdir(self.base_dir)
         self.folder = folder
@@ -14,31 +15,67 @@ class SSHBatchJob:
         # 加载配置文件
         with open(machine_json, 'r') as mf:
             self.machine_config = json.load(mf)
-        with open(resources_json, 'r') as rf:
-            self.resources_config = json.load(rf)
-            if self.machine_config['batch_type'] == 'Slurm':
-                pass
-        """创建 SSH 客户端并连接到服务器，支持超时设置"""
         self.remote_dir = self.machine_config['remote_root']
         self.remote_task_dir = f'{self.remote_dir}/{self.folder}'
         remote_profile = self.machine_config['remote_profile']
-        self.client = paramiko.SSHClient()
-        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        try:
-            self.client.connect(
-                hostname=remote_profile['hostname'],
-                username=remote_profile['username'],
-                password=remote_profile['password'],
-                port=remote_profile['port'],
-                look_for_keys=remote_profile['look_for_keys'],
-                timeout=10,
-            )
-            self.sftp = self.client.open_sftp()
-            print('SSH connection established successfully.')
-            logging.info('SSH connection established successfully.')
-        except Exception as e:
-            logging.error(f"Failed to establish SSH connection: {e}")
-            raise
+        if machine_type == 'ssh_direct':
+            try:
+                # 创建 SSH 客户端并连接到服务器，支持超时设置
+                self.client = paramiko.SSHClient()
+                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self.client.connect(
+                    hostname=remote_profile['hostname'],
+                    username=remote_profile['username'],
+                    password=remote_profile['password'],
+                    port=remote_profile['port'],
+                    look_for_keys=remote_profile['look_for_keys'],
+                    timeout=10,
+                )
+                self.sftp = self.client.open_sftp()
+                print(f'Direct SSH connection with {machine_json.split("_machine.json")[0]} established successfully.')
+                logging.info(f'Direct SSH connection with {machine_json.split("_machine.json")[0]} established successfully.')
+            except Exception as e:
+                logging.error(f'Failed to establish direct SSH connection with {machine_json.split("_machine.json")[0]}: {e}')
+                raise 
+        if machine_type == 'jumper':
+            # 创建跳板机 SSH 客户端
+            jumper_client = paramiko.SSHClient()
+            jumper_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            try:
+                # 连接到跳板机
+                jumper_profile = self.machine_config['jumper_profile']
+                jumper_client.connect(
+                    hostname=jumper_profile['hostname'],
+                    username=jumper_profile['username'],
+                    port=jumper_profile['port'],
+                    key_filename=jumper_profile['key_filename'],
+                    timeout=10,
+                )
+                # 创建一个通道，并建立代理通道
+                jumper_transport = jumper_client.get_transport()
+                src_addr = (jumper_profile['hostname'], jumper_profile['port'])
+                dest_addr = (remote_profile['hostname'], remote_profile['port'])
+                jumper_channel = jumper_transport.open_channel(kind="direct-tcpip", dest_addr=dest_addr, src_addr=src_addr)
+                print('Jumper connection established successfully')
+                logging.info('Jumper connection established successfully')
+                # 创建 SSH 客户端并连接到服务器，支持超时设置
+                self.client = paramiko.SSHClient()
+                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self.client.connect(
+                    hostname=remote_profile['hostname'],
+                    username=remote_profile['username'],
+                    password=remote_profile['password'],
+                    port=remote_profile['port'],
+                    sock=jumper_channel,
+                    look_for_keys=remote_profile['look_for_keys'],
+                    timeout=10,
+                )
+                self.sftp = self.client.open_sftp()
+                print(f'SSH jumper connection with {machine_json.split("_machine.json")[0]} established successfully.')
+                logging.info(f'SSH jumper connection with {machine_json.split("_machine.json")[0]} established successfully.')
+            except Exception as e:
+                logging.error(f"Failed to establish SSH connection: {e}")
+                raise
 
     def _execute_command(self, command):
         """执行命令，支持重试机制"""
@@ -115,7 +152,7 @@ class SSHBatchJob:
         # 在远程服务器上创建任务目录
         self._execute_command(f'mkdir -p {self.remote_task_dir}') 
         if forward_common_files:    
-            self._upload_files(self.base_dir, [file for file in forward_common_files], self.remote_task_dir)
+            self._upload_files(self.base_dir, [file for file in forward_common_files], self.remote_dir)
 
         # 针对专门的少数任务，可手动设定上传与下载的文件
         self.forward_files = upload_files
@@ -131,14 +168,38 @@ class SSHBatchJob:
         with open(f'{self.folder}/forward_batch_files.json', 'w') as json_file:
             # 注意：forward_files.json中存放的是文件名与前后缀分开的键值对
             json.dump(self.forward_json, json_file, indent=4)
-        with open(f'{self.folder}/backward_batch_files.json', 'w') as json_file:
-            # 注意：backward_files.json中存放的是完整的文件名列表
-            json.dump(self.backward_files, json_file, indent=4)
+        if self.backward_files:
+            with open(f'{self.folder}/backward_batch_files.json', 'w') as json_file:
+                # 注意：backward_files.json中存放的是完整的文件名列表
+                json.dump(self.backward_files, json_file, indent=4)
               
         # 上传文件到远程服务器
         self._upload_files(self.local_folder_dir, [f for f in self.forward_files], self.remote_task_dir)
-        # 执行提交命令
-        stdout, stderr = self._execute_command(f'cd {self.remote_task_dir}; {command}')
+        try:
+            # 执行提交命令
+            output, _ = self._execute_command(f'cd {self.remote_dir}; {command}')
+            # 正则表达式匹配 Job ID
+            pattern_slurm =  r'Submitted batch job (\d+)'
+            pattern_lsf = r'Job <(\d+)> is submitted to queue <normal>' 
+            # 使用 re.findall 查找匹配所有输出内容
+            matches_slurm = re.findall(pattern_slurm, output)
+            matches_lsf = re.findall(pattern_lsf, output)
+            # 合并所有匹配的 Job ID
+            job_ids = matches_slurm + matches_lsf         
+            if job_ids:
+                print(f'Captured Job IDs: {job_ids}')
+                logging.info(f'Captured Job IDs: {job_ids}')              
+                with open(f'{self.folder}/submitted_job_id.json', 'w') as json_file:
+                    json.dump(job_ids, json_file, indent=4)
+            else:
+                print('No Job IDs found in command output.')
+            
+        except Exception as e:
+            print(f'Error executing command: {e}')
+
+    def download_entire_folder(self, remote_path, local_path):
+        """Download the entire folder from SFTP server to local"""
+        pass
 
     def download_from_json(self, download_files=[], download_prefixes=[], download_suffixes=[]):
         """下载文件，支持重试机制"""
@@ -280,13 +341,15 @@ def log_and_time(func):
 
 
 @ log_and_time
-def main():
-    command = 'sbatch submit_jobs.sh 2'
-    batch_config = {'upload_suffix': '.gjf', 'download_suffixes': ['.log', '.fchk']}
-    job = SSHBatchJob(machine_json='machine_sch9797.json', resources_json='resources_sch9797.json', folder='server_test')
-    # job.prepare_and_submit(command=command, forward_common_files=['g16_sub.sh', 'submit_jobs.sh'], batch_config=batch_config)
+def main(): 
+    folder = 'to_be_opt/vasp_combo_11/primitive_cell'
+    command = f'chmod +x JLU_184_batch_single.sh; ./JLU_184_batch_single.sh'
+    batch_config = {'upload_prefix': 'CONTCAR_'}
+
+    job = SSHBatchJob(folder=folder, machine_json='JLU_184_machine.json', machine_type='ssh_direct')
+    job.prepare_and_submit(command=command, forward_common_files=['JLU_184_batch_single.sh', 'JLU_184_sub.sh',  'INCAR_0', 'POTCAR'], batch_config=batch_config)
     # job.download_from_json(download_suffixes=['.chk'])
-    job.download_from_condition(prefixes=['aaa'], suffixes=['.log'])
+    # job.download_from_condition(prefixes=['aaa'], suffixes=['.log'])
     # 关闭 SFTP 和 SSH 客户端
     job.close_connection()
 

@@ -1,0 +1,13 @@
+{
+        "batch_type": "slurm",
+        "context_type": "ssh",
+        "local_root" : "./",
+        "remote_root": "/data/run01/scw7187/yz/workplace/autodpgen",
+        "remote_profile":{
+          "hostname": "ssh.cn-zhongwei-1.paracloud.com",
+          "username":"scw7187@NC-N40",
+          "password":"Hc@2022121",
+          "port":22,
+          "look_for_keys": false
+        }
+}

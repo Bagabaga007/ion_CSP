@@ -22,7 +22,7 @@ OUTCAR_*
 *.chk
 *.fchk
 *.log
-*.json
 *.csv
+*.json
 slurm-*.out
 model.pt

@@ -1,0 +1,14 @@
+{
+        "batch_type": "Slurm",
+        "context_type": "SSHContext",
+        "local_root" : "./",
+        "remote_root": "./yz/workplace",
+        "remote_profile":{
+          "hostname": "ssh.cn-zhongwei-1.paracloud.com",
+          "username":"sch9797@BSCC-T6",
+          "password":"Hc@2022121",
+          "port":22, 
+          "look_for_keys": false,
+          "timeout": 10
+        }
+}
