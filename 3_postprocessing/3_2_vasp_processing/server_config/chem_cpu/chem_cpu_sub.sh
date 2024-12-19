@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH -J yz_vasp
 #SBATCH -p phys
 #SBATCH -N 1
 #SBATCH -n 56

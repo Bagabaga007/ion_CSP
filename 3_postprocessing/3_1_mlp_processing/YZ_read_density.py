@@ -26,7 +26,7 @@ class CONTCAR_processing:
         # 基于共价半径为每个原子生成径向截止
         # threshold = 0.48
         # cutoffs = [threshold] * len(atoms)
-        cutoffs = natural_cutoffs(atoms, mult=0.9)
+        cutoffs = natural_cutoffs(atoms, mult=0.8)
         # 获取成键原子，考虑周期性边界条件
         nl = NeighborList(cutoffs=cutoffs, bothways=True, self_interaction=False)
         nl.update(atoms)  # 更新邻居列表
@@ -106,7 +106,7 @@ class CONTCAR_processing:
         file_index_pairs.sort(key=lambda pair: pair[0])
         return file_index_pairs
     
-    def read_density_and_sort(self, n=10, N5_screen=True, count_N5=2):
+    def read_density_and_sort(self, n=10, N5_screen=True, count_N5=2, detail_log=False):
         """
         Obtain the atomic mass and unit cell volume from the optimized CONTCAR file, and obtain the ion crystal density. Finally, take n CONTCAR files with the highest density and save them separately for viewing.
         
@@ -117,39 +117,47 @@ class CONTCAR_processing:
         CONTCAR_file_index_pairs = self._sequentially_read_files(self.folder_dir, prefix_name='CONTCAR_')
         # 逐个处理文件
         density_index_list = []
-        for _, filename in CONTCAR_file_index_pairs:
-            atoms = read_vasp(os.path.join(self.folder_dir, filename))
+        for _, CONTCAR_filename in CONTCAR_file_index_pairs:
+            atoms = read_vasp(os.path.join(self.folder_dir, CONTCAR_filename))
             if N5_screen:
                 molecules, flag = self._identify_molecules(atoms, check_N5=True, count_N5=count_N5)
                 if flag == 1:
-                    logging.info(f'{filename} with independent N5 molecules')
-                    self._molecules_information(molecules)
+                    if detail_log:
+                        logging.info(f'{CONTCAR_filename} with independent N5 molecules')
+                        self._molecules_information(molecules)
                     atoms_volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
                     atoms_masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
                     # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
                     density = 1.66054 * atoms_masses / atoms_volume       
-                    density_index_list.append((density, filename))
+                    density_index_list.append((density, CONTCAR_filename))
             else:
                 atoms_volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
                 atoms_masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
                 # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
                 density = 1.66054 * atoms_masses / atoms_volume       
-                density_index_list.append((density, filename))
-
+                density_index_list.append((density, CONTCAR_filename))
+        if N5_screen:
+            print(f'Total optimized ionic crystals: {len(CONTCAR_file_index_pairs)}')
+            print(f'Screened ionic crystals with N5: {len(density_index_list)}')
+            logging.info(f'Total optimized ionic crystals: {len(CONTCAR_file_index_pairs)}')
+            logging.info(f'Screened ionic crystals with N5: {len(density_index_list)}')
         # 根据密度降序排序
         sorted_filename = sorted(density_index_list, key=lambda x: x[0], reverse=True)
         # 将前n个最大密度的CONTCAR文件进行重命名并保存到max_density文件夹
         os.makedirs(self.max_density_dir, exist_ok=True)
-        for density, filename in sorted_filename[:n]:
+        for density, CONTCAR_filename in sorted_filename[:n]:
             # 生成新的包含密度值的文件名，并重命名文件
-            density_str = f'{density:.4f}'  # 密度转换为字符串，保留4位小数
-            CONTCAR_filename = f'OUTCAR_{filename.split("_")[1]}'
-            new_CONTCAR_filename = f'CONTCAR_{density_str}_{filename.split("_")[1]}'
-            new_OUTCAR_filename = f'OUTCAR_{density_str}_{filename.split("_")[1]}'
-            shutil.copy(f'{self.folder_dir}/{filename}', f'{self.max_density_dir}/{new_CONTCAR_filename}')
-            shutil.copy(f'{self.folder_dir}/{CONTCAR_filename}', f'{self.max_density_dir}/{new_OUTCAR_filename}')
-            logging.info(f'{new_CONTCAR_filename} and {new_OUTCAR_filename} Downloaded and renamed')
-            print(f'{new_CONTCAR_filename} and {new_OUTCAR_filename} Downloaded and renamed')
+            # 密度转换为字符串，保留4位小数
+            density_str = f'{density:.4f}'
+            # 保留 CONTCAR 的序数信息，方便回推检查
+            number = CONTCAR_filename.split("_")[1]
+            OUTCAR_filename = f'OUTCAR_{number}'
+            new_CONTCAR_filename = f'CONTCAR_{density_str}_{number}'
+            new_OUTCAR_filename = f'OUTCAR_{density_str}_{number}'
+            shutil.copy(f'{self.folder_dir}/{CONTCAR_filename}', f'{self.max_density_dir}/{new_CONTCAR_filename}')
+            shutil.copy(f'{self.folder_dir}/{OUTCAR_filename}', f'{self.max_density_dir}/{new_OUTCAR_filename}')
+            print(f'New CONTCAR and OUTCAR of {density_str}_{number} are renamed and saved')
+            logging.info(f'New CONTCAR and OUTCAR of {density_str}_{number} are renamed and saved')
 
     def phonopy_processing_max_density(self, specific_directory=None):
         """

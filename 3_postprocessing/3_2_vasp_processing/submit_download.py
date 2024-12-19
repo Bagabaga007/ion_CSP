@@ -401,14 +401,14 @@ def log_and_time(func):
 
 @ log_and_time
 def main(): 
-    folder = 'vasp_combo_14/primitive_cell'
-    upload_folder, download_folder = f'to_be_opt/{folder}', f'optimized_results/{folder}'
+    folder = 'vasp_combo_11/primitive_cell'
+    upload_folder, download_folder = f'to_be_opt/{folder}', f'vasp_optimized_results/{folder}'
     batch_config = {'upload_prefix': 'CONTCAR_'}
-    command = f'chmod +x JLU_184_batch_single.sh; ./JLU_184_batch_single.sh'
+    # command = f'chmod +x JLU_184_batch_single.sh; ./JLU_184_batch_single.sh'
     command = 'pwd'
 
     job = SSHBatchJob(upload_folder=upload_folder, machine_json='server_config/JLU_184/JLU_184_machine.json', machine_type='ssh_direct')
-    job.prepare_and_submit(command=command, forward_common_files=['JLU_184_batch_single.sh', 'JLU_184_sub.sh',  'INCAR_0', 'INCAR_1', 'INCAR_2', 'POTCAR', '1st_step_vasp.sh', '2nd_step_vasp.sh'], batch_config=batch_config)
+    job.prepare_and_submit(command=command, forward_common_files=[], batch_config=batch_config)
 
     # job.upload_entire_folder(local_folder=upload_folder, remote_folder=upload_folder)
     # job.download_entire_folder(remote_folder=upload_folder, local_folder=download_folder)

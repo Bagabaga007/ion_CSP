@@ -1,5 +1,5 @@
 #!/bin/bash
-#BSUB -J batch_single
+#BSUB -J yz_vasp
 #BSUB -q normal
 #BSUB -n 56
 #BSUB -R 'span[ptile=56]'

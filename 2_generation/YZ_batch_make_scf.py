@@ -258,9 +258,9 @@ def main():
         species = [f for f in os.listdir(work_dir) if f.endswith('.gjf')]
         ion_numbers = [2, 2, 2]
         generator = CrystalGenerator(base_dir=base_dir, work_dir=work_dir, species=species, ion_numbers=ion_numbers)
-        generator.generate_structures(N=5, is_test=True)
+        generator.generate_structures(N=2, is_test=True)
         generator.phonopy_processing()
-        generator.prepare_and_submit(machine_file='server_config/scw7187/scw7187_machine.json', resources_file='server_config/scw7187/scw7187_resources.json', python_path='/HOME/scw7187/run/soft/miniforge3/envs/yz/bin/python', task_alloc=4)
+        generator.prepare_and_submit(machine_file='template/server_config/scw7187/scw7187_machine.json', resources_file='template/server_config/scw7187/scw7187_resources.json', python_path='/HOME/scw7187/run/soft/miniforge3/envs/yz/bin/python', task_alloc=4)
 
     
 if __name__ == '__main__':

@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH -J yz_vasp
 #SBATCH -p v6_384
 #SBATCH -N 1
 #SBATCH -n 96
