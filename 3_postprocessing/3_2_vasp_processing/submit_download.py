@@ -4,12 +4,14 @@ import json
 import time
 import logging
 import paramiko
+from stat import S_ISDIR
+from collections import deque
 
 class SSHBatchJob:
-    def __init__(self, folder, machine_json, machine_type='ssh_direct'):
+    def __init__(self, upload_folder, machine_json, machine_type='ssh_direct'):
         self.base_dir = os.path.dirname(__file__)
         os.chdir(self.base_dir)
-        self.folder = folder
+        self.folder = upload_folder
         # 本地的目标文件夹路径
         self.local_folder_dir = f'{self.base_dir}/{self.folder}'
         # 加载配置文件
@@ -130,18 +132,22 @@ class SSHBatchJob:
         upload_suffix = file_config.get('upload_suffix', '')
         download_prefixes = file_config.get('download_prefixes', [])
         download_suffixes = file_config.get('download_suffixes', [])
-        if upload_prefix:  # 根据给定的“前缀”选择要上传的文件
+        # 根据给定的“前缀”选择要上传的文件
+        if upload_prefix:
             upload_prefix_files = [f for f in os.listdir(self.local_folder_dir) if f.startswith(upload_prefix)]
             self.forward_files.extend(upload_prefix_files)
             self.forward_json = {f[len(upload_prefix):]: upload_prefix for f in self.forward_files}
-            if download_prefixes:  # 可以根据上传文件的名字以及给定的“前缀”设定作业后所要下载的文件名
+            # 可以根据上传文件的名字以及给定的“前缀”设定作业后所要下载的文件名
+            if download_prefixes:
                 for download_prefix in download_prefixes:
                     self.backward_files.extend(f'{download_prefix}{f[len(upload_prefix):]}' for f in upload_prefix_files)
-        if upload_suffix:  # 根据给定的“后缀”选择要上传的文件
+        # 根据给定的“后缀”选择要上传的文件
+        if upload_suffix:
             upload_suffix_files = [f for f in os.listdir(self.local_folder_dir) if f.endswith(upload_suffix)]
             self.forward_files.extend(upload_suffix_files)
             self.forward_json = {f[:-len(upload_suffix)]: upload_suffix for f in self.forward_files}
-            if download_suffixes:  # 可以根据上传文件的名字以及给定的“后缀”设定作业后所要下载的文件名
+            # 可以根据上传文件的名字以及给定的“后缀”设定作业后所要下载的文件名
+            if download_suffixes:
                 for download_suffix in download_suffixes:
                     self.backward_files.extend(f'{f[:-len(upload_suffix)]}{download_suffix}' for f in upload_suffix_files)
 
@@ -189,17 +195,70 @@ class SSHBatchJob:
             if job_ids:
                 print(f'Captured Job IDs: {job_ids}')
                 logging.info(f'Captured Job IDs: {job_ids}')              
-                with open(f'{self.folder}/submitted_job_id.json', 'w') as json_file:
+                with open(f'{self.folder}/submitted_job_ids.json', 'w') as json_file:
                     json.dump(job_ids, json_file, indent=4)
             else:
                 print('No Job IDs found in command output.')
-            
         except Exception as e:
             print(f'Error executing command: {e}')
 
-    def download_entire_folder(self, remote_path, local_path):
-        """Download the entire folder from SFTP server to local"""
-        pass
+    def upload_entire_folder(self, local_folder, remote_folder):
+        """Upload entire local folder to remote folder"""
+        local_dir = os.path.join(self.base_dir, local_folder)
+        remote_dir = os.path.join(self.remote_dir, remote_folder)
+
+        # 创建远程目录，如果不存在的话
+        try:
+            self.sftp.mkdir(remote_dir)
+        except IOError:  # 目录可能已经存在
+            pass
+
+        # 使用队列来管理待处理的文件夹
+        folders = deque([local_dir])
+        while folders:
+            current_folder = folders.popleft()  # 获取当前处理的文件夹
+            # 列出当前文件夹中的所有文件和子文件夹
+            for item in os.listdir(current_folder):
+                local_path = os.path.join(current_folder, item)
+                remote_path = os.path.join(remote_dir, item)
+
+                if os.path.isdir(local_path):  # 如果是目录，加入队列
+                    # 创建远程对应的文件夹
+                    try:
+                        self.sftp.mkdir(remote_path)
+                    except IOError:  # 目录可能已经存在
+                        pass
+                    folders.append(local_path)
+                else:  # 如果是文件，上传文件
+                    print(f"Uploading from {local_path} to {remote_path}")
+                    self.sftp.put(local_path, remote_path)
+
+    def download_entire_folder(self, remote_folder, local_folder, check_job_ids=False):
+        """Download entire remote folder to local folder"""
+        # if check_job_ids:
+        #     with open(f'{self.folder}/submitted_job_ids.json', 'w') as json_file:
+        #         job_ids = json.load(json_file)
+        local_dir = os.path.join(self.base_dir, local_folder)
+        os.makedirs(local_dir, exist_ok=True)
+        remote_dir = os.path.join(self.remote_dir, remote_folder)
+        # 使用队列来管理待处理的文件夹
+        folders = deque([remote_dir])
+        while folders:
+            current_folder = folders.popleft()  # 获取当前处理的文件夹
+            # 列出当前文件夹中的所有文件和子文件夹
+            for item in self.sftp.listdir_attr(current_folder):
+                remote_path = os.path.join(current_folder, item.filename)
+                relative_path = os.path.relpath(remote_path, start=remote_dir)
+                local_path = os.path.join(local_dir, relative_path)
+                if S_ISDIR(item.st_mode):  # 如果是目录，加入队列
+                    # 创建本地对应的文件夹
+                    if not os.path.exists(local_path):
+                        os.makedirs(local_path)
+                    folders.append(remote_path)
+                else:  # 如果是文件，下载文件
+                    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                    print(f"Downloading {remote_path} to {local_path}")
+                    self.sftp.get(remote_path, local_path)
 
     def download_from_json(self, download_files=[], download_prefixes=[], download_suffixes=[]):
         """下载文件，支持重试机制"""
@@ -342,12 +401,17 @@ def log_and_time(func):
 
 @ log_and_time
 def main(): 
-    folder = 'to_be_opt/vasp_combo_11/primitive_cell'
-    command = f'chmod +x JLU_184_batch_single.sh; ./JLU_184_batch_single.sh'
+    folder = 'vasp_combo_14/primitive_cell'
+    upload_folder, download_folder = f'to_be_opt/{folder}', f'optimized_results/{folder}'
     batch_config = {'upload_prefix': 'CONTCAR_'}
+    command = f'chmod +x JLU_184_batch_single.sh; ./JLU_184_batch_single.sh'
+    command = 'pwd'
 
-    job = SSHBatchJob(folder=folder, machine_json='JLU_184_machine.json', machine_type='ssh_direct')
-    job.prepare_and_submit(command=command, forward_common_files=['JLU_184_batch_single.sh', 'JLU_184_sub.sh',  'INCAR_0', 'POTCAR'], batch_config=batch_config)
+    job = SSHBatchJob(upload_folder=upload_folder, machine_json='server_config/JLU_184/JLU_184_machine.json', machine_type='ssh_direct')
+    job.prepare_and_submit(command=command, forward_common_files=['JLU_184_batch_single.sh', 'JLU_184_sub.sh',  'INCAR_0', 'INCAR_1', 'INCAR_2', 'POTCAR', '1st_step_vasp.sh', '2nd_step_vasp.sh'], batch_config=batch_config)
+
+    # job.upload_entire_folder(local_folder=upload_folder, remote_folder=upload_folder)
+    # job.download_entire_folder(remote_folder=upload_folder, local_folder=download_folder)
     # job.download_from_json(download_suffixes=['.chk'])
     # job.download_from_condition(prefixes=['aaa'], suffixes=['.log'])
     # 关闭 SFTP 和 SSH 客户端

@@ -117,7 +117,7 @@ def run_opt(index):
     atoms.calc = calc 
     ucf = UnitCellFilter(atoms, scalar_pressure=aim_stress)
     # optimization
-    opt = LBFGS(ucf,trajectory='traj.traj_'+str(index)) 
+    opt = LBFGS(ucf) 
     opt.run(fmax=fmax,steps=Opt_Step) 
     # atoms will be optimized and updated during the opt.run process
     atoms_lat = atoms.cell 

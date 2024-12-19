@@ -367,7 +367,7 @@ def main():
     # 根据配比生成离子晶体组合，读取 .json 文件并将各离子性质代入经验公式，最终将预测的离子晶体密度以及对应的组分输出到 .csv 文件并根据密度从大到小排序
     # result.empirical_estimate()
     # 基于.csv文件创建一个combo_n文件夹，并复制相应的.gjf结构文件。
-    result.make_combo_dir(csv_file='sorted_density.csv', working_directory='Optimized_gjf', target_directory='/workplace/yz/Test/yz_opt/ion_CSP/2_generation/2_1_gen_results', num_folders=150)
+    result.make_combo_dir(csv_file='sorted_density.csv', working_directory='Optimized_gjf', target_directory='/workplace/yz/Test/yz_opt/ion_CSP/2_generation/2_0_batch_gen_results', num_folders=15)
 
 if __name__ == '__main__':
     main()

@@ -4,7 +4,7 @@ BASE_DIR="vasp_combo_1/primitive"
 INCAR_1="INCAR_1"
 INCAR_2="INCAR_2"
 POTCAR="POTCAR"
-SUB_SCRIPT="sch9797_sub.sh"
+SUB_SCRIPT="sub.sh"
 
 # 检查必要文件是否存在
 if [[ ! -f "$INCAR_1" || ! -f "$INCAR_2" || ! -f "$POTCAR" || ! -f "$SUB_SCRIPT" ]]; then

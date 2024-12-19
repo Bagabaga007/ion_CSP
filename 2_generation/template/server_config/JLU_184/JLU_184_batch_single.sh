@@ -1,5 +1,5 @@
 #!/bin/bash
-# source ~/.bashrc
+
 export PATH=/data/apps/lsf/10.1/linux2.6-glibc2.3-x86_64/bin:$PATH
 export PATH=/data/home/miwenhui/bin:$PATH
 declare -x LD_LIBRARY_PATH="/data/apps/lsf/10.1/linux2.6-glibc2.3-x86_64/lib"                                              

@@ -137,7 +137,7 @@ class CrystalGenerator:
             os.remove(f'{self.POSCAR_dir}/BPOSCAR')
         logging.info(f'The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder.\nThe output content of phonopy has been saved to the phonopy.log file in the same directory.')
         
-    def prepare_and_submit(self, machine_file, resources_file, GPU_number=4):
+    def prepare_and_submit(self, machine_file, resources_file, task_alloc=4):
         """
         Based on the dpdispatcher module, prepare and submit files for optimization on remote server.
         """
@@ -152,12 +152,12 @@ class CrystalGenerator:
         # 创建一个嵌套列表来存储每个GPU的任务并将文件平均依次分配给每个GPU
         # 例如：对于10个结构文件任务分发给4个GPU的情况，则4个GPU领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7], 便于快速分辨GPU与作业的分配关系
         total_files = len(primitive_cell_file_index_pairs)
-        gpu_jobs = [[] for _ in range(GPU_number)]
+        gpu_jobs = [[] for _ in range(task_alloc)]
         for index, _ in primitive_cell_file_index_pairs:
-            gpu_index = index % GPU_number
+            gpu_index = index % task_alloc
             gpu_jobs[gpu_index].append(index)
         task_list = []
-        for pop in range(GPU_number):
+        for pop in range(task_alloc):
             remote_task_dir = f'data/pop{pop}'
             command = f'{python} YZ_run_opt.py > output_dp.log 2>&1'
             forward_files = ['YZ_run_opt.py']
@@ -192,24 +192,27 @@ class CrystalGenerator:
             forward_common_files=[f'{self.base_dir}/model.pt']
         )
         submission.run_submission()
-          
+
+        # 创建用于存放优化后文件的 optimized 目录   
         optimized_dir = os.path.join(self.base_dir, 'optimized')
         os.makedirs(optimized_dir, exist_ok=True)
-        for pop in range(GPU_number):
+        for pop in range(task_alloc):
+            # 从传回 primitive_cell 目录下的 data/pop 文件夹中将结果文件取到 optimized 目录
             task_dir = os.path.join(self.primitive_cell_dir, f'data/pop{pop}')
+             # 按照给定的 POSCAR 结构文件按顺序读取 CONTCAR 和 OUTCAR 文件并复制
             task_file_index_pairs = self._sequentially_read_files(task_dir, prefix_name='POSCAR_')
             for index, _ in task_file_index_pairs:
                 shutil.copyfile(f'{task_dir}/CONTCAR_{index}', f'{optimized_dir}/CONTCAR_{index}')
                 shutil.copyfile(f'{task_dir}/OUTCAR_{index}', f'{optimized_dir}/OUTCAR_{index}')
+        # 完成后删除不必要的运行文件并记录优化完成的信息
         os.remove(f'{self.primitive_cell_dir}/YZ_run_opt.py')
         logging.info('Batch optimization completed!!!')
 
 def log_and_time(func):
     """Decorator for recording log information and script runtime"""
     # 获取脚本所在目录, 在该目录下生成日志
-    base_dir = os.path.dirname(__file__)
-    script_name = os.path.basename(__file__) 
-    log_file_path = os.path.join(base_dir, f'{script_name}_output.log')
+    base_dir = os.path.dirname(__file__)  
+    log_file_path = os.path.join(base_dir, 'output.log')
     # 配置日志记录
     logging.basicConfig(
         filename = log_file_path,  # 日志文件名
@@ -239,16 +242,15 @@ def log_and_time(func):
         return result
     return wrapper
 
-
 @ log_and_time
 def main():
     base_dir = os.path.dirname(__file__)  
-    species = ['N5.gjf', 'FALKOV.gjf', 'YIVVAD.gjf']
+    species = ['N5.gjf', 'CEDPIO.gjf', 'TUQKUO.gjf']
     ion_numbers = [2, 2, 2]
     generator = CrystalGenerator(base_dir, species=species, ion_numbers=ion_numbers)
     generator.generate_structures(N=500, is_test=False)
     generator.phonopy_processing()
-    generator.prepare_and_submit(machine_file='machine_scw7187.json', resources_file='resources_scw7187.json', GPU_number=4)
+    generator.prepare_and_submit(machine_file='machine_scw7187.json', resources_file='resources_scw7187.json', task_alloc=4)
     
 
 if __name__ == '__main__':

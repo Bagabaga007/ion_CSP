@@ -12,7 +12,7 @@ declare -x OLDPWD="/data/apps/lsf/10.1/linux2.6-glibc2.3-x86_64/bin"
 
 INCAR_0="INCAR_0"
 POTCAR="POTCAR"
-SUB_SCRIPT="JLU_184.sh"
+SUB_SCRIPT="JLU_184_sub.sh"
 
 # 检查必要文件是否存在
 if [[ ! -f "$INCAR_0" || ! -f "$POTCAR" || ! -f "$SUB_SCRIPT" ]]; then

@@ -1,5 +1,5 @@
 #!/bin/bash
-# source ~/.bashrc
+
 export PATH=/data/apps/lsf/10.1/linux2.6-glibc2.3-x86_64/bin:$PATH
 export PATH=/data/home/miwenhui/bin:$PATH
 declare -x LD_LIBRARY_PATH="/data/apps/lsf/10.1/linux2.6-glibc2.3-x86_64/lib"                                              
@@ -10,10 +10,10 @@ declare -x LSF_SERVERDIR="/data/apps/lsf/10.1/linux2.6-glibc2.3-x86_64/etc"
 declare -x MANPATH="/data/apps/lsf/10.1/man:"                                                                              
 declare -x OLDPWD="/data/apps/lsf/10.1/linux2.6-glibc2.3-x86_64/bin"
 
-BASE_DIR="to_be_opt/vasp_combo_7/primitive_cell"
+BASE_DIR="to_be_opt/vasp_combo_8/primitive_cell"
 INCAR_0="INCAR_0"
 POTCAR="POTCAR"
-SUB_SCRIPT="JLU_184.sh"
+SUB_SCRIPT="JLU_184_sub.sh"
 
 # 检查必要文件是否存在
 if [[ ! -f "$INCAR_0" || ! -f "$POTCAR" || ! -f "$SUB_SCRIPT" ]]; then
