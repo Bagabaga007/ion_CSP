@@ -261,7 +261,9 @@ class SSHBatchJob:
                     self.sftp.get(remote_path, local_path)
 
     def download_from_json(self, download_files=[], download_prefixes=[], download_suffixes=[]):
-        """下载文件，支持重试机制"""
+        """
+        Due to the construction of a JSON storage file with file name information and prefixes and suffixes when uploading files, selective batch downloads can be performed based on the file name information in the JSON file and the given prefixes and suffixes of the files to be downloaded
+        """
         results_dir = f'{self.folder}/results'
         os.makedirs(results_dir, exist_ok=True)
         backward_files = download_files
@@ -401,7 +403,7 @@ def log_and_time(func):
 
 @ log_and_time
 def main(): 
-    folder = 'vasp_combo_11/primitive_cell'
+    folder = 'vasp_combo_4/primitive_cell'
     upload_folder, download_folder = f'to_be_opt/{folder}', f'vasp_optimized_results/{folder}'
     batch_config = {'upload_prefix': 'CONTCAR_'}
     # command = f'chmod +x JLU_184_batch_single.sh; ./JLU_184_batch_single.sh'

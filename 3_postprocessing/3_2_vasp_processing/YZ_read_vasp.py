@@ -191,7 +191,7 @@ def log_and_time(func):
 
 @ log_and_time
 def main():
-    result = vasp_processing('vasp_optimized_results/vasp_combo_8/vasp_opt')
+    result = vasp_processing('vasp_optimized_results/vasp_combo_11/primitive_cell')
     result.read_vaspout_save_csv(fine_dir='fine', N5_screen=True, count_N5=2, detail_log=True)
 
 

@@ -186,7 +186,7 @@ class CrystalGenerator:
             task_list.append(task)
 
         submission = Submission(
-            work_base=os.getcwd(),
+            work_base=self.base_dir,
             machine=machine,
             resources=resources,
             task_list=task_list,
@@ -207,7 +207,7 @@ class CrystalGenerator:
                 shutil.copyfile(f'{task_dir}/OUTCAR_{index}', f'{optimized_dir}/OUTCAR_{index}')
         # 完成后删除不必要的运行文件并记录优化完成的信息
         os.remove(f'{self.primitive_cell_dir}/YZ_run_opt.py')
-        logging.info('Batch optimization completed!!!')
+        logging.info('Batch optimization completed !\n')
 
 def log_and_time(func):
     """Decorator for recording log information and script runtime"""
@@ -252,7 +252,8 @@ def main():
     work_index_pairs = sorted(work for work in os.listdir(folder_dir)
     if work.startswith('combo_') and work[len('combo_'):].isdigit())
     for work in work_index_pairs:
-        print(f'Processing {work}')
+        print(f'\nProcessing {work}')
+        logging.info('')
         logging.info(f'Processing {work}')
         work_dir = os.path.join(folder_dir, work)
         species = [f for f in os.listdir(work_dir) if f.endswith('.gjf')]

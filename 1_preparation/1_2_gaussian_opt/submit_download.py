@@ -3,6 +3,9 @@ import json
 import time
 import logging
 import paramiko
+from stat import S_ISDIR
+from collections import deque
+
 
 class SSHBatchJob:
     def __init__(self, machine_json, resources_json, folder):
@@ -18,7 +21,7 @@ class SSHBatchJob:
             self.resources_config = json.load(rf)
             if self.machine_config['batch_type'] == 'Slurm':
                 pass
-        """创建 SSH 客户端并连接到服务器，支持超时设置"""
+        # 创建 SSH 客户端并连接到服务器，支持超时设置
         self.remote_dir = self.machine_config['remote_root']
         self.remote_task_dir = f'{self.remote_dir}/{self.folder}'
         remote_profile = self.machine_config['remote_profile']
@@ -108,7 +111,10 @@ class SSHBatchJob:
                 for download_suffix in download_suffixes:
                     self.backward_files.extend(f'{f[:-len(upload_suffix)]}{download_suffix}' for f in upload_suffix_files)
 
-    def prepare_and_submit(self, command, forward_common_files=[], upload_files=[], download_files=[], batch_config:dict=None):
+    def prepare_and_submit(self, forward_common_files=[], upload_files=[], download_files=[], batch_config:dict=None, command=''):
+        """
+        Batch upload files, which can be directly provided with file names or submitted in batches through prefixes and suffixes. At the same time, the file names and suffixes to be downloaded can be defined in advance. This method can save the information of batch upload and batch download files to a .json file in the same directory, making it convenient to call the download_from_json method and finally execute the command to submit the task.
+        """
         # 确保参数为文件名的字符串列表，否则抛出类型异常
         if not isinstance(forward_common_files, list):
             raise TypeError(f'Expected a list of strings, but received: {type(forward_common_files).__name__}')
@@ -141,7 +147,9 @@ class SSHBatchJob:
         stdout, stderr = self._execute_command(f'cd {self.remote_task_dir}; {command}')
 
     def download_from_json(self, download_files=[], download_prefixes=[], download_suffixes=[]):
-        """下载文件，支持重试机制"""
+        """
+        Due to the construction of a .json storage file with file name information and prefixes and suffixes when uploading files, selective batch downloads can be performed based on the file name information in the .json file and the given prefixes and suffixes of the files to be downloaded
+        """
         results_dir = f'{self.folder}/results'
         os.makedirs(results_dir, exist_ok=True)
         backward_files = download_files
@@ -231,17 +239,41 @@ class SSHBatchJob:
             print(f'Error: No files matched the given prefixes or suffixes.')
             logging.error(f'Error: No files matched the given prefixes or suffixes.')
 
-    def check_jobs_completion(self, ):
+    def download_entire_folder(self, remote_folder, local_folder):
+        """Download entire remote folder to local folder"""
+        local_dir = os.path.join(self.base_dir, local_folder)
+        os.makedirs(local_dir, exist_ok=True)
+        remote_dir = os.path.join(self.remote_dir, remote_folder)
+        # 使用队列来管理待处理的文件夹
+        folders = deque([remote_dir])
+        while folders:
+            current_folder = folders.popleft()  # 获取当前处理的文件夹
+            # 列出当前文件夹中的所有文件和子文件夹
+            for item in self.sftp.listdir_attr(current_folder):
+                remote_path = os.path.join(current_folder, item.filename)
+                relative_path = os.path.relpath(remote_path, start=remote_dir)
+                local_path = os.path.join(local_dir, relative_path)
+                if S_ISDIR(item.st_mode):  # 如果是目录，加入队列
+                    # 创建本地对应的文件夹
+                    if not os.path.exists(local_path):
+                        os.makedirs(local_path)
+                    folders.append(remote_path)
+                else:  # 如果是文件，下载文件
+                    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                    print(f"Downloading {remote_path} to {local_path}")
+                    self.sftp.get(remote_path, local_path)
+
+    def check_jobs_completion(self):
         """Check if the submitted task has been completed"""
         while True:
             _, stdout, stderr = self._exec_command('squeue')
+
+    def check_all_finished(self):
+        pass
     
     def close_connection(self):
         self.sftp.close()
         self.client.close()
-
-    def check_all_finished(self):
-        pass
 
 def log_and_time(func):
     """Decorator for recording log information and script runtime"""
@@ -283,10 +315,16 @@ def log_and_time(func):
 def main():
     command = 'sbatch submit_jobs.sh 2'
     batch_config = {'upload_suffix': '.gjf', 'download_suffixes': ['.log', '.fchk']}
+    # 创建 SSH 客户端并连接到服务器，支持超时设置
     job = SSHBatchJob(machine_json='machine_sch9797.json', resources_json='resources_sch9797.json', folder='server_test')
-    # job.prepare_and_submit(command=command, forward_common_files=['g16_sub.sh', 'submit_jobs.sh'], batch_config=batch_config)
-    # job.download_from_json(download_suffixes=['.chk'])
-    job.download_from_condition(prefixes=['aaa'], suffixes=['.log'])
+    # 可同时自定义少量上传和批量上传文件，并记录上传文件信息与要下载的文件信息，最终执行提交任务的命令
+    job.prepare_and_submit(forward_common_files=['g16_sub.sh', 'submit_jobs.sh'], batch_config=batch_config, command=command)
+    # 1. 根据 .json 文件中的文件名信息以及要下载的文件的给定前缀和后缀进行选择性批量下载
+    job.download_from_json()
+    # 2. 从指定的远程服务器目录下载具有指定前缀或后缀条件的所有文件
+    # job.download_from_condition(suffixes=['.log', 'fchk'])
+    # 3. 从指定的远程服务器目录下载整个文件夹
+    # job.download_entire_folder(remote_folder, local_folder)
     # 关闭 SFTP 和 SSH 客户端
     job.close_connection()
 
