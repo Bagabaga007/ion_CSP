@@ -127,7 +127,7 @@ class CrystalGenerator:
             # 检查生成的POSCAR中的原子数，如果不匹配则删除该POSCAR并在日志中记录
             if cell_atoms != self.cell_atoms:
                 os.remove(f'{self.primitive_cell_dir}/{filename}')
-                logging.error(f'The number of atoms in {filename} does not match!!')
+                logging.error(f'The number of atoms in {filename} does not match!! Original: {self.cell_atoms} vs Generated {cell_atoms}')
             if self.conventional:
                 shutil.move(f'{self.POSCAR_dir}/BPOSCAR', f'{self.conventional_cell_dir}/{filename}')
         # 移除最后复制多出来的POSCAR文件和phonopy_symcells.yaml

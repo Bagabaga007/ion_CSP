@@ -1,10 +1,11 @@
 import os
+from paramiko import Transport
 from dpdispatcher import Machine, Resources, Task, Submission
 
 base_dir = os.path.dirname(__file__)
 os.chdir(base_dir)
-machine = Machine.load_from_json('inspur_machine.json')
-resources = Resources.load_from_json('inspur_resources.json')
+machine = Machine.load_from_json('chem_cpu_machine.json')
+resources = Resources.load_from_json('chem_cpu_resources.json')
 
 task = Task(
     command='pwd',

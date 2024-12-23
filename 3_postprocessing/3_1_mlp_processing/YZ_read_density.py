@@ -229,8 +229,8 @@ def log_and_time(func):
 @ log_and_time
 def main():
     # 读取其中的CONTCAR文件的密度数据并将前n个最大密度的文件保存到max_density文件夹
-    result = CONTCAR_processing('mlp_results/combo_14/optimized')
-    result.read_density_and_sort(n=10, N5_screen=True, count_N5=2)
+    result = CONTCAR_processing('mlp_results/combo_3/optimized')
+    result.read_density_and_sort(n=30, N5_screen=True, count_N5=2)
     result.phonopy_processing_max_density()
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import re
 import json
 import time
 import logging
+import getpass
 import paramiko
 from stat import S_ISDIR
 from collections import deque
@@ -78,9 +79,34 @@ class SSHBatchJob:
             except Exception as e:
                 logging.error(f"Failed to establish SSH connection: {e}")
                 raise
+        if machine_type == '2FA':
+            try:
+                # 获取 machine.json 中的固定部分密码
+                fixed_password = remote_profile['password']
+                # 获取动态验证码
+                dynamic_code = getpass.getpass(prompt='请输入Authentifactor中的动态验证码: ')
+                # 组合完整的密码
+                full_password = f'{fixed_password}{dynamic_code}'
+                self.client = paramiko.SSHClient()
+                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self.client.connect(
+                    hostname=remote_profile['hostname'],
+                    username=remote_profile['username'],
+                    password=full_password,
+                    port=remote_profile['port'],
+                    look_for_keys=remote_profile['look_for_keys'],
+                    timeout=10,
+                )
+                self.sftp = self.client.open_sftp()
+                print(f'Direct SSH connection with {machine_json.split("_machine.json")[0]} established successfully.')
+                logging.info(f'Direct SSH connection with {machine_json.split("_machine.json")[0]} established successfully.')
+            except Exception as e:
+                logging.error(f'Failed to establish direct SSH connection with {machine_json.split("_machine.json")[0]}: {e}')
+                raise 
 
     def _execute_command(self, command):
         """执行命令，支持重试机制"""
+        output, error = None, None
         for attempt in range(3):  # 重试 3 次
             try:
                 _, stdout, stderr = self.client.exec_command(command)
@@ -403,17 +429,17 @@ def log_and_time(func):
 
 @ log_and_time
 def main(): 
-    folder = 'vasp_combo_4/primitive_cell'
+    folder = 'vasp_combo_3/primitive_cell'
     upload_folder, download_folder = f'to_be_opt/{folder}', f'vasp_optimized_results/{folder}'
     batch_config = {'upload_prefix': 'CONTCAR_'}
     # command = f'chmod +x JLU_184_batch_single.sh; ./JLU_184_batch_single.sh'
     command = 'pwd'
 
     job = SSHBatchJob(upload_folder=upload_folder, machine_json='server_config/JLU_184/JLU_184_machine.json', machine_type='ssh_direct')
-    job.prepare_and_submit(command=command, forward_common_files=[], batch_config=batch_config)
 
-    # job.upload_entire_folder(local_folder=upload_folder, remote_folder=upload_folder)
-    # job.download_entire_folder(remote_folder=upload_folder, local_folder=download_folder)
+    # job.prepare_and_submit(command=command, forward_common_files=[], batch_config=batch_config)
+
+    job.download_entire_folder(remote_folder=upload_folder, local_folder=download_folder)
     # job.download_from_json(download_suffixes=['.chk'])
     # job.download_from_condition(prefixes=['aaa'], suffixes=['.log'])
     # 关闭 SFTP 和 SSH 客户端

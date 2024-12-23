@@ -2,7 +2,7 @@
 
 # 源根目录和目标根目录
 SOURCE_DIR="batch_results"  # 替换为您的源目录路径
-TARGET_DIR="dataset4mlp"  # 替换为您的目标目录路径
+TARGET_DIR="mlp_dataset_for_vasp"  # 替换为您的目标目录路径
 
 # 创建目标根目录
 mkdir -p "$TARGET_DIR"

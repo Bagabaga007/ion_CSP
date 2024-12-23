@@ -4,6 +4,7 @@ import time
 import logging
 from typing import List, Dict
 from collections import defaultdict
+from ase.io import ParseError
 from ase.io.vasp import read_vasp_out
 from ase.neighborlist import NeighborList, natural_cutoffs
 
@@ -14,6 +15,7 @@ class vasp_processing:
         self.base_dir = os.path.dirname(__file__)
         os.chdir(self.base_dir)
         # 寻找同一目录下的optimized文件夹
+        logging.info(f'Processing {target_folder}')
         self.folder_dir = os.path.join(self.base_dir, target_folder)
         
     def _identify_molecules(self, atoms, check_N5=True, count_N5=2) -> List[Dict[str, int]]:
@@ -97,8 +99,7 @@ class vasp_processing:
         numbers, pred_densities = [], []
         rough_densities, rough_energies = [], []
         fine_densities, fine_energies = [], []
-        if N5_screen:
-            if_N5s = []
+        if_N5s = []
         for folder in os.listdir(vasp_opt_dir):
             vasp_opt_path = os.path.join(vasp_opt_dir, folder)
             if os.path.isdir(vasp_opt_path):
@@ -106,34 +107,44 @@ class vasp_processing:
                 numbers.append(number)
                 pred_densities.append(pred_density)
                 # 读取一级目录下的OUTCAR文件
-                OUTCAR_file_path = os.path.join(vasp_opt_path, 'OUTCAR')               
-                atoms = read_vasp_out(OUTCAR_file_path)
+                OUTCAR_file_path = os.path.join(vasp_opt_path, 'OUTCAR')
+                try:
+                    atoms = read_vasp_out(OUTCAR_file_path)
+                    atoms_volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
+                    atoms_masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
+                    # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
+                    density = round(1.66054 * atoms_masses / atoms_volume, 4)
+                    energy = round(atoms.get_total_energy(), 4)
+                    print(f'{folder}: density: {density}, energy: {energy}')
+                    logging.info(f'{folder}: density: {density}, energy: {energy}')
+                except (ParseError, FileNotFoundError):
+                    logging.error(f'Unfinished optimization job of CONTCAR_{pred_density}_{number}')
+                    density, energy = 'NaN', 'NaN'
                 
-                atoms_volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
-                atoms_masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
-                # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
-                density = round(1.66054 * atoms_masses / atoms_volume, 4)
-                energy = round(atoms.get_total_energy(), 4)
-                print(f'{folder}: density: {density}, energy: {energy}')
                 if fine_dir:
                     # 读取二级目录下的OUTCAR文件
                     fine_OUTCAR_file_path = os.path.join(vasp_opt_path, fine_dir, 'OUTCAR')               
-                    fine_atoms = read_vasp_out(fine_OUTCAR_file_path)
-                    if N5_screen:
-                        molecules, flag = self._identify_molecules(atoms, check_N5=True, count_N5=count_N5)
-                        N5_flag = True if flag == 1 else False
-                        if_N5s.append(N5_flag)
-                        if detail_log:
-                            logging.info(f'CONTCAR_{pred_density}_{number}')
-                            self._molecules_information(molecules, if_log=True)
-                    fine_atoms_volume = fine_atoms.get_volume()  # 体积单位为立方埃（Å³）
-                    fine_atoms_masses = sum(fine_atoms.get_masses())  # 质量单位为原子质量单位(amu)
-                    # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
-                    fine_density = round(1.66054 * fine_atoms_masses / fine_atoms_volume, 4)
-                    fine_energy = round(fine_atoms.get_total_energy(), 4)
-                    print(f'{folder}: fine_density: {fine_density}, fine_energy: {fine_energy}')
+                    try:
+                        fine_atoms = read_vasp_out(fine_OUTCAR_file_path)
+                        if N5_screen:
+                            molecules, flag = self._identify_molecules(atoms, check_N5=True, count_N5=count_N5)
+                            N5_flag = True if flag == 1 else False
+                            if_N5s.append(N5_flag)
+                            if detail_log:
+                                logging.info(f'CONTCAR_{pred_density}_{number}')
+                                self._molecules_information(molecules, if_log=True)
+                        fine_atoms_volume = fine_atoms.get_volume()  # 体积单位为立方埃（Å³）
+                        fine_atoms_masses = sum(fine_atoms.get_masses())  # 质量单位为原子质量单位(amu)
+                        # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
+                        fine_density = round(1.66054 * fine_atoms_masses / fine_atoms_volume, 4)
+                        fine_energy = round(fine_atoms.get_total_energy(), 4)
+                        print(f'{folder}: fine_density: {fine_density}, fine_energy: {fine_energy}')
+                        logging.info(f'{folder}: fine_density: {fine_density}, fine_energy: {fine_energy}')
+                    except (ParseError, FileNotFoundError):
+                        logging.error(f'Unfinished fine optimization job of CONTCAR_{pred_density}_{number}')
+                        fine_density, fine_energy = 'NaN', 'NaN'
                 else:
-                    fine_density, fine_energy = 0, 0
+                    fine_density, fine_energy = 'NaN', 'NaN'
                 rough_densities.append(density)
                 rough_energies.append(energy)
                 fine_densities.append(fine_density)
@@ -191,7 +202,7 @@ def log_and_time(func):
 
 @ log_and_time
 def main():
-    result = vasp_processing('vasp_optimized_results/vasp_combo_11/primitive_cell')
+    result = vasp_processing('vasp_optimized_results/vasp_combo_3/primitive_cell')
     result.read_vaspout_save_csv(fine_dir='fine', N5_screen=True, count_N5=2, detail_log=True)
 
 

@@ -128,7 +128,7 @@ class CrystalGenerator:
             # 检查生成的POSCAR中的原子数，如果不匹配则删除该POSCAR并在日志中记录
             if cell_atoms != self.cell_atoms:
                 os.remove(f'{self.primitive_cell_dir}/{filename}')
-                logging.error(f'The number of atoms in {filename} does not match!!')
+                logging.error(f'The number of atoms in {filename} does not match!! Original: {self.cell_atoms} vs Generated {cell_atoms}')
             if self.conventional:
                 shutil.move(f'{self.POSCAR_dir}/BPOSCAR', f'{self.conventional_cell_dir}/{filename}')
         # 移除最后复制多出来的POSCAR文件和phonopy_symcells.yaml
@@ -152,7 +152,6 @@ class CrystalGenerator:
         primitive_cell_file_index_pairs = self._sequentially_read_files(self.primitive_cell_dir, prefix_name='POSCAR_')
         # 创建一个嵌套列表来存储每个GPU的任务并将文件平均依次分配给每个GPU
         # 例如：对于10个结构文件任务分发给4个GPU的情况，则4个GPU领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7], 便于快速分辨GPU与作业的分配关系
-        total_files = len(primitive_cell_file_index_pairs)
         alloc_jobs = [[] for _ in range(task_alloc)]
         for index, _ in primitive_cell_file_index_pairs:
             alloc_index = index % task_alloc
@@ -186,7 +185,7 @@ class CrystalGenerator:
             task_list.append(task)
 
         submission = Submission(
-            work_base=self.base_dir,
+            work_base=self.primitive_cell_dir,
             machine=machine,
             resources=resources,
             task_list=task_list,
@@ -205,8 +204,7 @@ class CrystalGenerator:
             for index, _ in task_file_index_pairs:
                 shutil.copyfile(f'{task_dir}/CONTCAR_{index}', f'{optimized_dir}/CONTCAR_{index}')
                 shutil.copyfile(f'{task_dir}/OUTCAR_{index}', f'{optimized_dir}/OUTCAR_{index}')
-        # 完成后删除不必要的运行文件并记录优化完成的信息
-        os.remove(f'{self.primitive_cell_dir}/YZ_run_opt.py')
+        # 完成后记录优化完成的信息
         logging.info('Batch optimization completed !\n')
 
 def log_and_time(func):
@@ -253,7 +251,6 @@ def main():
     if work.startswith('combo_') and work[len('combo_'):].isdigit())
     for work in work_index_pairs:
         print(f'\nProcessing {work}')
-        logging.info('')
         logging.info(f'Processing {work}')
         work_dir = os.path.join(folder_dir, work)
         species = [f for f in os.listdir(work_dir) if f.endswith('.gjf')]
