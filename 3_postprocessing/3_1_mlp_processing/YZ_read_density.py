@@ -228,9 +228,11 @@ def log_and_time(func):
 
 @ log_and_time
 def main():
-    # 读取其中的CONTCAR文件的密度数据并将前n个最大密度的文件保存到max_density文件夹
+    # 分析处理机器学习势优化得到的CONTCAR文件
     result = CONTCAR_processing('mlp_results/combo_3/optimized')
+    # 读取密度数据以及N5环是否独立存在，并将前n个最大密度的文件保存到max_density文件夹
     result.read_density_and_sort(n=30, N5_screen=True, count_N5=2)
+    # 将max_density文件夹中的结构文件利用 phononpy 模块进行对称化处理，方便后续对于结构的查看，同时不影响晶胞性质
     result.phonopy_processing_max_density()
 
 if __name__ == "__main__":

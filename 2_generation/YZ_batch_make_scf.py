@@ -256,8 +256,11 @@ def main():
         species = [f for f in os.listdir(work_dir) if f.endswith('.gjf')]
         ion_numbers = [2, 2, 2]
         generator = CrystalGenerator(base_dir=base_dir, work_dir=work_dir, species=species, ion_numbers=ion_numbers)
+        # 根据提供的离子与对应的配比，使用 pyxtal 基于晶体空间群进行离子晶体结构的随机生成。
         generator.generate_structures(N=2, is_test=True)
+        # 使用 phonopy 生成对称化的原胞，降低后续优化的复杂性，检查原子数以防止 pyxtal 生成双倍比例的超胞。
         generator.phonopy_processing()
+        # 基于 dpdispatcher 模块，在远程服务器上批量准备并提交输入文件，并在任务结束后回收机器学习势优化的输出文件 OUTCAR 与 CONTCAR。
         generator.prepare_and_submit(machine_file='template/server_config/scw7187/scw7187_machine.json', resources_file='template/server_config/scw7187/scw7187_resources.json', python_path='/HOME/scw7187/run/soft/miniforge3/envs/yz/bin/python', task_alloc=4)
 
     
