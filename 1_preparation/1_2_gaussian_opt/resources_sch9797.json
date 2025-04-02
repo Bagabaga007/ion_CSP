@@ -1,8 +1,0 @@
-{
-        "number_node": 1,
-        "cpu_per_node": 8,
-        "gpu_per_node": 0,
-        "queue_name": "v6_384",
-        "group_size": 1,
-        "module_list": ["mpi/intel/2021.1"]
-}
