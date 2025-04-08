@@ -1,0 +1,36 @@
+[build-system]
+requires = [ "setuptools", "setuptools-scm" ]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ion_CSP"
+dynamic = [ "version" ]
+keywords = [ "ion_crystal, crystal_structure_prediction" ]
+authors = [
+    { name = "Ze Yang", email = "yangze1995007@163.com" }
+]
+description = "Crystal Structure Design Software Based on Molecular/Ionic Configuration."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "ase==3.23.0",
+    "deepmd-kit==3.0.1",
+    "torch==2.5.0",
+    "dpdispatcher==0.6.7",
+    "numpy==1.26.4",
+    "paramiko==2.8.1",
+    "pyxtal==1.0.4",
+    "phonopy==2.28.0",
+    "rdkit==2023.03.3"
+]
+
+[tool.setuptools_scm]
+
+[project.scripts]
+gen_opt = "scripts.gen_opt:main"

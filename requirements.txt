@@ -1,7 +1,9 @@
-ase==3.23.0
-dpdispatcher==0.6.7
+ase>=3.23.0
+deepmd-kit==3.0.1
+torch==2.5.0
+dpdispatcher>=0.6.7
 numpy==1.26.4
-pandas==2.2.3
-paramiko==2.8.1
-pyxtal==1.0.4
-rdkit==2023.03.3
+paramiko>=3.5.1
+pyxtal>=1.0.4
+phonopy>=2.28.0
+rdkit>=2023.03.3

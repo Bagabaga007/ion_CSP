@@ -12,7 +12,10 @@ __pycache__/
 *.sublime-workspace
 
 # 在程序运行过程中产生的结构文件等，与代码库无关
-*results/
+*results*
+*test/
+*outputs/
+example_*/
 data/
 POSCAR_*
 ori_POSCAR_*
@@ -24,5 +27,9 @@ OUTCAR_*
 *.log
 *.csv
 *.json
+*.zip
 slurm-*.out
-model.pt
+server_config
+*.yaml
+model_ori.pt
+yz_opt/

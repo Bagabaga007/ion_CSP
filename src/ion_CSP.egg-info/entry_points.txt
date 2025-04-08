@@ -1,0 +1,2 @@
+[console_scripts]
+gen_opt = scripts.gen_opt:main
