@@ -2,7 +2,7 @@
 
 # 参数校验
 if [ $# -ne 2 ]; then
-    echo "用法: $0 {EE|CSP} WORKING_DIR"
+    echo "Usage: $0 {EE|CSP} WORKING_DIR"
     exit 1
 fi
 
@@ -17,11 +17,11 @@ case $1 in
         LOG_FILE="main_CSP_console.log"
         ;;
     *)
-        echo "错误: 未知模块 $1"
+        echo "Error: Invalid module $1"
         exit 1
         ;;
 esac
 
 
 # 执行命令（保持前台运行）
-exec python -m ${MODULE} "$2" > "$2/${LOG_FILE}" 2>&1
+nohup python -m ${MODULE} "$2" > "$2/${LOG_FILE}" 2>&1 &

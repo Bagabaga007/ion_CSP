@@ -469,7 +469,7 @@ class EmpiricalEstimation:
                     config['gen_opt']['species'] = gjf_names
                     config['gen_opt']['ion_numbers'] = ion_numbers
                     logging.info(
-                    f"Generated 'species' and 'ion_numbers' config for gen_opt module in config.yaml are respectively:\n {config['gen_opt']['species']} and {config['gen_opt']['ion_numbers']}"
+                    f"Generated 'species' and 'ion_numbers' config for gen_opt module in config.yaml are respectively: {config['gen_opt']['species']} and {config['gen_opt']['ion_numbers']}"
                 )
                     with open(os.path.join(combo_path, 'config.yaml'), 'w') as file:
                         yaml.dump(config, file)

@@ -5,7 +5,6 @@ CONTRIBUTING.md
 Dockerfile
 LICENSE
 README.md
-main.sh
 makefile
 pyproject.toml
 requirements.txt
@@ -15,11 +14,10 @@ uv.lock
 .vscode/settings.json
 docs/index.md
 docs/usage.md
-examples/example_config.yaml
 examples/example_usage.py
-examples/example_1/config.yaml
-examples/example_2/config.yaml
-examples/example_3/combo_1/config.yaml
+model/model.pt
+model/options/README.md
+model/options/model.ckpt-4000000.pt
 param/INCAR_0
 param/INCAR_1
 param/INCAR_2
@@ -28,6 +26,7 @@ param/POTCAR_H
 param/POTCAR_N
 param/POTCAR_O
 param/sub.sh
+scripts/main.sh
 scripts/original/YZ_run_opt.py
 scripts/original/convert_SMILES.py
 scripts/original/empirical_estimate.py
@@ -61,4 +60,7 @@ src/ion_CSP.egg-info/dependency_links.txt
 src/ion_CSP.egg-info/entry_points.txt
 src/ion_CSP.egg-info/requires.txt
 src/ion_CSP.egg-info/top_level.txt
+tests/__init__.py
+tests/example.txt
+tests/test.py
 tests/test_main.py

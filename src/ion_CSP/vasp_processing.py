@@ -20,7 +20,7 @@ class VaspProcessing:
         self.vasp_optimized_dir = f"{work_dir}/4_vasp_optimized"
         self.param_dir = os.path.join(os.path.dirname(__file__), "../../param")
 
-    def prepare_and_submit(
+    def dpdisp_vasp_tasks(
         self,
         machine: str,
         resources: str,

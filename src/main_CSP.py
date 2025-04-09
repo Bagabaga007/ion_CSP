@@ -1,37 +1,37 @@
 import os
-import yaml
-import argparse
 import logging
-from ion_CSP.log_and_time import log_and_time, merge_config, StatusLogger
 from ion_CSP.gen_opt import CrystalGenerator
 from ion_CSP.read_mlp_density import ReadMlpDensity
 from ion_CSP.vasp_processing import VaspProcessing
+from ion_CSP.log_and_time import StatusLogger 
+from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_config
 
 # 默认配置
 DEFAULT_CONFIG = {
     "gen_opt": {
         "num_per_group": 500,  # 每个空间群要生成的晶体结构数量
         "space_groups_limit": 75,  # 空间群搜索的限制
-        "machine": '/workplace/yz/ion_CSP/server_config/6001_local/6001_local_machine.yaml',  # 进行机器学习势优化计算的机器参数，建议GPU
-        "resources": '/workplace/yz/ion_CSP/server_config/6001_local/6001_local_resources.yaml',  # 进行机器学习势优化计算的资源参数
+        "machine": "/workplace/yz/ion_CSP/server_config/6001_local/6001_local_machine.yaml",  # 进行机器学习势优化计算的机器参数，建议GPU
+        "resources": "/workplace/yz/ion_CSP/server_config/6001_local/6001_local_resources.yaml",  # 进行机器学习势优化计算的资源参数
         "nodes": 1,  # 占用GPU节点数
     },
     "read_mlp_density": {
         "n_screen": 10,  # 筛选机器学习势优化后密度最大的n个CONTCAR与对应的OUTCAR
-        "molecules_screen":  True,  # 是否排除离子改变的晶体结构
-        "detail_log": False,       # 是否额外生成详细的筛选日志文件
+        "molecules_screen": True,  # 是否排除离子改变的晶体结构
+        "detail_log": False,  # 是否额外生成详细的筛选日志文件
     },
     "vasp_processing": {
-        "machine": '/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_machine.yaml',  # 进行VASP分步优化计算的机器参数
-        "resources": '/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_resources.yaml',  # 进行VASP分步优化计算的资源参数
+        "machine": "/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_machine.yaml",  # 进行VASP分步优化计算的机器参数
+        "resources": "/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_resources.yaml",  # 进行VASP分步优化计算的资源参数
         "nodes": 2,  # 占用CPU节点数
         "molecules_prior": True,  # 是否检查离子晶体结构中所有离子的结构
-    }
+    },
 }
+
 
 @log_and_time
 def main(work_dir, config):
-    logging.info(f'Using config: {config}')
+    logging.info(f"Using config: {config}")
     tasks = {
         "1_generation": lambda: generation_task(work_dir, config),
         "1_optimization": lambda: mlp_optimization_task(work_dir, config),
@@ -43,11 +43,12 @@ def main(work_dir, config):
         if not task_logger.is_successful():
             try:
                 task_logger.set_running()
-                task_func()  # 执行任务
+                task_func()
                 task_logger.set_success()
             except Exception:
                 task_logger.set_failure()
                 raise
+
 
 def generation_task(work_dir, config):
     generator = CrystalGenerator(
@@ -63,6 +64,7 @@ def generation_task(work_dir, config):
     # 使用 phonopy 生成对称化的原胞另存于 primitive_cell 文件夹中，降低后续优化的复杂性，同时检查原子数以防止 pyxtal 生成双倍比例的超胞。
     generator.phonopy_processing()
 
+
 def mlp_optimization_task(work_dir, config):
     generator = CrystalGenerator(
         work_dir=work_dir,
@@ -70,11 +72,12 @@ def mlp_optimization_task(work_dir, config):
         species=config["gen_opt"]["species"],
     )
     # 基于 dpdispatcher 模块，在远程GPU服务器上批量准备并提交输入文件，并在任务结束后回收机器学习势优化的输出文件 OUTCAR 与 CONTCAR
-    generator.prepare_and_submit(
+    generator.dpdisp_mlp_tasks(
         machine=config["gen_opt"]["machine"],
         resources=config["gen_opt"]["resources"],
         nodes=config["gen_opt"]["nodes"],
     )
+
 
 def read_mlp_density_task(work_dir, config):
     # 分析处理机器学习势优化得到的CONTCAR文件
@@ -88,11 +91,12 @@ def read_mlp_density_task(work_dir, config):
     # 将max_density文件夹中的结构文件利用 phononpy 模块进行对称化处理，方便后续对于结构的查看，同时不影响晶胞性质
     mlp_result.phonopy_processing_max_density()
 
+
 def vasp_optimization_task(work_dir, config):
     # VASP优化处理
     vasp_result = VaspProcessing(work_dir=work_dir)
     # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
-    vasp_result.prepare_and_submit(
+    vasp_result.dpdisp_vasp_tasks(
         machine=config["vasp_processing"]["machine"],
         resources=config["vasp_processing"]["resources"],
         nodes=config["vasp_processing"]["nodes"],
@@ -104,27 +108,13 @@ def vasp_optimization_task(work_dir, config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="The full workflow of ionic crystal design for a certain ion combination, including generation, mlp optimization, screening, vasp optimization and analysis. "
-    )
-    parser.add_argument(
-        "work_dir", type=str, help="The working directory to run the script in"
-    )
-    args = parser.parse_args()
-    # 尝试读取配置文件
-    try:
-        with open(os.path.join(args.work_dir, "config.yaml"), "r") as file:
-            config = yaml.safe_load(file)
-    except FileNotFoundError:
-        print(f"config.yaml not found in {args.work_dir}.")
-        raise
-    # 合并默认配置与读取的配置
+    # 获取工作目录和配置
+    work_dir, config = get_work_dir_and_config()
+    # 合并配置（假设有merge_config函数）
     modules = ["gen_opt", "read_mlp_density", "vasp_processing"]
     for module in modules:
         config[module] = merge_config(
             default_config=DEFAULT_CONFIG, user_config=config, key=module
         )
-    # 获取当前脚本的名称
-    script_name = os.path.basename(__file__)
     # 调用主函数
-    main(script_name, args.work_dir, config)
+    main(os.path.basename(__file__), work_dir, config)

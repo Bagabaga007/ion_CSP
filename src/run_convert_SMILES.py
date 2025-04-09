@@ -19,7 +19,6 @@ DEFAULT_CONFIG = {
 @log_and_time
 def main(work_dir, config):
     # 给定与脚本同目录的csv文件名
-    # 通过file_type参数来指定SMILES码所要转化的结构文件类型, 目前只包括gjf, xyz, mol
     result = SmilesProcessing(
         work_dir=work_dir,
         csv_file=config["convert_SMILES"]["csv_file"]
@@ -34,7 +33,13 @@ def main(work_dir, config):
             group_name=config["convert_SMILES"]["group_name"],
             group_screen_invert=config["convert_SMILES"]["group_screen_invert"],
         )
-
+    result.dpdisp_gaussian_tasks(
+        # 注意，此处需要人为指定文件夹以避免浪费计算资源，默认通过empirical_estimate中的folders来确定
+        folders=config["empirical_estimate"]["folders"],
+        machine=config["convert_SMILES"]["machine"],
+        resources=config["convert_SMILES"]["resources"],
+        nodes=config["convert_SMILES"]["nodes"],
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="The conversion from SMILES to .gjf files")
@@ -46,6 +51,7 @@ if __name__ == "__main__":
             config = yaml.safe_load(file)
     except FileNotFoundError:
         print(f"config.yaml not found in {args.work_dir}.")
+        raise
     # 合并默认配置与读取的配置
     config["convert_SMILES"] = {
         **DEFAULT_CONFIG["convert_SMILES"],

@@ -165,7 +165,7 @@ class CrystalGenerator:
                 "There are no POSCAR structure files after generating.\nPlease check the error during generation"
             )
 
-    def prepare_and_submit(self, machine: str, resources: str, nodes: int = 1):
+    def dpdisp_mlp_tasks(self, machine: str, resources: str, nodes: int = 1):
         """
         Based on the dpdispatcher module, prepare and submit files for optimization on remote server or local machine.
         """

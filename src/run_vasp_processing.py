@@ -13,7 +13,7 @@ def main(work_dir, config):
         task.set_running()
         result = VaspProcessing(work_dir=work_dir)
         # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
-        result.prepare_and_submit(
+        result.dpdisp_vasp_tasks(
             machine=config["vasp_processing"]["machine_json"],
             resources=config["vasp_processing"]["resources_json"],
             nodes=config["vasp_processing"]["nodes"],

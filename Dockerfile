@@ -40,8 +40,7 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # 复制项目文件
-COPY scripts/ /app/scripts/
-COPY src/ /app/src/
+COPY . /app/
 
 # 环境变量配置
 ENV PYTHONUNBUFFERED=1 \

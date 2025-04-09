@@ -4,6 +4,7 @@ import time
 import yaml
 import signal
 import logging
+import argparse
 from dpdispatcher.dlog import dlog
 
 
@@ -169,7 +170,6 @@ class StatusLogger:
 
 
 def redirect_dpdisp_logging(custom_log_path):
-    os.remove(os.path.join(os.getcwd(), "dpdispatcher.log"))
     # 移除所有文件处理器
     for handler in list(dlog.handlers):
         if isinstance(handler, logging.FileHandler):
@@ -184,3 +184,51 @@ def redirect_dpdisp_logging(custom_log_path):
     # 添加新处理器
     dlog.addHandler(new_handler)
     dlog.info(f"LOG INIT:dpdispatcher log direct to {custom_log_path}")
+
+
+def get_work_dir_and_config():
+    """获取工作目录并加载配置文件
+    Returns:
+        tuple: (工作目录路径, 合并后的配置字典)
+    Raises:
+        SystemExit: 当输入无效时退出程序
+    """
+    parser = argparse.ArgumentParser(
+        description="The full workflow of ionic crystal design for a certain ion combination, including generation, mlp optimization, screening, vasp optimization and analysis."
+    )
+    parser.add_argument(
+        "work_dir",
+        type=str,
+        nargs="?",  # 使参数变为可选
+        default=None,
+        help="The working directory to run. If not specified, interactive input will be used",
+    )
+    args = parser.parse_args()
+
+    # 交互式输入逻辑
+    if args.work_dir is None:
+        while True:
+            work_dir = input(
+                "Please enter the working directory: "
+            ).strip()
+            if os.path.exists(work_dir) and os.path.isdir(work_dir):
+                args.work_dir = work_dir
+                break
+            print(f"Error: Directory '{work_dir}' does not exist. Please try again.")
+
+    # 配置文件读取逻辑
+    config_path = os.path.join(args.work_dir, "config.yaml")
+    try:
+        with open(config_path, "r") as file:
+            user_config = yaml.safe_load(file)
+    except FileNotFoundError:
+        print(f"Error: config.yaml not found in {args.work_dir}")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print("Error parsing YAML file:")
+        print(f"  Line {e.problem_mark.line + 1}, Column {e.problem_mark.column + 1}")
+        print(f"  Details: {str(e)}")
+        sys.exit(1)
+
+    return args.work_dir, user_config
+
