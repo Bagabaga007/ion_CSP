@@ -238,8 +238,8 @@ class SmilesProcessing:
                     # 将分配好的 .gjf 文件添加到对应的上传文件中
                     forward_files.append(gjf_files[job_i])
                     base_name, _ = os.path.splitext(gjf_files[job_i])
-                    # 每个 .gjf 文件在优化后都取回对应的 .log、.chk、.fchk 输出文件
-                    for ext in ['log', 'chk', 'fchk']:
+                    # 每个 .gjf 文件在优化后都取回对应的 .log、.fchk 输出文件
+                    for ext in ['log', 'fchk']:
                         backward_files.append(f'{base_name}.{ext}')
                     shutil.copyfile(
                         f"{folder_dir}/{gjf_files[job_i]}",
@@ -273,14 +273,19 @@ class SmilesProcessing:
                 # 按照给定的 .gjf 结构文件读取 .log、 文件并复制
                 for job_i in node_jobs[pop]:
                     base_name, _ = os.path.splitext(gjf_files[job_i])
-                    # 在优化后都取回每个 .gjf 文件对应的 .log、.chk、.fchk 输出文件
-                    for ext in ['gjf', 'log', 'chk', 'fchk']:
+                    # 在优化后都取回每个 .gjf 文件对应的 .log、.fchk 输出文件
+                    for ext in ['gjf', 'log', 'fchk']:
                         shutil.copyfile(
                             f"{task_dir}/{base_name}.{ext}",
                             f"{optimized_folder_dir}/{base_name}.{ext}"
                         )
+                # 在成功完成Gaussian优化后，删除 1_1_SMILES_gjf/{csv}/{parent}/pop{n} 文件夹以节省空间
+                shutil.rmtree(task_dir)
         shutil.copyfile(
             os.path.join(self.base_dir, "config.yaml"),
             os.path.join(optimized_folder_dir, "config.yaml"),
         )
+        if machine_inform["context_type"] == "SSHContext":
+            # 如果调用远程服务器，则删除data级目录
+            shutil.rmtree(os.path.join(self.converted_dir, parent))
         logging.info("Batch Gaussian optimization completed!!!")

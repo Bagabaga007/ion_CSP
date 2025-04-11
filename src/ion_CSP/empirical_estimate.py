@@ -206,7 +206,7 @@ class EmpiricalEstimation:
             
     def _gaussian_log_to_optimized_gjf(self, folder: str):
         '''
-        Due to the lack of support of Pyxtal module for LOG files in subsequent crystal generation, it is necessary to convert the last frame of the Gaussian optimized LOG file to a GJF file with Multiwfn processing.
+        Due to the lack of support of Pyxtal module for LOG files in subsequent crystal generation, it is necessary to convert the last frame of the Gaussian optimized LOG file to a .gjf file with Multiwfn processing.
         '''
         # 在每个文件夹中获取 .log 文件并根据文件名排序, 再用Multiwfn载入优化最后一帧转换为 gjf 文件
         log_files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.log')]

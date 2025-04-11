@@ -128,15 +128,13 @@ class ReadMlpDensity:
                 density_number = new_CONTCAR_filename.split("CONTCAR_")[1]
                 new_OUTCAR_filename = f'OUTCAR_{density_number}'
                 shutil.copy(f'{self.max_density_dir}/{new_OUTCAR_filename}', f'{self.primitive_cell_dir}/{new_OUTCAR_filename}')
-            # 移除最后复制多出来的POSCAR、BPOSCAR以及phonopy_symcells.yaml
-            os.remove(f'{self.phonopy_dir}/phonopy_symcells.yaml')
-            os.remove(f'{self.phonopy_dir}/POSCAR')
-            os.remove(f'{self.phonopy_dir}/BPOSCAR')
             for_vasp_opt_dir = os.path.join(self.base_dir, '3_for_vasp_opt')
             if os.path.exists(for_vasp_opt_dir):
                 shutil.rmtree(for_vasp_opt_dir)
             shutil.copytree(self.primitive_cell_dir, for_vasp_opt_dir)
             logging.info('The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder.\nThe output content of phonopy has been saved to the phonopy.log file in the same directory.')
+            # 在 phonopy 成功进行对称化处理后，删除 2_mlp_optimized/max_density 文件夹以节省空间
+            shutil.rmtree(self.max_density_dir)
         except FileNotFoundError:
             logging.error(
                 "There are no CONTCAR structure files after screening.\nPlease check if the ions correspond to the crystals and adjust the screening criteria"

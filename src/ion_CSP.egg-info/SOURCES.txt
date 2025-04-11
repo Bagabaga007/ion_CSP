@@ -13,6 +13,8 @@ setup.cfg
 setup.py
 uv.lock
 .vscode/settings.json
+docs/example_usage_CSP.py
+docs/example_usage_EE.py
 docs/index.md
 docs/usage.md
 model/model.pt
@@ -28,6 +30,8 @@ param/POTCAR_O
 param/g16_sub.sh
 param/sub.sh
 scripts/main.sh
+scripts/main_CSP.sh
+scripts/main_EE.sh
 src/__init__.py
 src/main_CSP.py
 src/main_EE.py

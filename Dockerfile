@@ -23,43 +23,45 @@ RUN pip install --no-cache-dir --upgrade pip \
 # 第二阶段：运行环境
 FROM python:3.11-slim
 
-# 创建非root用户并设置权限
-RUN useradd -m appuser && \
-    mkdir -p /app/data /app/logs && \
-    chown -R appuser:appuser /app
-
-# 设置工作目录
-WORKDIR /app
-
 # 系统基础依赖
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# 创建非root用户并设置权限
+RUN useradd -ms /bin/bash appuser && \
+    mkdir -p /app/data /app/logs /app/scripts && \
+    chown -R appuser:appuser /app
+
+# 设置工作目录
+WORKDIR /app
+
+# 先复制脚本并设置权限
+COPY scripts/main.sh /app/scripts/main.sh
+RUN chmod 755 /app/scripts/main.sh && \
+    chown appuser:appuser /app/scripts/main.sh
+
 # 从构建阶段复制虚拟环境
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# 复制项目文件
-COPY . /app/
+# 复制其余项目文件（最后执行以避免覆盖）
+COPY --chown=appuser:appuser . /app/
 
 # 环境变量配置
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     LOG_DIR=/app/logs \
-    ENV=DOCKER
+    ENV=DOCKER \
+    WORKSPACE=/app/data
 
 # 创建日志目录
 RUN mkdir -p ${LOG_DIR} && chmod 755 ${LOG_DIR}
 
-# 暴露端口（根据需求调整）
-EXPOSE 8080
-
-# 确保脚本可执行
-RUN chmod +x /app/scripts/*.sh
+# RUN pip install -e /app/
 
 # 切换用户为appuser
 USER appuser
 
-# 默认命令（可通过参数覆盖）
+# 默认命令
 CMD ["/bin/bash", "/app/scripts/main.sh"]

@@ -48,8 +48,8 @@ task_runner() {
     mkdir -p "$WORK_DIR"
     LOG_FILE="${WORK_DIR}/${MODULE}_console.log"
     
-    echo "正在启动 ${MODULE} 模块..."
-    echo "日志文件: $LOG_FILE"
+    echo "Starting ${MODULE} module..."
+    echo "Log file: $LOG_FILE"
     
     # 后台执行任务并捕获PID
     {
@@ -61,7 +61,7 @@ task_runner() {
                 python -m src.main_CSP "$WORK_DIR"
                 ;;
             *)
-                echo "无效模块: $MODULE"
+                echo "Invalid module: $MODULE"
                 exit 1
                 ;;
         esac
@@ -73,11 +73,11 @@ task_runner() {
     STANDARD_LOG_FILE="${LOG_BASE}/${MODULE}_console_${PID}.log"
     ln -sf "$LOG_FILE" "$STANDARD_LOG_FILE"
     
-    echo "任务已启动 (PID: $PID)"
-    echo "日志文件: $STANDARD_LOG_FILE"
+    echo "Task started (PID: $PID)"
+    echo "Standard log file: $STANDARD_LOG_FILE"
     
     # 保持信息可见
-    read -p "按回车键继续..." 
+    read -p "Press Enter to continue..." 
 }
 
 # ========================
@@ -89,43 +89,46 @@ main() {
     
     while true; do
         clear
-        echo "===== 任务执行系统 ====="
-        echo "当前环境: $ENV"
-        echo "工作目录: $(pwd)"
-        echo "日志基目录: $LOG_BASE"
-        echo "======================="
-        echo "1) 运行EE模块"
-        echo "2) 运行CSP模块"
-        echo "3) 终止任务"
-        echo "4) 查看日志"
-        echo "q) 退出"
+        echo "===== Task Execution System ====="
+        echo "Current Environment: $ENV"
+        echo "Current Directory: $(pwd)"
+        echo "Log Base Directory: $LOG_BASE"
+        echo "==================================="
+        echo "1) Run EE Module"
+        echo "2) Run CSP Module"
+        echo "3) Terminate Task"
+        echo "4) View Logs"
+        echo "q) Exit"
         
-        read -p "请选择操作: " choice
+        read -p "Please select one of the operation: " choice
         
         case $choice in
             1)
-                read -p "请输入EE工作目录: " EE_WORK_DIR
+                read -p "Enter EE working directory: " EE_WORK_DIR
                 task_runner "EE" "$(normalize_path "$EE_WORK_DIR")"
-                read -p "任务已启动，按回车键继续..."
+                read -p "Task started. Press Enter to continue..."
                 ;;
             2)
-                read -p "请输入CSP工作目录: " CSP_WORK_DIR
+                read -p "Enter CSP working directory: " CSP_WORK_DIR
                 task_runner "CSP" "$(normalize_path "$CSP_WORK_DIR")"
-                read -p "任务已启动，按回车键继续..."
+                read -p "Task started. Press Enter to continue..."
                 ;;
             3)
-                read -p "请输入要终止的PID: " TARGET_PID
-                kill $TARGET_PID || echo "进程不存在"
+                read -p "Enter PID to terminate: " TARGET_PID
+                kill $TARGET_PID 2>/dev/null || echo "Process not found"
                 ;;
             4)
-                less "$LOG_BASE"/*_console_*.log
+                echo "Available logs:"
+                ls -lt "$LOG_BASE"/*_console_*.log 2>/dev/null || echo "No logs found"
+                read -p "Enter log file to view: " LOG_FILE
+                less "$LOG_BASE/$LOG_FILE" 2>/dev/null || echo "File not found"
                 ;;
             q)
-                echo "退出系统..."
+                echo "Exiting system..."
                 exit 0
                 ;;
             *)
-                echo "无效选择，请重新输入"
+                echo "Invalid selection. Please try again."
                 sleep 1
                 ;;
         esac

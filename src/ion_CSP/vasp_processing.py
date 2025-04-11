@@ -132,11 +132,16 @@ class VaspProcessing:
                 shutil.copytree(
                     f"{task_dir}/{vasp_dir}", f"{self.vasp_optimized_dir}/{vasp_dir}"
                 )
+            # 在成功完成 VASP 分步优化后，删除 3_for_vasp_opt/{parent}/pop{n} 文件夹以节省空间
+            shutil.rmtree(task_dir)
+        if machine_inform["context_type"] == "SSHContext":
+            # 如果调用远程服务器，则删除data级目录
+            shutil.rmtree(os.path.join(self.converted_dir, parent))
         logging.info("Batch VASP optimization completed!!!")
 
     def read_vaspout_save_csv(self, molecules_prior: bool):
         """
-        Batch read VASP output files and save energy and density to corresponding CSV files in the directory
+        Read VASP output files in batches and save energy and density to corresponding CSV files in the directory
         """
         os.chdir(self.base_dir)
         vasp_opt_dir = self.vasp_optimized_dir

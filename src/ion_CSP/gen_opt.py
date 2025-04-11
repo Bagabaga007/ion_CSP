@@ -151,12 +151,11 @@ class CrystalGenerator:
             for _, filename in POSCAR_file_index_pairs:
                 self._single_phonopy_processing(filename=filename)
             # 移除最后复制多出来的POSCAR以及phonopy_symcells.yaml
-            os.remove(f"{self.POSCAR_dir}/phonopy_symcells.yaml")
-            os.remove(f"{self.POSCAR_dir}/POSCAR")
-            os.remove(f"{self.POSCAR_dir}/BPOSCAR")
             logging.info(
                 "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder."
             )
+            # 在 phonopy 成功进行对称化处理后，删除 1_generated/POSCAR_Files 文件夹以节省空间
+            shutil.rmtree(self.POSCAR_dir)
         except FileNotFoundError:
             logging.error(
                 "There are no POSCAR structure files after generating.\nPlease check the error during generation"
@@ -271,6 +270,11 @@ class CrystalGenerator:
                 shutil.copyfile(
                     f"{task_dir}/OUTCAR_{index}", f"{optimized_dir}/OUTCAR_{index}"
                 )
+            # 在成功完成机器学习势优化后，删除 1_generated/primitive_cell/{parent}/pop{n} 文件夹以节省空间
+            shutil.rmtree(task_dir)
+        if machine_inform["context_type"] == "SSHContext":
+            # 如果调用远程服务器，则删除data级目录
+            shutil.rmtree(os.path.join(self.primitive_cell_dir, parent))
         # 完成后删除不必要的运行文件以节省空间，并记录优化完成的信息
         for file in ["mlp_opt.py", "model.pt"]:
             os.remove(f"{self.primitive_cell_dir}/{file}")

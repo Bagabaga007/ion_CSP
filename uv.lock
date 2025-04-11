@@ -545,7 +545,7 @@ requires-dist = [
     { name = "deepmd-kit", specifier = "==3.0.1" },
     { name = "dpdispatcher", specifier = "==0.6.7" },
     { name = "numpy", specifier = "==1.26.4" },
-    { name = "paramiko", specifier = "==2.8.1" },
+    { name = "paramiko", specifier = "==3.5.1" },
     { name = "phonopy", specifier = "==2.28.0" },
     { name = "pyxtal", specifier = "==1.0.4" },
     { name = "rdkit", specifier = "==2023.3.3" },
@@ -1110,16 +1110,16 @@ wheels = [
 
 [[package]]
 name = "paramiko"
-version = "2.8.1"
+version = "3.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bcrypt" },
     { name = "cryptography" },
     { name = "pynacl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/51/d8/1b990dff4ef105916de926479683c37349f2fdc9a76cfde6653491b5c0b9/paramiko-2.8.1.tar.gz", hash = "sha256:85b1245054e5d7592b9088cc6d08da22445417912d3a3e48138675c7a8616438", size = 1057497 }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/15/ad6ce226e8138315f2451c2aeea985bf35ee910afb477bae7477dc3a8f3b/paramiko-3.5.1.tar.gz", hash = "sha256:b2c665bc45b2b215bd7d7f039901b14b067da00f3a11e6640995fd58f2664822", size = 1566110 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/e5/16e51472617cdcc90a4b9019543087f584a73b76d501d4b165abb7893fe9/paramiko-2.8.1-py2.py3-none-any.whl", hash = "sha256:7b5910f5815a00405af55da7abcc8a9e0d9657f57fcdd9a89894fdbba1c6b8a8", size = 206580 },
+    { url = "https://files.pythonhosted.org/packages/15/f8/c7bd0ef12954a81a1d3cea60a13946bd9a49a0036a5927770c461eade7ae/paramiko-3.5.1-py3-none-any.whl", hash = "sha256:43b9a0501fc2b5e70680388d9346cf252cfb7d00b0667c39e80eb43a408b8f61", size = 227298 },
 ]
 
 [[package]]
