@@ -1,3 +1,4 @@
+.dockerignore
 .gitignore
 CHANGELOG.md
 CODE_OF_CONDUCT.md
@@ -14,7 +15,6 @@ uv.lock
 .vscode/settings.json
 docs/index.md
 docs/usage.md
-examples/example_usage.py
 model/model.pt
 model/options/README.md
 model/options/model.ckpt-4000000.pt
@@ -25,18 +25,12 @@ param/POTCAR_C
 param/POTCAR_H
 param/POTCAR_N
 param/POTCAR_O
+param/g16_sub.sh
 param/sub.sh
 scripts/main.sh
-scripts/original/YZ_run_opt.py
-scripts/original/convert_SMILES.py
-scripts/original/empirical_estimate.py
-scripts/original/gen_opt.py
-scripts/original/read_mlp_density.py
-scripts/original/steps_opt_monitor.sh
-scripts/original/upload_download.py
-scripts/original/vasp_processing.py
 src/__init__.py
 src/main_CSP.py
+src/main_EE.py
 src/run_convert_SMILES.py
 src/run_empirical_estimate.py
 src/run_gen_opt.py

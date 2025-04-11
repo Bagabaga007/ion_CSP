@@ -5,7 +5,7 @@ with open('README.md', 'r', encoding='utf-8') as file:
 
 setup(
     name='ion_CSP',
-    version='1.0.0',
+    version='2.0.0',
     author='yangze',
     author_email='yangze1995007@163.com',
     description='Crystal Generation Technology Based on Molecular/Ionic Configuration',

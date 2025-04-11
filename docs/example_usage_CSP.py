@@ -47,7 +47,7 @@ DEFAULT_CONFIG = {
 if __name__ == "__main__":    
     # 获取工作目录和配置
     work_dir, config = get_work_dir_and_config()
-    # 合并配置（假设有merge_config函数）
+    # 合并配置
     modules = ["gen_opt", "read_mlp_density", "vasp_processing"]
     for module in modules:
         config[module] = merge_config(
