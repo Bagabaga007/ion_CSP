@@ -10,10 +10,8 @@ from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_co
 DEFAULT_CONFIG = {
     "gen_opt": {
         "num_per_group": 500,  # 每个空间群要生成的晶体结构数量
-        "space_groups_limit": 75,  # 空间群搜索的限制
-        "machine": "/workplace/yz/ion_CSP/server_config/6001_local/6001_local_machine.yaml",  # 进行机器学习势优化计算的机器参数，建议GPU
-        "resources": "/workplace/yz/ion_CSP/server_config/6001_local/6001_local_resources.yaml",  # 进行机器学习势优化计算的资源参数
-        "nodes": 1,  # 占用GPU节点数
+        "space_groups_limit": 230,  # 空间群搜索的限制
+        "nodes": 1,  # 机器学习势优化占用 GPU 节点数
     },
     "read_mlp_density": {
         "n_screen": 10,  # 筛选机器学习势优化后密度最大的n个CONTCAR与对应的OUTCAR
@@ -21,9 +19,7 @@ DEFAULT_CONFIG = {
         "detail_log": False,  # 是否额外生成详细的筛选日志文件
     },
     "vasp_processing": {
-        "machine": "/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_machine.yaml",  # 进行VASP分步优化计算的机器参数
-        "resources": "/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_resources.yaml",  # 进行VASP分步优化计算的资源参数
-        "nodes": 2,  # 占用CPU节点数
+        "nodes": 2,  # VASP 分步优化占用 CPU 节点数
         "molecules_prior": True,  # 是否检查离子晶体结构中所有离子的结构
     },
 }

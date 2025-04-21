@@ -1,9 +1,15 @@
 import os
-import yaml
-import argparse
-from ion_CSP.log_and_time import log_and_time, StatusLogger
 from ion_CSP.vasp_processing import VaspProcessing
+from ion_CSP.log_and_time import StatusLogger
+from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_config
 
+# 默认配置
+DEFAULT_CONFIG = {
+    "vasp_processing": {
+        "nodes": 2,  # VASP 分步优化占用 CPU 节点数
+        "molecules_prior": True,  # 是否检查离子晶体结构中所有离子的结构
+    },
+}
 
 @log_and_time
 def main(work_dir, config):
@@ -14,8 +20,8 @@ def main(work_dir, config):
         result = VaspProcessing(work_dir=work_dir)
         # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
         result.dpdisp_vasp_tasks(
-            machine=config["vasp_processing"]["machine_json"],
-            resources=config["vasp_processing"]["resources_json"],
+            machine=config["vasp_processing"]["machine"],
+            resources=config["vasp_processing"]["resources"],
             nodes=config["vasp_processing"]["nodes"],
         )
         # 批量读取 VASP 分步优化的输出文件，并将能量和密度等结果保存到目录中的相应CSV文件
@@ -27,21 +33,11 @@ def main(work_dir, config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Process files in a specified working directory"
+    # 获取工作目录和配置
+    work_dir, config = get_work_dir_and_config()
+    # 合并配置（假设有merge_config函数）
+    config["vasp_processing"] = merge_config(
+        default_config=DEFAULT_CONFIG, user_config=config, key="vasp_processing"
     )
-    parser.add_argument(
-        "work_dir", type=str, help="The working directory to run the script in"
-    )
-    args = parser.parse_args()
-    # 尝试读取配置文件
-    try:
-        with open(os.path.join(args.work_dir, "config.yaml"), "r") as file:
-            config = yaml.safe_load(file)
-    except FileNotFoundError:
-        print(f"config.yaml not found in {args.work_dir}.")
-        raise
-    # 获取当前脚本的名称
-    script_name = os.path.basename(__file__)
     # 调用主函数
-    main(script_name, args.work_dir, config)
+    main(os.path.basename(__file__), work_dir, config)

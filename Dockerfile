@@ -25,6 +25,8 @@ FROM python:3.11-slim
 
 # 系统基础依赖
 RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -58,7 +60,8 @@ ENV PYTHONUNBUFFERED=1 \
 # 创建日志目录
 RUN mkdir -p ${LOG_DIR} && chmod 755 ${LOG_DIR}
 
-# RUN pip install -e /app/
+# 安装当前 Python 项目
+RUN pip install -e /app/
 
 # 切换用户为appuser
 USER appuser

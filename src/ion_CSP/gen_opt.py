@@ -1,4 +1,5 @@
 import os
+import csv
 import time
 import shutil
 import logging
@@ -25,13 +26,13 @@ class CrystalGenerator:
         os.chdir(self.base_dir)
         self.ion_numbers = ion_numbers
         self.species = species
-        self.species_dirs = []
+        self.species_paths = []
         ion_atomss, species_atomss = [], []
         # 读取离子晶体各组分的原子数，并在日志文件中记录
         for ion, number in zip(self.species, self.ion_numbers):
-            species_dir = os.path.join(self.base_dir, ion)
-            self.species_dirs.append(species_dir)
-            species_atom = len(read(species_dir))
+            species_path = os.path.join(self.base_dir, ion)
+            self.species_paths.append(species_path)
+            species_atom = len(read(species_path))
             species_atomss.append(species_atom)
             species_atoms = species_atom * number
             ion_atomss.append(species_atoms)
@@ -42,20 +43,10 @@ class CrystalGenerator:
         logging.info(
             f"The number of atoms for each ion is: {species_atomss}, and the total number of atoms is {self.cell_atoms}"
         )
-        # 创建脚本同路径下用于存放原胞和常规胞的文件夹
+        self.generation_dir = os.path.join(self.base_dir, "1_generated")
+        os.makedirs(self.generation_dir, exist_ok=True)
         self.POSCAR_dir = os.path.join(self.base_dir, "1_generated", "POSCAR_Files")
-        os.makedirs(
-            self.POSCAR_dir, exist_ok=True
-        )  # 如果目录不存在，则创建POSCAR_Files文件夹
-        self.primitive_cell_dir = os.path.join(
-            self.base_dir, "1_generated", "primitive_cell"
-        )
-        os.makedirs(self.primitive_cell_dir, exist_ok=True)
-        # 准备dpdispatcher运行所需的文件，将其复制到primitive_cell文件夹中
-        self.required_files = [self.mlp_opt_file, self.model_file]
-        for file in self.required_files:
-            shutil.copy(file, self.primitive_cell_dir)
-        logging.info("The necessary files are fully prepared.")
+        self.primitive_cell_dir = os.path.join(self.base_dir, "1_generated", "primitive_cell")
 
     def _sequentially_read_files(self, directory: str, prefix_name: str):
         """
@@ -79,68 +70,126 @@ class CrystalGenerator:
         """
         Based on the provided ion species and corresponding numbers, use pyxtal to randomly generate ion crystal structures based on crystal space groups.
         """
-        count_POSCAR = 0  # 用于给生成的POSCAR文件计数
+        # 如果目录不存在，则创建POSCAR_Files文件夹
+        os.makedirs(self.POSCAR_dir, exist_ok=True)
+        total_count = 0  # 用于给生成的POSCAR文件计数
         assert 1 <= space_groups_limit <= 230, "Space group number out of range!"
-        if space_groups_limit:  # 限制空间群搜索范围，以节约测试时间
+        if space_groups_limit:  
+            # 限制空间群搜索范围，以节约测试时间
             space_groups = space_groups_limit
-        else:  # 否则搜索所有的230个空间群
+        else:  
+            # 否则搜索所有的230个空间群
             space_groups = 230
+        group_counts, group_exceptions = [], []
         for space_group in range(1, space_groups + 1):
             logging.info(f"Space group: {space_group}")
-            count_group = 0
-            try:
-                for i in range(
-                    num_per_group
-                ):  # 参数N确定对每个空间群所要生成的POSCAR结构文件个数
+            group_count, exception_message = 0, "None"
+            # 参数num_per_group确定对每个空间群所要生成的POSCAR结构文件个数
+            for i in range(num_per_group):
+                try:
                     # 调用pyxtal类
                     pyxtal_structure = pyxtal(molecular=True)
                     # 根据阴阳离子结构文件与对应的配比以及空间群信息随机生成离子晶体，N取100以上
                     pyxtal_structure.from_random(
                         dim=3,
                         group=space_group,
-                        species=self.species_dirs,
+                        species=self.species_paths,
                         numIons=self.ion_numbers,
                         conventional=False,
                     )
                     # 生成POSCAR_n文件
                     POSCAR_path = os.path.join(
-                        self.POSCAR_dir, f"POSCAR_{count_POSCAR}"
+                        self.POSCAR_dir, f"POSCAR_{total_count}"
                     )
                     pyxtal_structure.to_file(POSCAR_path, fmt="poscar")
-                    count_POSCAR += 1
-                    count_group += 1
-                logging.info(f" {count_group} POSCAR generated.")
-            except (
-                RuntimeError,
-                Comp_CompatibilityError,
-                Symm_CompatibilityError,
-            ) as e:
-                # 捕获对于某一空间群生成结构的运行时间过长、组成兼容性错误、对称性兼容性错误等异常，使结构生成能够完全进行而不中断
-                logging.error(f"Generating structure error: {e}")
+                    total_count += 1
+                    group_count += 1
+                except (RuntimeError, Comp_CompatibilityError, Symm_CompatibilityError) as e:
+                    # 捕获对于某一空间群生成结构的运行时间过长、组成兼容性错误、对称性兼容性错误等异常，使结构生成能够完全进行而不中断
+                    logging.error(f"Generating structure error: {e}")
+                    # 记录异常类型并跳出当前空间群的生成循环
+                    exception_message = type(e).__name__
+                    break
+            group_counts.append(group_count)
+            group_exceptions.append(exception_message)
+            logging.info(f" {group_count} POSCAR generated.")
+        generation_csv_file = os.path.join(self.generation_dir, 'generation.csv')
+        # 写入排序后的 .csv 文件
+        with open(generation_csv_file, "w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.writer(csv_file)
+            # 动态生成表头
+            header = ["Space_group", "POSCAR_num", "Bad_num", "Exception"]
+            writer.writerow(header)
+            # 写入排序后的数
+            for space_group, group_count, group_exception in zip(
+                range(1, space_groups + 1), group_counts, group_exceptions
+            ):
+                writer.writerow([space_group, group_count, 0, group_exception])
+        # 保存group_counts供后续使用
+        self.group_counts = group_counts
         logging.info(
-            f"Using pyxtal.from_random, {count_POSCAR} ion crystal structures were randomly generated based on crystal space groups."
+            f"Using pyxtal.from_random, {total_count} ion crystal structures were randomly generated based on crystal space groups."
         )
 
     def _single_phonopy_processing(self, filename):
-        # 按顺序处理POSCAR文件，首先复制一份无数字后缀的POSCAR文件
+    # 按顺序处理POSCAR文件，首先复制一份无数字后缀的POSCAR文件
         shutil.copy(f"{self.POSCAR_dir}/{filename}", f"{self.POSCAR_dir}/POSCAR")
-        subprocess.run(["nohup", "phonopy", "--symmetry", "POSCAR"], check=True)
+        try:
+            subprocess.run(["nohup", "phonopy", "--symmetry", "POSCAR"], check=True)
+        except subprocess.CalledProcessError as e:
+            # 新增：捕获phonopy执行错误
+            logging.error(f"Phonopy execution failed for {filename}: {str(e)}")
+            raise
+
         # 将phonopy生成的PPOSCAR（对称化原胞）和BPOSCAR（对称化常规胞）放到对应的文件夹中，并将文件名改回POSCAR_index
         shutil.move(
             f"{self.POSCAR_dir}/PPOSCAR", f"{self.primitive_cell_dir}/{filename}"
         )
         cell_atoms = len(read(f"{self.primitive_cell_dir}/{filename}"))
+        
         # 检查生成的POSCAR中的原子数，如果不匹配则删除该POSCAR并在日志中记录
         if cell_atoms != self.cell_atoms:
+            error_message = f"Atom number mismatch ({cell_atoms} vs {self.cell_atoms})"
+            logging.error(f"{filename} - {error_message}")
+            
+            # 新增：回溯空间群归属
+            poscar_index = int(filename.split('_')[1])  # 提取POSCAR编号
+            space_group = self._find_space_group(poscar_index)
+            
+            # 更新CSV文件
+            csv_path = os.path.join(self.generation_dir, 'generation.csv')
+            with open(csv_path, 'r') as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+            
+            # 更新对应空间群的Bad_num和Exception
+            for row in rows[1:]:  # 跳过表头
+                if int(row[0]) == space_group:
+                    row[2] = str(int(row[2]) + 1)
+                    row[3] = "AtomNumberError"
+                    break
+            # 将更新的信息写入 .csv 文件
+            with open(csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerows(rows)
+            # 删除原子数不匹配的POSCAR
             os.remove(f"{self.primitive_cell_dir}/{filename}")
-            logging.error(
-                f"The number of atoms in {filename} does not match!! Original: {self.cell_atoms} vs Generated {cell_atoms}"
-            )
 
+    def _find_space_group(self, poscar_index: int) -> int:
+        """根据POSCAR编号查找对应的空间群"""
+        cumulative = 0
+        for idx, count in enumerate(self.group_counts, start=1):
+            if cumulative <= poscar_index < cumulative + count:
+                return idx
+            cumulative += count
+        raise ValueError(f"POSCAR {poscar_index} not found in any space group")
+    
     def phonopy_processing(self):
         """
         Use phonopy to check and generate symmetric primitive cells, reducing the complexity of subsequent optimization calculations, and preventing pyxtal.from_random from generating double proportioned supercells.
         """
+        os.makedirs(self.primitive_cell_dir, exist_ok=True)
+        logging.info("The necessary files are fully prepared.")
         POSCAR_file_index_pairs = self._sequentially_read_files(
             self.POSCAR_dir, prefix_name="POSCAR_"
         )
@@ -150,7 +199,10 @@ class CrystalGenerator:
             logging.info("Start running phonopy processing ...")
             for _, filename in POSCAR_file_index_pairs:
                 self._single_phonopy_processing(filename=filename)
-            # 移除最后复制多出来的POSCAR以及phonopy_symcells.yaml
+            # 准备dpdispatcher运行所需的文件，将其复制到primitive_cell文件夹中
+            self.required_files = [self.mlp_opt_file, self.model_file]
+            for file in self.required_files:
+                shutil.copy(file, self.primitive_cell_dir)
             logging.info(
                 "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder."
             )
@@ -278,7 +330,6 @@ class CrystalGenerator:
         # 完成后删除不必要的运行文件以节省空间，并记录优化完成的信息
         for file in ["mlp_opt.py", "model.pt"]:
             os.remove(f"{self.primitive_cell_dir}/{file}")
-            os.remove(f"{task_dir}/{file}")
         logging.info("Batch optimization completed!!!")
 
 

@@ -136,7 +136,7 @@ class VaspProcessing:
             shutil.rmtree(task_dir)
         if machine_inform["context_type"] == "SSHContext":
             # 如果调用远程服务器，则删除data级目录
-            shutil.rmtree(os.path.join(self.converted_dir, parent))
+            shutil.rmtree(os.path.join(self.for_vasp_opt_dir, parent))
         logging.info("Batch VASP optimization completed!!!")
 
     def read_vaspout_save_csv(self, molecules_prior: bool):

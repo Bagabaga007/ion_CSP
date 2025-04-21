@@ -46,35 +46,41 @@ task_runner() {
     local LOG_FILE=""
     
     mkdir -p "$WORK_DIR"
-    LOG_FILE="${WORK_DIR}/${MODULE}_console.log"
+    LOG_FILE="${WORK_DIR}/main_${MODULE}_console.log"
     
     echo "Starting ${MODULE} module..."
-    echo "Log file: $LOG_FILE"
-    
+    echo "Original log file: $LOG_FILE"
+
     # 后台执行任务并捕获PID
     {
         case $MODULE in
             EE)
-                python -m src.main_EE "$WORK_DIR"
+                nohup python -m src.main_EE $WORK_DIR > "${WORK_DIR}/main_EE_console.log" 2>&1 &
                 ;;
             CSP)
-                python -m src.main_CSP "$WORK_DIR"
-                ;;
-            *)
-                echo "Invalid module: $MODULE"
-                exit 1
+                nohup python -m src.main_CSP $WORK_DIR > "${WORK_DIR}/main_CSP_console.log" 2>&1 &
                 ;;
         esac
+        # 等待进程初始化与文件创建
+        sleep 1
+        echo $! > "${WORK_DIR}/pid.txt"
+        sleep 1
     } &> "$LOG_FILE" &
     
-    local PID=$!
-    
+    # 等待PID文件创建
+    while [ ! -f "${WORK_DIR}/pid.txt" ]; do
+        sleep 1
+    done
+
+    # 安全获取PID，并创建符号链接（带错误处理）
+    PYTHON_PID=$(cat "${WORK_DIR}/pid.txt")
+
     # 生成新的日志文件名
-    STANDARD_LOG_FILE="${LOG_BASE}/${MODULE}_console_${PID}.log"
+    STANDARD_LOG_FILE="${LOG_BASE}/${MODULE}_${PYTHON_PID}.log"
     ln -sf "$LOG_FILE" "$STANDARD_LOG_FILE"
-    
-    echo "Task started (PID: $PID)"
-    echo "Standard log file: $STANDARD_LOG_FILE"
+    rm -f "${WORK_DIR}/pid.txt"
+    echo "Task started (PYTHON_PID: $PYTHON_PID)"
+    echo "Normalized log file: $STANDARD_LOG_FILE"
     
     # 保持信息可见
     read -p "Press Enter to continue..." 
@@ -106,20 +112,19 @@ main() {
             1)
                 read -p "Enter EE working directory: " EE_WORK_DIR
                 task_runner "EE" "$(normalize_path "$EE_WORK_DIR")"
-                read -p "Task started. Press Enter to continue..."
                 ;;
             2)
                 read -p "Enter CSP working directory: " CSP_WORK_DIR
                 task_runner "CSP" "$(normalize_path "$CSP_WORK_DIR")"
-                read -p "Task started. Press Enter to continue..."
                 ;;
             3)
                 read -p "Enter PID to terminate: " TARGET_PID
-                kill $TARGET_PID 2>/dev/null || echo "Process not found"
+                kill $TARGET_PID 2>/dev/null && echo "Target PID ${TARGET_PID} is killed" || echo "Process not found"
+                read -p "Press Enter to continue..."
                 ;;
             4)
                 echo "Available logs:"
-                ls -lt "$LOG_BASE"/*_console_*.log 2>/dev/null || echo "No logs found"
+                ls -lt "$LOG_BASE"/*_*.log 2>/dev/null || echo "No logs found"
                 read -p "Enter log file to view: " LOG_FILE
                 less "$LOG_BASE/$LOG_FILE" 2>/dev/null || echo "File not found"
                 ;;

@@ -210,8 +210,8 @@ class EmpiricalEstimation:
         '''
         # 在每个文件夹中获取 .log 文件并根据文件名排序, 再用Multiwfn载入优化最后一帧转换为 gjf 文件
         log_files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.log')]
-        if log_files == []:
-            raise FileNotFoundError('No availible Gaussian .log file to process')
+        if not log_files:
+            raise FileNotFoundError(f'No availible Gaussian .log file to process in {folder}')
         log_files.sort()
         for log_file in log_files:
             base_name = os.path.splitext(log_file)[0]
@@ -451,7 +451,7 @@ class EmpiricalEstimation:
                 os.makedirs(combo_path, exist_ok=True)
                 folder_count += 1
                 
-                # 遍历每一列（组件）并复制对应的文件
+                # 遍历每一列（组分）并复制对应的文件
                 gjf_names = []
                 pattern = r'^Component \d+'
                 components = [key for key in row.keys() if re.match(pattern, key)]
@@ -462,10 +462,37 @@ class EmpiricalEstimation:
                     self._copy_combo_file(combo_path, folder_basename, file_type=".json")
                     # gjf_names存放的是不包含目录名，且带 .gjf 后缀名的文件名，用于写入config.yaml
                     gjf_names.append(f"{folder_basename.split('/')[1]}.gjf")
-                config_path = os.path.join(self.base_dir, 'config.yaml')
-                with open(config_path, 'r') as file:
-                    config = yaml.safe_load(file)
+                
+                # 生成上级目录路径并解析 .yaml 文件
+                parent_dir = os.path.dirname(self.base_dir)
+                parent_config_path = os.path.join(parent_dir, 'config.yaml')
+                base_config_path = os.path.join(self.base_dir, "config.yaml")
                 try:
+                    with open(parent_config_path, 'r') as file:
+                        config = yaml.safe_load(file)
+                except FileNotFoundError as e:
+                    logging.warning(f"No available config.yaml file in parent directory: {parent_dir} \n{e}")
+                    logging.info(f"Trying to load config.yaml file from base directory: {self.base_dir}")
+                    try:
+                        with open(base_config_path, 'r') as file:
+                            try:
+                                config = yaml.safe_load(file)
+                            except yaml.YAMLError as e:
+                                logging.error(f"YAML configuration file parsing failed: {e}")
+                    except FileNotFoundError as e:
+                        logging.error(f"No available config.yaml file either in parent directory: {parent_dir} and base directory {self.base_dir} \n{e}")
+                        raise
+                except PermissionError:
+                    logging.error(f'No read permission for the path: {parent_dir}')
+                    raise
+                except Exception as e:
+                    logging.error(f'Unexpected error: {e}')
+                    raise
+                try:
+                    # 确保 config.yaml 配置文件中 'gen_opt' 模块存在
+                    if 'gen_opt' not in config:
+                        config['gen_opt'] = {}
+                    # 更新 combo 文件夹中对应的离子名称与数量配置
                     config['gen_opt']['species'] = gjf_names
                     config['gen_opt']['ion_numbers'] = ion_numbers
                     logging.info(
@@ -473,7 +500,6 @@ class EmpiricalEstimation:
                 )
                     with open(os.path.join(combo_path, 'config.yaml'), 'w') as file:
                         yaml.dump(config, file)
-                except KeyError:
-                    print(f"No availible 'gen_opt' module in {config_path}, and thus fail in creating config.yaml")
-                    logging.error(f"No availible 'gen_opt' module in {config_path}, and thus fail in creating config.yaml")
+                except Exception as e:
+                    logging.error(f"Unexpected error: {e}")
                 

@@ -1,9 +1,16 @@
 import os
-import yaml
-import argparse
-from ion_CSP.log_and_time import log_and_time, StatusLogger
 from ion_CSP.gen_opt import CrystalGenerator
+from ion_CSP.log_and_time import StatusLogger
+from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_config
 
+# 默认配置
+DEFAULT_CONFIG = {
+    "gen_opt": {
+        "num_per_group": 500,  # 每个空间群要生成的晶体结构数量
+        "space_groups_limit": 230,  # 空间群搜索的限制
+        "nodes": 1,  # 机器学习势优化占用 GPU 节点数
+    }
+}
 
 @log_and_time
 def main(work_dir, config):
@@ -37,8 +44,8 @@ def main(work_dir, config):
                 task_1_2.set_running()
                 # 基于 dpdispatcher 模块，在远程服务器上批量准备并提交输入文件，并在任务结束后回收机器学习势优化的输出文件 OUTCAR 与 CONTCAR
                 generator.dpdisp_mlp_tasks(
-                    machine=config["gen_opt"]["machine_json"],
-                    resources=config["gen_opt"]["resources_json"],
+                    machine=config["gen_opt"]["machine"],
+                    resources=config["gen_opt"]["resources"],
                     python_path=config["gen_opt"]["python_path"],
                     nodes=config["gen_opt"]["nodes"],
                 )
@@ -49,21 +56,11 @@ def main(work_dir, config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Choice of generation or MLP optmization"
+    # 获取工作目录和配置
+    work_dir, config = get_work_dir_and_config()
+    # 合并配置（假设有merge_config函数）
+    config["gen_opt"] = merge_config(
+        default_config=DEFAULT_CONFIG, user_config=config, key="gen_opt"
     )
-    parser.add_argument(
-        "work_dir", type=str, help="The working directory to run the script in"
-    )
-    args = parser.parse_args()
-    # 尝试读取配置文件
-    try:
-        with open(os.path.join(args.work_dir, "config.yaml"), "r") as file:
-            config = yaml.safe_load(file)
-    except FileNotFoundError:
-        print(f"config.yaml not found in {args.work_dir}.")
-        raise
-    # 获取当前脚本的名称
-    script_name = os.path.basename(__file__)
     # 调用主函数
-    main(script_name, args.work_dir, config)
+    main(os.path.basename(__file__), work_dir, config)

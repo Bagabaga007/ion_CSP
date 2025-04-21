@@ -1,8 +1,17 @@
 import os
-import yaml
-import argparse
-from ion_CSP.log_and_time import log_and_time, StatusLogger
 from ion_CSP.read_mlp_density import ReadMlpDensity
+from ion_CSP.log_and_time import StatusLogger
+from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_config
+
+# 默认配置
+DEFAULT_CONFIG = {
+    "read_mlp_density": {
+        "n_screen": 10,  # 筛选机器学习势优化后密度最大的n个CONTCAR与对应的OUTCAR
+        "molecules_screen": True,  # 是否排除离子改变的晶体结构
+        "detail_log": False,  # 是否额外生成详细的筛选日志文件
+    },
+}
+
 
 @log_and_time
 def main(work_dir, config):
@@ -24,17 +33,11 @@ def main(work_dir, config):
         raise
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process files in a specified working directory" )
-    parser.add_argument("work_dir", type=str, help="The working directory to run the script in")
-    args = parser.parse_args()
-    # 尝试读取配置文件
-    try:
-        with open(os.path.join(args.work_dir, "config.yaml"), "r") as file:
-            config = yaml.safe_load(file)
-    except FileNotFoundError:
-        print(f"config.yaml not found in {args.work_dir}.")
-        raise
-    # 获取当前脚本的名称
-    script_name = os.path.basename(__file__)
+    # 获取工作目录和配置
+    work_dir, config = get_work_dir_and_config()
+    # 合并配置（假设有merge_config函数）
+    config["read_mlp_density"] = merge_config(
+        default_config=DEFAULT_CONFIG, user_config=config, key="read_mlp_density"
+    )
     # 调用主函数
-    main(script_name, args.work_dir, config)
+    main(os.path.basename(__file__), work_dir, config)
