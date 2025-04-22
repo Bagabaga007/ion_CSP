@@ -58,22 +58,26 @@ Dynamic: requires-python
 
 pip install -r requirements.txt
 
+pip install -e .
+
+chmod +x ./scripts/*.sh
+
 # 使用示例
 
+### 使用交互式功能自主选择
+./scripts/main.sh
+
 #### 使用经验评估（EE）模块从SMILES表格开始生成离子组合
-./scripts/main_EE.sh ./example_1
+./scripts/main_EE.sh examples/example_1
 
 
 #### 使用离子晶体结构预测（CSP）模块从离子组合开始生成晶体并筛选和优化
-./scripts/main_CSP.sh ./example_2
+./scripts/main_CSP.sh examples/example_2
 
 # 功能
-使用经验评估（EE）模块从SMILES表格开始生成离子组合
+使用经验评估（EE）模块从SMILES表格开始生成离子组合。
 
-使用离子晶体结构预测（CSP）模块从离子组合开始生成晶体并筛选和优化
-
-# 贡献
-请查看 CONTRIBUTING.md 以了解如何贡献。
+使用离子晶体结构预测（CSP）模块从离子组合开始生成晶体并筛选和优化。
 
 # 联系
 如有问题，请联系 yangze1995007@163.com。

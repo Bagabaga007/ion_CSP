@@ -42,6 +42,7 @@ src/run_read_mlp_density.py
 src/run_upload_download.py
 src/run_vasp_processing.py
 src/ion_CSP/__init__.py
+src/ion_CSP/app.py
 src/ion_CSP/convert_SMILES.py
 src/ion_CSP/empirical_estimate.py
 src/ion_CSP/gen_opt.py
