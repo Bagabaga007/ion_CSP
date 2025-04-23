@@ -62,14 +62,12 @@ class TaskManager:
         """任务执行器"""
         work_dir = Path(work_dir)
         work_dir.mkdir(exist_ok=True)
-        log_dir = work_dir / "logs"
-        log_dir.mkdir(exist_ok=True)
 
         console_log = work_dir / f"main_{module}_console.log"
         pid_file = work_dir / "pid.txt"
 
         # 启动子进程
-        cmd = ["python", "-m", f"src.main_{module.lower()}", str(work_dir)]
+        cmd = ["python", "-m", f"src.main_{module}", str(work_dir)]
 
         with open(console_log, "w") as f:
             process = subprocess.Popen(
@@ -88,15 +86,16 @@ class TaskManager:
             logging.error(f"Error writing PID file: {e}")
             process.terminate()
             return
-
         # 创建符号链接
-        log_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        std_log = self.log_base / f"{module.upper()}_{log_time}.log"
+        output_log = work_dir / f"main_{module}.py_output.log"
+        print(f"Original log file: {output_log}")
+        std_log = self.log_base / f"{module}_{process.pid}.log"
         try:
-            std_log.symlink_to(console_log)
+            std_log.symlink_to(output_log)
+            os.remove(pid_file)
         except FileExistsError:
             os.remove(std_log)
-            std_log.symlink_to(console_log)
+            std_log.symlink_to(output_log)
 
         logging.info(f"Started {module} module (PID: {process.pid})")
         print(f"Task started (PID: {process.pid})")
@@ -112,7 +111,7 @@ class TaskManager:
         except Exception as e:
             print(f"Error terminating process: {e}")
 
-    def view_logs(self):
+    def view_logs(self, page_size=10):
         """查看日志"""
         log_files = sorted(
             self.log_base.glob("**/*.log"), key=os.path.getmtime, reverse=True
@@ -120,36 +119,61 @@ class TaskManager:
         if not log_files:
             print("No logs found")
             return
+        total_files = len(log_files)
+        total_pages = (total_files + page_size - 1) // page_size  # 计算总页数
+        
+        current_page = 0
+        while True:
+            start_index = current_page * page_size
+            end_index = start_index + page_size
+            print("\nAvailable logs:")
 
-        print("\nAvailable logs:")
-        for i, f in enumerate(log_files[:10], 1):
-            print(
-                f"{i}) {f.name} ({datetime.fromtimestamp(f.stat().st_mtime).strftime('%Y-%m-%d %H:%M')})"
-            )
+            # 显示当前页的日志文件
+            for i, f in enumerate(log_files[start_index:end_index], start_index + 1):
+                print(
+                    f"{i}) {f.name} ({datetime.fromtimestamp(f.stat().st_mtime).strftime('%Y-%m-%d %H:%M')})"
+                )
 
-        choice = input("\nEnter log number to view (q to cancel): ")
-        if choice.isdigit() and 1 <= int(choice) <= len(log_files):
-            os.system(f"less {log_files[int(choice) - 1]}")
-        else:
-            print("Invalid selection")
+            print("\nPage {} of {}".format(current_page + 1, total_pages))
+            if current_page > 0:
+                print("Enter 'p' to go to the previous page.")
+            if current_page < total_pages - 1:
+                print("Enter 'n' to go to the next page.")
+            print("Enter log number to view (q to cancel): ")
+
+            choice = input().strip()
+            if choice.isdigit():
+                choice_index = int(choice) - 1
+                if 0 <= choice_index < total_files:
+                    os.system(f"less {log_files[choice_index]}")
+                else:
+                    print("Invalid selection")
+            elif choice == "n" and current_page < total_pages - 1:
+                current_page += 1
+            elif choice == "p" and current_page > 0:
+                current_page -= 1
+            elif choice == "q":
+                break
+            else:
+                print("Invalid command")
 
     def main_menu(self):
         """主菜单循环"""
         while True:
             os.system("clear" if os.name == "posix" else "cls")
-            print("=" * 50)
+            print("========== Task Execution System ==========")
             print(f"Current Environment: {self.env}")
             print(f"Current Directory: {self.workspace}")
             print(f"Log Base Directory: {self.log_base}")
             print("=" * 50)
             print("1) Run EE Module")
             print("2) Run CSP Module")
-            print("3) Terminate Task")
-            print("4) View Logs")
+            print("3) View Logs")
+            print("4) Terminate Task")
             print("q) Exit")
             print("=" * 50)
 
-            choice = input("Please select an operation: ").strip().lower()
+            choice = input("Please select one of the operation: ").strip()
             if choice == "1":
                 work_dir = input("Enter EE working directory: ").strip()
                 self.task_runner("EE", work_dir)
@@ -157,13 +181,13 @@ class TaskManager:
                 work_dir = input("Enter CSP working directory: ").strip()
                 self.task_runner("CSP", work_dir)
             elif choice == "3":
+                self.view_logs()
+            elif choice == "4":
                 pid = input("Enter PID to terminate: ").strip()
                 if pid.isdigit():
                     self.terminate_task(int(pid))
                 else:
                     print("Invalid PID format")
-            elif choice == "4":
-                self.view_logs()
             elif choice == "q":
                 print("Exiting system...")
                 sys.exit(0)

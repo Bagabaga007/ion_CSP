@@ -17,6 +17,7 @@ docs/example_usage_CSP.py
 docs/example_usage_EE.py
 docs/index.md
 docs/usage.md
+examples/example_usage.py
 model/model.pt
 model/options/README.md
 model/options/model.ckpt-4000000.pt
@@ -32,6 +33,7 @@ param/sub.sh
 scripts/main.sh
 scripts/main_CSP.sh
 scripts/main_EE.sh
+scripts/main_usage.py
 src/__init__.py
 src/main_CSP.py
 src/main_EE.py
