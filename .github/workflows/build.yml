@@ -1,0 +1,32 @@
+name: CI Build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.11]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Conda
+      uses: conda-incubator/setup-conda@v1
+      with:
+        auto-activate-base: false
+
+    - name: Create environment
+      run: |
+        conda env create -f environment.yml --name ion-csp-env
+        conda activate ion-csp-env
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install setuptools-scm
+
+    - name: Build package
+      run: |
+        python -m build
