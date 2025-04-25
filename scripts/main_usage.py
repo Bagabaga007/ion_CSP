@@ -1,6 +1,4 @@
-from ion_CSP.app import TaskManager
-
+from ion_CSP.task_manager import main
 
 if __name__ == "__main__":
-    manager = TaskManager()
-    manager.main_menu()
+    main()

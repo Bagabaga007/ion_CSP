@@ -5,6 +5,7 @@ CODE_OF_CONDUCT.md
 CONTRIBUTING.md
 Dockerfile
 LICENSE
+MANIFEST.in
 README.md
 makefile
 pyproject.toml
@@ -12,6 +13,7 @@ requirements.txt
 setup.cfg
 setup.py
 uv.lock
+.github/workflows/python-publish.yml
 .vscode/settings.json
 docs/example_usage_CSP.py
 docs/example_usage_EE.py
@@ -44,7 +46,7 @@ src/run_read_mlp_density.py
 src/run_upload_download.py
 src/run_vasp_processing.py
 src/ion_CSP/__init__.py
-src/ion_CSP/app.py
+src/ion_CSP/__main__.py
 src/ion_CSP/convert_SMILES.py
 src/ion_CSP/empirical_estimate.py
 src/ion_CSP/gen_opt.py
@@ -53,6 +55,7 @@ src/ion_CSP/log_and_time.py
 src/ion_CSP/mlp_opt.py
 src/ion_CSP/read_mlp_density.py
 src/ion_CSP/steps_opt_monitor.sh
+src/ion_CSP/task_manager.py
 src/ion_CSP/upload_download.py
 src/ion_CSP/vasp_processing.py
 src/ion_CSP.egg-info/PKG-INFO

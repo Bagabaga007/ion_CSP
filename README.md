@@ -1,33 +1,243 @@
-# 基于分子/离子构型的晶体结构设计软件 V2.0
+# Crystal Structure Design Software V2.0
 
-基于分子/离子构型的晶体结构设计软件可以从分子/离子构型出发，结合经验公式、微调的机器学习势、第一性原理分步优化以及分子/离子识别方法，可以高效且有导向地筛选同时满足结构要求和性质要求的分子/离子晶体结构。该软件实现了分子/离子晶体结构的设计、构建、分析、筛选、评估全流程的自动化与模块化，保证了流程的扩展性和可重用性，能够在保证结果精度的同时，显著提高材料筛选效率。在整个流程中提供了多种检查功能以及结果可视化功能，方便用户使用。该软件使用Python语言编写，提供了完整的面向对象编程支持，在具有较高运行效率的同时使程序更易于理解、扩展和维护。
+## 项目概述
+基于分子/离子构型的晶体结构设计软件通过结合经验公式、机器学习势函数微调、第一性原理分步优化和分子/离子识别技术，实现了从分子/离子构型出发的高效晶体结构筛选。该软件采用模块化设计，支持全流程自动化材料筛选，在保证预测精度的同时显著提升计算效率。
 
-# 安装
+## 功能特性
+### 核心功能
+- **双模块工作流**  
+  - **EE模块**：基于经验评估的离子组合生成  
+  - **CSP模块**：基于离子晶体结构预测的优化筛选  
+- **智能任务管理**  
+  - 实时进程监控（PID跟踪）
+  - 日志文件自动符号链接
+  - 进程安全终止与资源清理
+- **高级日志系统**  
+  - 分页浏览（10条/页）
+  - 模块过滤（CSP/EE）
+  - 软链接解析显示实际路径
 
-在项目根目录下使用以下命令安装依赖：
+### 技术特性
+- 跨平台支持（Linux/Docker）
+- 基于Python 3.11+的面向对象架构
+- 集成psutil进程管理
+- 结构化日志记录系统
 
-pip install -r requirements.txt
+## 安装指南
+### 环境要求
+| 组件        | 最低版本 |
+|-------------|----------|
+| Python      | 3.11     |
+| psutil      | 5.9      |
+| Docker      | 20.10    |
+| ase         | 3.23.0   |
+| deepmd-kit  | 3.0.1    |
+| torch       | 2.5.0    |
+| dpdispatcher| 0.6.7    |
+| numpy       | 1.26.4   |
+| paramiko    | 3.5.1    |
+| pyxtal      | 1.0.4    |
+| phonopy     | 2.28.0   |
+| rdkit       | 2023.03.3|
 
-pip install -e .
+### 安装步骤
+```bash
+# 创建虚拟环境
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
 
-chmod +x ./scripts/*.sh
+# 安装依赖
+pip install ion-csp
+```
 
-# 使用示例
+## 快速入门
+### 交互模式
+```bash
+ion-csp
+```
+启动交互式命令行界面，支持以下操作：
+- 模块选择
+- 日志查看
+- 进程管理
 
-### 使用交互式功能自主选择
-./scripts/main.sh
-
-#### 使用经验评估（EE）模块从SMILES表格开始生成离子组合
+### 脚本调用
+#### EE模块示例
+```bash
 ./scripts/main_EE.sh examples/example_1
+```
+从SMILES表格生成离子组合
 
-
-#### 使用离子晶体结构预测（CSP）模块从离子组合开始生成晶体并筛选和优化
+#### CSP模块示例
+```bash
 ./scripts/main_CSP.sh examples/example_2
+```
+从离子组合生成并优化晶体结构
 
-# 功能
-使用经验评估（EE）模块从SMILES表格开始生成离子组合。
+## 高级功能
+### 日志管理
+```bash
+# 查看日志（分页显示）
+./manage_logs.py view --module CSP
 
-使用离子晶体结构预测（CSP）模块从离子组合开始生成晶体并筛选和优化。
+# 过滤日志
+./manage_logs.py view --module CSP --pid 12345
+```
 
-# 联系
-如有问题，请联系 yangze1995007@163.com。
+### 进程控制
+```bash
+# 终止进程
+./manage_logs.py terminate --pid 12345
+
+# 批量终止
+./manage_logs.py terminate --module CSP
+```
+
+## 技术架构
+```mermaid
+graph TD
+    A[用户界面] --> B[任务管理器]
+    B --> C[EE模块]
+    B --> D[CSP模块]
+    B --> E[日志系统]
+    C --> F[经验评估引擎]
+    D --> G[晶体预测引擎]
+    E --> H[结构化日志]
+    H --> I[数据库]
+```
+
+## 贡献指南
+1. Fork仓库并创建特性分支
+2. 编写单元测试覆盖新功能
+3. 提交Pull Request时注明关联Issue
+4. 遵循PEP8代码规范
+
+## 许可证
+本项目采用MIT许可证，详见LICENSE文件。
+
+## 技术支持
+- **文档更新**：2025年4月
+- **最新版本**：v2.0.3
+- **问题追踪**：https://github.com/bagabaga007/ion_CSP/issues
+
+---
+
+# Crystal Structure Design Software V2.0
+
+## Project Overview
+This software enables efficient crystal structure screening from molecular/ion configurations by integrating empirical formulas, tuned machine learning potentials, stepwise first-principles optimization, and molecular/ion recognition techniques. The modular architecture ensures extensibility and maintainability while maintaining prediction accuracy.
+
+## Key Features
+### Core Functionalities
+- **Dual-Module Workflow**
+  - **EE Module**: Empirical evaluation-based ion combination generation
+  - **CSP Module**: Ion crystal structure prediction and optimization
+- **Intelligent Task Management**
+  - Real-time process monitoring (PID tracking)
+  - Automatic log file symlink creation
+  - Safe process termination with resource cleanup
+- **Advanced Logging System**
+  - Paginated log viewing (10 entries/page)
+  - Module-based filtering (CSP/EE)
+  - Symlink resolution for actual log paths
+
+### Technical Specifications
+- Cross-platform support (Linux/Docker)
+- Object-oriented architecture with Python 3.11+
+- Integrated process management via psutil
+- Structured logging system
+
+## Installation
+### Prerequisites
+| Component   | Min Version |
+|-------------|-------------|
+| Python      | 3.11     |
+| psutil      | 5.9      |
+| Docker      | 20.10    |
+| ase         | 3.23.0   |
+| deepmd-kit  | 3.0.1    |
+| torch       | 2.5.0    |
+| dpdispatcher| 0.6.7    |
+| numpy       | 1.26.4   |
+| paramiko    | 3.5.1    |
+| pyxtal      | 1.0.4    |
+| phonopy     | 2.28.0   |
+| rdkit       | 2023.03.3|
+
+### Installation Steps
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+
+# Install dependencies
+pip install ion-csp
+```
+
+## Quick Start
+### Interactive Mode
+```bash
+ion-csp
+```
+Launches CLI interface with:
+- Module selection
+- Log management
+- Process control
+
+### Script Execution
+#### EE Module Example
+```bash
+./scripts/main_EE.sh examples/example_1
+```
+Generates ion combinations from SMILES tables
+
+#### CSP Module Example
+```bash
+./scripts/main_CSP.sh examples/example_2
+```
+Optimizes crystal structures from ion combinations
+
+## Advanced Features
+### Log Management
+```bash
+# View logs with pagination
+./manage_logs.py view --module CSP
+
+# Filter logs by PID
+./manage_logs.py view --module CSP --pid 12345
+```
+
+### Process Control
+```bash
+# Terminate specific process
+./manage_logs.py terminate --pid 12345
+
+# Batch termination
+./manage_logs.py terminate --module CSP
+```
+
+## Technical Architecture
+```mermaid
+graph TD
+    A[User Interface] --> B[Task Manager]
+    B --> C[EE Module]
+    B --> D[CSP Module]
+    B --> E[Log System]
+    C --> F[Empirical Evaluation Engine]
+    D --> G[Crystal Prediction Engine]
+    E --> H[Structured Logs]
+    H --> I[Database]
+```
+
+## Contribution Guide
+1. Fork repository and create feature branch
+2. Write unit tests for new features
+3. Submit PR with issue reference
+4. Follow PEP8 coding standards
+
+## License
+MIT License, see LICENSE file.
+
+## Support
+- Documentation last updated: April 2025
+- Latest version: v2.0.3
+- Issue tracker: https://github.com/bagabaga007/ion_CSP/issues

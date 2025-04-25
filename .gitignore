@@ -32,4 +32,4 @@ slurm-*.out
 server_config
 *.yaml
 model_ori.pt
-yz_opt/
+logs/*

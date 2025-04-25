@@ -1,5 +1,5 @@
 [build-system]
-requires = [ "setuptools", "setuptools-scm" ]
+requires = [ "setuptools", "setuptools-scm", "wheel" ]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,13 +11,12 @@ authors = [
 ]
 description = "Crystal Structure Design Software Based on Molecular/Ionic Configuration."
 readme = "README.md"
-requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+requires-python = ">=3.11"
 dependencies = [
     "ase==3.23.0",
     "deepmd-kit==3.0.1",
@@ -33,4 +32,4 @@ dependencies = [
 [tool.setuptools_scm]
 
 [project.scripts]
-gen_opt = "scripts.gen_opt:main"
+ion-csp = "ion_CSP.task_manager:main"

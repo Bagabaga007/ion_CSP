@@ -1,2 +1,2 @@
 [console_scripts]
-gen_opt = scripts.gen_opt:main
+ion-csp = ion_CSP.task_manager:main
