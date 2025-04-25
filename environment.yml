@@ -2,6 +2,8 @@ name: ion-csp-env
 channels:
   - conda-forge
   - defaults
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda
 dependencies:
   - python=3.11
   - pip
@@ -9,8 +11,10 @@ dependencies:
   - wheel
   - setuptools-scm
   - ase=3.23.0
+  - pip:
+    - torch==2.5.0
+    - torchvision==0.15.0
   - deepmd-kit=3.0.1
-  - torch=2.5.0
   - dpdispatcher=0.6.7
   - numpy=1.26.4
   - paramiko=3.5.1
