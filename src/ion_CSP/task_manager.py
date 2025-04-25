@@ -5,6 +5,7 @@ import time
 import psutil
 import logging
 import subprocess
+import importlib.util
 from pathlib import Path
 from datetime import datetime
 
@@ -317,12 +318,19 @@ class TaskManager:
             )
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
-
+        
+    def get_version(self):
+        spec = importlib.util.spec_from_file_location("ion_CSP", "src/__init__.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.__version__
+    
     def main_menu(self):
         """主菜单循环 - Main menu loop"""
         while True:
             os.system("clear" if os.name == "posix" else "cls")
             print("========== Task Execution System ==========")
+            print(f'Current Version: {self.get_version()}')
             print(f"Current Environment: {self.env}")
             print(f"Current Directory: {self.workspace}")
             print(f"Log Base Directory: {self.log_base}")
