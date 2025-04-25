@@ -17,5 +17,5 @@ dependencies:
   - pip:
     - torch==2.5.0
     - torchvision==0.15.0
-    - deepmd-kit=3.0.1
-    - dpdispatcher=0.6.7
+    - deepmd-kit==3.0.1
+    - dpdispatcher==0.6.7
