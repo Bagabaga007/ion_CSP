@@ -75,12 +75,12 @@ def molecules_information(molecules: List[Dict[str, int]], molecules_flag: bool,
         output = []
         for element in fixed_order:
             if element in molecule:
-                output.append(f"{element} {molecule[element]}") 
+                output.append(f"{element}{molecule[element]}") 
         # 如果有其他元素，添加到输出中
         for element in molecule:
             if element not in fixed_order:
-                output.append(f"{element} {molecule[element]}")
-        formatted_output =  ' '.join(output)
+                output.append(f"{element}{molecule[element]}")
+        formatted_output = ''.join(output)
         logging.info(f'  Molecule {idx + 1} (Total Atoms: {total_atoms}, Count: {count}): {formatted_output}')
     if molecules_flag:
         logging.info('Molecular Comparison Successful\n')

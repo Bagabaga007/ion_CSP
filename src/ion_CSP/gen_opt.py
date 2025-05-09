@@ -238,7 +238,7 @@ class CrystalGenerator:
             # 如果在本地运行作业，则只在后续创建一级目录
             parent = ""
             # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
-            selected_gpu = wait_for_gpu(memory_percent_threshold=30, wait_time=300)
+            selected_gpu = wait_for_gpu(memory_percent_threshold=40, wait_time=600)
             os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
 
         from dpdispatcher import Resources, Task, Submission

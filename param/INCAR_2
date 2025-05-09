@@ -4,7 +4,7 @@ PREC = Accurate
 ENCUT = 800
 EDIFF = 1e-6
 IBRION = 2 
-ISIF = 3 
+ISIF = 8 
 NSW = 300  # 200
 ISMEAR = 0 ; SIGMA = 0.05 
 POTIM = 0.05 
@@ -16,4 +16,4 @@ LWAVE = FALSE
 #Finer optimization 
 EDIFFG = -0.02
 KSPACING = 0.5
-IVDW = 11
+IVDW = 12

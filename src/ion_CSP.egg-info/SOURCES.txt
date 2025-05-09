@@ -7,12 +7,15 @@ Dockerfile
 LICENSE
 MANIFEST.in
 README.md
+environment.yml
 makefile
 pyproject.toml
 requirements.txt
 setup.cfg
 setup.py
 uv.lock
+.github/workflows/build.yml
+.github/workflows/python-package-conda.yml
 .github/workflows/python-publish.yml
 .vscode/settings.json
 docs/example_usage_CSP.py
@@ -32,10 +35,10 @@ param/POTCAR_N
 param/POTCAR_O
 param/g16_sub.sh
 param/sub.sh
-scripts/main.sh
 scripts/main_CSP.sh
 scripts/main_EE.sh
 scripts/main_usage.py
+scripts/main_usage.sh
 src/__init__.py
 src/main_CSP.py
 src/main_EE.py
@@ -65,6 +68,4 @@ src/ion_CSP.egg-info/entry_points.txt
 src/ion_CSP.egg-info/requires.txt
 src/ion_CSP.egg-info/top_level.txt
 tests/__init__.py
-tests/example.txt
-tests/test.py
-tests/test_main.py
+tests/test_task_manager.py

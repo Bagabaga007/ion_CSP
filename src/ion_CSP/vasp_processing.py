@@ -245,8 +245,8 @@ class VaspProcessing:
                     packing_coefficient = round(
                         molecular_volumes / fine_atoms_volume, 4
                     )
-                except FileNotFoundError:
-                    raise
+                except (FileNotFoundError, UnboundLocalError):
+                    packing_coefficient = False
 
                 mlp_energies.append(mlp_energy)
                 rough_densities.append(rough_density)

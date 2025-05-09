@@ -21,6 +21,7 @@ jobs:
     - name: Create environment
       run: |
         conda env create -f environment.yml --name ion-csp-env
+        conda init
         conda activate ion-csp-env
 
     - name: Install dependencies

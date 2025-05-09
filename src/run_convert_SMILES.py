@@ -1,8 +1,6 @@
 import os
-import yaml
-import argparse
-from ion_CSP.log_and_time import log_and_time
 from ion_CSP.convert_SMILES import SmilesProcessing
+from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_config
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -42,22 +40,11 @@ def main(work_dir, config):
     )
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="The conversion from SMILES to .gjf files")
-    parser.add_argument("work_dir", type=str, help="The working directory to run the script in")
-    args = parser.parse_args()
-    # 尝试读取配置文件
-    try:
-        with open(os.path.join(args.work_dir, "config.yaml"), "r") as file:
-            config = yaml.safe_load(file)
-    except FileNotFoundError:
-        print(f"config.yaml not found in {args.work_dir}.")
-        raise
-    # 合并默认配置与读取的配置
-    config["convert_SMILES"] = {
-        **DEFAULT_CONFIG["convert_SMILES"],
-        **config.get("convert_SMILES", {}),
-    }
-    # 获取当前脚本的名称
-    script_name = os.path.basename(__file__)
+    # 获取工作目录和配置
+    work_dir, config = get_work_dir_and_config()
+    # 合并配置（假设有merge_config函数）
+    config["convert_SMILES"] = merge_config(
+        default_config=DEFAULT_CONFIG, user_config=config, key="convert_SMILES"
+    )
     # 调用主函数
-    main(script_name, args.work_dir, config)
+    main(os.path.basename(__file__), work_dir, config)
