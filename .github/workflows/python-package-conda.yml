@@ -20,7 +20,16 @@ jobs:
         echo $CONDA/bin >> $GITHUB_PATH
     - name: Install dependencies
       run: |
-        conda env update --file environment.yml --name base
+        conda env update --file environment.yml --name ion-csp-env
+        conda init
+        conda activate ion-csp-env
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install setuptools-scm
+    - name: Build package
+      run: |
+        python -m build
     - name: Lint with flake8
       run: |
         conda install flake8

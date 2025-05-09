@@ -58,7 +58,7 @@ def test_terminate_task_cleanup(task_manager, monkeypatch):
 
 
 def test_pagination_in_view_logs(task_manager, monkeypatch):
-    """分页功能增强测试"""
+    """分页功能测试"""
     # 创建测试文件（确保文件名格式统一）
     test_files = []
     mock_stats = []
