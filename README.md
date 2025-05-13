@@ -32,13 +32,13 @@
 | Docker      | 20.10    |
 | ase         | 3.23.0   |
 | deepmd-kit  | 3.0.1    |
-| torch       | 2.5.0    |
+| torch       | 2.6.0    |
 | dpdispatcher| 0.6.7    |
 | numpy       | 1.26.4   |
 | paramiko    | 3.5.1    |
 | pyxtal      | 1.0.4    |
 | phonopy     | 2.28.0   |
-| rdkit       | 2023.03.3|
+| rdkit       | 2024.03.3|
 
 ### 安装步骤
 ```bash
@@ -137,13 +137,13 @@ This software enables efficient crystal structure screening from molecular/ion c
 | Docker      | 20.10    |
 | ase         | 3.23.0   |
 | deepmd-kit  | 3.0.1    |
-| torch       | 2.5.0    |
+| torch       | 2.6.0    |
 | dpdispatcher| 0.6.7    |
 | numpy       | 1.26.4   |
 | paramiko    | 3.5.1    |
 | pyxtal      | 1.0.4    |
 | phonopy     | 2.28.0   |
-| rdkit       | 2023.03.3|
+| rdkit       | 2024.03.3|
 
 ### Installation Steps
 ```bash

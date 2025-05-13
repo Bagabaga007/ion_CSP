@@ -14,31 +14,35 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: '3.11'
-    - name: Install Miniconda
+
+    - name: Set up conda
       uses: conda-incubator/setup-miniconda@v3
       with:
-        auto-update-conda: true
-        miniforge-variant: Mambaforge  # 或者使用 Miniconda
-        python-version: 3.11
-        activate-environment: base  # 这里可以指定默认环境
-        environment-file: environment.yml
+        auto-activate-base: false
         channels: conda-forge,defaults
+
+    - name: Create environment
+      run: |
+        conda env create -f environment.yml --name ion-csp-env
+
     - name: Install dependencies
       run: |
-        conda activate ion-csp-env
-        pip install -r requirements.txt
-        pip install setuptools-scm
-        pip install build
+        conda run --name ion-csp-env pip install -r requirements.txt
+        conda run --name ion-csp-env pip install setuptools-scm
+        conda run --name ion-csp-env pip install build
+
     - name: Build package
       run: |
         conda activate ion-csp-env
         python -m build
+
     - name: Lint with flake8
       run: |
         conda activate ion-csp-env
         conda install -y flake8
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        
     - name: Test with pytest
       run: |
         conda activate ion-csp-env
