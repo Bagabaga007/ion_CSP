@@ -125,7 +125,7 @@ class TaskManager:
     def _display_tasks(self, tasks, total, current_page, total_pages, function):
         """标准化任务显示 - Standardized tasks display"""
         display = "logs" if function == "view" else "tasks" 
-        print(f"\033cPage {current_page}/{total_pages} ({total} {display})")
+        print(f"\033cPage {current_page}/{total_pages} ({total} {display})\n")
         if function == "kill":
             for i, task in enumerate(tasks, 1):
                 print(
@@ -138,11 +138,11 @@ class TaskManager:
                 )
         else:
             raise ValueError(f"Not supported function {function}. Available function: 'view' and 'kill' ")
-        print("\nPage {} of {}".format(current_page, total_pages))
         # 分页控制
         print("\nOptions:")
         if function == "view":
             print("n) Next page | p) Previous page | f) Filter | q) Quit")
+            print("Enter number to view log in detail")
         elif function == "kill":
             print("n) Next page | p) Previous page | f) Filter | k) Kill | q) Quit")
         else:
@@ -171,10 +171,11 @@ class TaskManager:
             elif function == "kill" and choice == "K":
                 try:
                     task_num = input("Enter task number to kill: ").strip()
-                    if not task_num.isdigit():
+                    if task_num.isdigit() and 1 <= int(task_num) <= 10:
+                        # 计算全局任务索引
+                        global_index = current_page * 10 + (int(task_num) - 1)
+                    else: 
                         raise ValueError
-                    # 计算全局任务索引
-                    global_index = current_page * 10 + (int(task_num) - 1)
                     if 0 <= global_index < len(tasks):
                         selected_index = global_index
                         confirm = input(
@@ -189,10 +190,10 @@ class TaskManager:
                     else:
                         print("Invalid task number")
                         input("\nPress Enter to continue...")
-                except ValueError:
+                except (ValueError, TypeError):
                     print("Please enter a valid number")
                     input("\nPress Enter to continue...")
-            elif function == "view" and choice.isdigit():
+            elif function == "view" and choice.isdigit() and 1<= int(choice) <=10:
                 # 计算全局任务索引
                 global_index = current_page * 10 + (int(choice) - 1)
                 if 0 <= global_index < len(tasks):

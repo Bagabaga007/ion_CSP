@@ -14,30 +14,32 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: '3.11'
-    - name: Add conda to system path
-      run: |
-        # $CONDA is an environment variable pointing to the root of the miniconda directory
-        echo $CONDA/bin >> $GITHUB_PATH
+    - name: Install Miniconda
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        miniforge-variant: Mambaforge  # 或者使用 Miniconda
+        python-version: 3.11
+        activate-environment: base  # 这里可以指定默认环境
+        environment-file: environment.yml
     - name: Install dependencies
       run: |
-        conda env update --file environment.yml --name ion-csp-env
-        conda init
+        # 这里可以直接用 conda 来激活环境
         conda activate ion-csp-env
-    - name: Install dependencies
-      run: |
         pip install -r requirements.txt
         pip install setuptools-scm
     - name: Build package
       run: |
+        conda activate ion-csp-env
         python -m build
     - name: Lint with flake8
       run: |
-        conda install flake8
-        # stop the build if there are Python syntax errors or undefined names
+        conda activate ion-csp-env
+        conda install -y flake8
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        conda install pytest
+        conda activate ion-csp-env
+        conda install -y pytest
         pytest
