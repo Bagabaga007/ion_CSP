@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, Mock
 from ion_CSP.task_manager import TaskManager
 
+
 @pytest.fixture(scope="session", autouse=True)
 def set_working_directory():
     """设置工作目录为项目根目录"""

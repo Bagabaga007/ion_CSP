@@ -73,25 +73,6 @@ ion-csp
 ```
 从离子组合生成并优化晶体结构
 
-## 高级功能
-### 日志管理
-```bash
-# 查看日志（分页显示）
-./manage_logs.py view --module CSP
-
-# 过滤日志
-./manage_logs.py view --module CSP --pid 12345
-```
-
-### 进程控制
-```bash
-# 终止进程
-./manage_logs.py terminate --pid 12345
-
-# 批量终止
-./manage_logs.py terminate --module CSP
-```
-
 ## 技术架构
 ```mermaid
 graph TD
@@ -99,10 +80,11 @@ graph TD
     B --> C[EE模块]
     B --> D[CSP模块]
     B --> E[日志系统]
-    C --> F[经验评估引擎]
-    D --> G[晶体预测引擎]
-    E --> H[结构化日志]
-    H --> I[数据库]
+    B --> F[任务调度]
+    C --> G[经验评估引擎]
+    D --> H[晶体预测引擎]
+    E --> I[结构化日志]
+    F --> J[进程终止]
 ```
 
 ## 贡献指南
@@ -115,8 +97,8 @@ graph TD
 本项目采用MIT许可证，详见LICENSE文件。
 
 ## 技术支持
-- **文档更新**：2025年4月
-- **最新版本**：v2.0.3
+- **文档更新**：2025年5月
+- **最新版本**：v2.0.4
 - **问题追踪**：https://github.com/bagabaga007/ion_CSP/issues
 
 ---
@@ -196,25 +178,6 @@ Generates ion combinations from SMILES tables
 ```
 Optimizes crystal structures from ion combinations
 
-## Advanced Features
-### Log Management
-```bash
-# View logs with pagination
-./manage_logs.py view --module CSP
-
-# Filter logs by PID
-./manage_logs.py view --module CSP --pid 12345
-```
-
-### Process Control
-```bash
-# Terminate specific process
-./manage_logs.py terminate --pid 12345
-
-# Batch termination
-./manage_logs.py terminate --module CSP
-```
-
 ## Technical Architecture
 ```mermaid
 graph TD
@@ -222,10 +185,11 @@ graph TD
     B --> C[EE Module]
     B --> D[CSP Module]
     B --> E[Log System]
-    C --> F[Empirical Evaluation Engine]
-    D --> G[Crystal Prediction Engine]
-    E --> H[Structured Logs]
-    H --> I[Database]
+    B --> F[Task Scheduler]
+    C --> G[Empirical Evaluation Engine]
+    D --> H[Crystal Prediction Engine]
+    E --> I[Structured Logs]
+    F --> J[Process Termination]
 ```
 
 ## Contribution Guide
@@ -238,6 +202,6 @@ graph TD
 MIT License, see LICENSE file.
 
 ## Support
-- Documentation last updated: April 2025
-- Latest version: v2.0.3
+- Documentation last updated: May 2025
+- Latest version: v2.0.4
 - Issue tracker: https://github.com/bagabaga007/ion_CSP/issues

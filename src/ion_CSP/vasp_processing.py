@@ -224,7 +224,7 @@ class VaspProcessing:
                     logging.error(
                         f"  Unfinished fine optimization job of CONTCAR_{mlp_density}_{number}"
                     )
-                    fine_density, fine_energy = False, False
+                    fine_density, fine_energy, molecules_flag = False, False, False
 
                 # 读取根目录下的 config.yaml 信息与对应的 .json 文件
                 config_path = os.path.join(self.base_dir, "config.yaml")

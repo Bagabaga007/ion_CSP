@@ -1,4 +1,5 @@
 import os
+import csv
 import shutil
 import logging
 import subprocess
@@ -76,21 +77,60 @@ class ReadMlpDensity:
             os.makedirs(backup_dir, exist_ok=True)
             for item in os.listdir(self.max_density_dir):
                 shutil.move(os.path.join(self.max_density_dir, item), os.path.join(backup_dir, item))
-        
+        numbers, mlp_densities, mlp_energies = [], [], []
         os.makedirs(self.max_density_dir, exist_ok=True)
         for density, CONTCAR_filename in sorted_filename[:n_screen]:
             # 生成新的包含密度值的文件名，并重命名文件
             # 密度转换为字符串，保留4位小数
             density_str = f'{density:.4f}'
+            mlp_densities.append(density_str)
             # 保留 CONTCAR 的序数信息，方便回推检查
             number = CONTCAR_filename.split("_")[1]
+            numbers.append(number)
             OUTCAR_filename = f'OUTCAR_{number}'
+            try:
+                with open(f"{self.folder_dir}/OUTCAR_{number}") as mlp_out:
+                    lines = mlp_out.readlines()
+                    for line in lines:
+                        if "TOTEN" in line:
+                            values = line.split()
+                            mlp_energy = round(float(values[-2]), 2)
+            except FileNotFoundError:
+                logging.error(
+                    f"  No avalible MLP OUTCAR_{number} found"
+                )
+                mlp_energy = False
+            mlp_energies.append(mlp_energy)
             new_CONTCAR_filename = f'CONTCAR_{density_str}_{number}'
             new_OUTCAR_filename = f'OUTCAR_{density_str}_{number}'
             shutil.copy(f'{self.folder_dir}/{CONTCAR_filename}', f'{self.max_density_dir}/{new_CONTCAR_filename}')
             shutil.copy(f'{self.folder_dir}/{OUTCAR_filename}', f'{self.max_density_dir}/{new_OUTCAR_filename}')
             print(f'New CONTCAR and OUTCAR of {density_str}_{number} are renamed and saved')
             logging.info(f'New CONTCAR and OUTCAR of {density_str}_{number} are renamed and saved')
+
+        with open(
+            f"{self.max_density_dir}/mlp_density_energy.csv",
+            "w",
+            newline="",
+            encoding="utf-8",
+        ) as csv_file:
+            writer = csv.writer(csv_file)
+            header = [
+                "Number",
+                "MLP_E",
+                "MLP_Density",
+            ]
+            datas = list(
+                zip(
+                    numbers,
+                    mlp_energies,
+                    mlp_densities,
+                )
+            )
+            datas.sort(key=lambda x: -float(x[-1]))
+            writer.writerow(header)
+            for data in datas:
+                writer.writerow(data)
 
     def phonopy_processing_max_density(self, specific_directory :str = None):
         """
@@ -127,14 +167,18 @@ class ReadMlpDensity:
                 # 复制对应的OUTCAR文件到primitive_cell目录下
                 density_number = new_CONTCAR_filename.split("CONTCAR_")[1]
                 new_OUTCAR_filename = f'OUTCAR_{density_number}'
-                shutil.copy(f'{self.max_density_dir}/{new_OUTCAR_filename}', f'{self.primitive_cell_dir}/{new_OUTCAR_filename}')
+                shutil.copy(f'{self.phonopy_dir}/{new_OUTCAR_filename}', f'{self.primitive_cell_dir}/{new_OUTCAR_filename}')
+            shutil.copy(
+                f"{self.phonopy_dir}/mlp_density_energy.csv",
+                f"{self.primitive_cell_dir}/mlp_density_energy.csv",
+            )
             for_vasp_opt_dir = os.path.join(self.base_dir, '3_for_vasp_opt')
             if os.path.exists(for_vasp_opt_dir):
                 shutil.rmtree(for_vasp_opt_dir)
             shutil.copytree(self.primitive_cell_dir, for_vasp_opt_dir)
             logging.info('The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder.\nThe output content of phonopy has been saved to the phonopy.log file in the same directory.')
             # 在 phonopy 成功进行对称化处理后，删除 2_mlp_optimized/max_density 文件夹以节省空间
-            shutil.rmtree(self.max_density_dir)
+            shutil.rmtree(self.phonopy_dir)
         except FileNotFoundError:
             logging.error(
                 "There are no CONTCAR structure files after screening.\nPlease check if the ions correspond to the crystals and adjust the screening criteria"

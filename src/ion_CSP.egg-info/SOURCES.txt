@@ -7,6 +7,7 @@ Dockerfile
 LICENSE
 MANIFEST.in
 README.md
+SECURITY.md
 environment.yml
 makefile
 pyproject.toml
@@ -68,4 +69,5 @@ src/ion_CSP.egg-info/entry_points.txt
 src/ion_CSP.egg-info/requires.txt
 src/ion_CSP.egg-info/top_level.txt
 tests/__init__.py
+tests/test1_task_manager1.py
 tests/test_task_manager.py
