@@ -26,6 +26,7 @@ jobs:
       run: |
         conda run --name ion-csp-env pip install -r requirements.txt
         conda run --name ion-csp-env pip install setuptools-scm
+        conda run --name ion-csp-env pip install build
 
     - name: Build package
       run: |

@@ -15,19 +15,20 @@ jobs:
       with:
         python-version: '3.11'
     - name: Install Miniconda
-      uses: conda-incubator/setup-miniconda@v2
+      uses: conda-incubator/setup-miniconda@v3
       with:
         auto-update-conda: true
         miniforge-variant: Mambaforge  # 或者使用 Miniconda
         python-version: 3.11
         activate-environment: base  # 这里可以指定默认环境
         environment-file: environment.yml
+        channels: conda-forge,defaults
     - name: Install dependencies
       run: |
-        # 这里可以直接用 conda 来激活环境
         conda activate ion-csp-env
         pip install -r requirements.txt
         pip install setuptools-scm
+        pip install build
     - name: Build package
       run: |
         conda activate ion-csp-env
