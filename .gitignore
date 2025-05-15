@@ -33,3 +33,6 @@ server_config
 *.yaml
 model_ori.pt
 logs/*
+dist/*
+*.tar.gz
+*.whl

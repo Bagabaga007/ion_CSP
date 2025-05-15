@@ -256,6 +256,8 @@ class TaskManager:
             os.remove(std_log)
             std_log.symlink_to(output_log)
 
+        print('Starting task ......')
+        time.sleep(6)
         logging.info(f"Started {module} module (PID: {process.pid})")
         print(f"Task started (PID: {process.pid})")
         print(f"Normalized log file: {std_log}")
@@ -367,7 +369,7 @@ class TaskManager:
             print("q) Exit")
             print("=" * 50)
 
-            choice = input("Please enter operation: ").strip().lower()
+            choice = input("Please select an operation: ").strip().lower()
             if choice == "1":
                 work_dir = input("Enter EE working directory: ").strip()
                 self.task_runner("EE", work_dir)
