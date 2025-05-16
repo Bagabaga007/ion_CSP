@@ -34,8 +34,8 @@ jobs:
     - name: Build package
       run: |
         conda run --name ion-csp-env python -m build
+        conda run --name ion-csp-env pip install -e .
   
     - name: Test with pytest
       run: |
-        conda run --name ion-csp-env conda install -y pytest
         conda run --name ion-csp-env pytest
