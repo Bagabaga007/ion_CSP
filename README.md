@@ -98,7 +98,7 @@ graph TD
 
 ## 技术支持
 - **文档更新**：2025年5月
-- **最新版本**：v2.0.4
+- **最新版本**：v2.0.8
 - **问题追踪**：https://github.com/bagabaga007/ion_CSP/issues
 
 ---
@@ -203,5 +203,5 @@ MIT License, see LICENSE file.
 
 ## Support
 - Documentation last updated: May 2025
-- Latest version: v2.0.4
+- Latest version: v2.0.8
 - Issue tracker: https://github.com/bagabaga007/ion_CSP/issues
