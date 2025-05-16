@@ -38,4 +38,4 @@ jobs:
     - name: Test with pytest
       run: |
         conda run --name ion-csp-env conda install -y pytest
-        pytest
+        conda run --name ion-csp-env pytest
