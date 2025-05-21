@@ -47,7 +47,9 @@ python -m venv venv
 source venv/bin/activate  # Linux/Mac
 
 # 安装依赖
-pip install ion-csp
+git clone https://github.com/Bagabaga007/ion_CSP.git
+cd ion_CSP
+pip install -e .
 ```
 
 ## 快速入门
@@ -98,7 +100,7 @@ graph TD
 
 ## 技术支持
 - **文档更新**：2025年5月
-- **最新版本**：v2.0.8
+- **最新版本**：v2.0.9
 - **问题追踪**：https://github.com/bagabaga007/ion_CSP/issues
 
 ---
@@ -152,7 +154,9 @@ python -m venv venv
 source venv/bin/activate  # Linux/Mac
 
 # Install dependencies
-pip install ion-csp
+git clone https://github.com/Bagabaga007/ion_CSP.git
+cd ion_CSP
+pip install -e .
 ```
 
 ## Quick Start
@@ -203,5 +207,5 @@ MIT License, see LICENSE file.
 
 ## Support
 - Documentation last updated: May 2025
-- Latest version: v2.0.8
+- Latest version: v2.0.9
 - Issue tracker: https://github.com/bagabaga007/ion_CSP/issues
