@@ -19,11 +19,11 @@ def main(work_dir, config):
         task.set_running()
         result = VaspProcessing(work_dir=work_dir)
         # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
-        result.dpdisp_vasp_tasks(
-            machine=config["vasp_processing"]["machine"],
-            resources=config["vasp_processing"]["resources"],
-            nodes=config["vasp_processing"]["nodes"],
-        )
+        # result.dpdisp_vasp_tasks(
+        #     machine=config["vasp_processing"]["machine"],
+        #     resources=config["vasp_processing"]["resources"],
+        #     nodes=config["vasp_processing"]["nodes"],
+        # )
         # 批量读取 VASP 分步优化的输出文件，并将能量和密度等结果保存到目录中的相应CSV文件
         result.read_vaspout_save_csv(config["vasp_processing"]["molecules_prior"])
         task.set_success()

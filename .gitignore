@@ -31,6 +31,8 @@ OUTCAR_*
 slurm-*.out
 server_config
 *.yaml
+!simple_config.yaml
+!complete_config.yaml
 model_ori.pt
 logs/*
 dist/*

@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
         "target_dir": "",  # 默认目标目录
         "num_combos": 100,  # 默认组合数量
         "ion_numbers": [],  # 默认离子数量
+        "update": True,  # 默认每次运行都会更新组合文件夹
     },
     "gen_opt": {
         "num_per_group": 500,  # 每个空间群要生成的晶体结构数量

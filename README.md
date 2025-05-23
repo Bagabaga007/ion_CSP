@@ -1,7 +1,7 @@
 # Crystal Structure Design Software V2.0
 
 ## 项目概述
-基于分子/离子构型的晶体结构设计软件通过结合经验公式、机器学习势函数微调、第一性原理分步优化和分子/离子识别技术，实现了从分子/离子构型出发的高效晶体结构筛选。该软件采用模块化设计，支持全流程自动化材料筛选，在保证预测精度的同时显著提升计算效率。
+基于分子/离子构型的晶体结构设计软件通过结合经验公式、机器学习势函数微调、第一性原理分步优化和分子/离子识别技术，实现了从分子/离子构型出发的高效晶体结构设计。该软件采用模块化设计，支持全流程自动化材料筛选，在保证预测精度的同时显著提升计算效率。
 
 ## 功能特性
 ### 核心功能
@@ -100,15 +100,15 @@ graph TD
 
 ## 技术支持
 - **文档更新**：2025年5月
-- **最新版本**：v2.0.9
+- **最新版本**：v2.1.0
 - **问题追踪**：https://github.com/bagabaga007/ion_CSP/issues
 
 ---
 
-# Crystal Structure Design Software V2.0
+# Crystal Structure Design Software V2.1
 
 ## Project Overview
-This software enables efficient crystal structure screening from molecular/ion configurations by integrating empirical formulas, tuned machine learning potentials, stepwise first-principles optimization, and molecular/ion recognition techniques. The modular architecture ensures extensibility and maintainability while maintaining prediction accuracy.
+This software enables efficient crystal structure design from molecular/ion configurations by integrating empirical formulas, tuned machine learning potentials, stepwise first-principles optimization, and molecular/ion recognition techniques. The modular architecture ensures extensibility and maintainability while maintaining prediction accuracy.
 
 ## Key Features
 ### Core Functionalities
@@ -207,5 +207,5 @@ MIT License, see LICENSE file.
 
 ## Support
 - Documentation last updated: May 2025
-- Latest version: v2.0.9
+- Latest version: v2.1.0
 - Issue tracker: https://github.com/bagabaga007/ion_CSP/issues

@@ -1,0 +1,21 @@
+convert_SMILES:
+  csv_file: 'ions.csv'         # 离子数据集csv文件名
+  machine: '/your/cpu/machine/config/path'       # 进行Gaussian优化计算的机器参数
+  resources: '/your/cpu/resources/config/path'   # 进行Gaussian优化计算的资源参数
+  nodes: 2                                       # 占用CPU节点数
+  
+empirical_estimate:
+  folders: ['charge_-1', 'charge_2']  # 工作目录下存放各离子的文件夹名
+  ratios: [2, 1]               # 要用于经验公式预测密度的离子配比
+  sort_by: 'nitrogen'          # 对离子组合的排序依据，目前只有密度（density）与氮含量（nitrogen）
+  ion_numbers: [4, 2]          # 在对应的文件夹中生成config.yaml中的gen_opt所需的参数
+
+gen_opt:
+  machine: '/your/gpu/machine/config/path'       # 进行机器学习势优化计算的机器参数，建议GPU
+  resources: '/your/gpu/resources/config/path'   # 进行机器学习势优化计算的资源参数
+  nodes: 1                                       # 占用GPU节点数
+
+vasp_processing:
+  machine: '/your/cpu/machine/config/path'       # 进行VASP分步优化计算的机器参数
+  resources: '/your/cpu/resources/config/path'   # 进行VASP分步优化计算的资源参数
+  nodes: 2                                       # 占用CPU节点数

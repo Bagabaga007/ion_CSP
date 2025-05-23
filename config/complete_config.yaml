@@ -1,0 +1,38 @@
+convert_SMILES:
+  csv_file: 'ions.csv'          # 离子数据集csv文件名
+  screen: True                  # 是否要额外进行筛选
+  charge_screen: -1             # 对于电荷的筛选
+  group_screen: '[N+](=O)[O-]'  # 对于官能团SMILES码的筛选
+  group_screen_invert: False    # 对官能团的反选与否，默认为否
+  group_name: 'nitro'           # 自定义官能团的名字
+  machine: '/your/cpu/machine/config/path'       # 进行Gaussian优化计算的机器参数
+  resources: '/your/cpu/resources/config/path'   # 进行Gaussian优化计算的资源参数
+  nodes: 2                                       # 占用CPU节点数
+  
+empirical_estimate:
+  folders: ['charge_-1', 'charge_2']  # 工作目录下存放各离子的文件夹名
+  ratios: [2, 1]               # 要用于经验公式预测密度的离子配比
+  sort_by: 'density'           # 对离子组合的排序依据，目前只有密度（density）与氮含量（nitrogen）
+  make_combo_dir: True         # 是否根据密度排序生成对应组合文件夹（包含gjf文件）
+  target_dir: '../2_density_combos'     # 生成组合文件夹的目标目录
+  num_combos: 50              # 要生成文件夹的组合个数
+  ion_numbers: [4, 2]          # 在对应的文件夹中生成config.yaml中的gen_opt所需的参数
+  update: True                 # 默认每次运行都会更新组合文件夹
+
+gen_opt:
+  num_per_group: 10                             # 每个空间群要生成的晶体结构数量
+  space_groups_limit: 15                         # 空间群搜索的限制
+  machine: '/your/gpu/machine/config/path'       # 进行机器学习势优化计算的机器参数，建议GPU
+  resources: '/your/gpu/resources/config/path'   # 进行机器学习势优化计算的资源参数
+  nodes: 1  # 占用GPU节点数
+
+read_mlp_density:
+  n_screen: 2            # 筛选机器学习势优化后密度最大的n个CONTCAR与对应的OUTCAR
+  molecules_screen: True  # 是否排除离子改变的晶体结构
+  detail_log: False       # 是否额外生成详细的筛选日志文件
+
+vasp_processing:
+  machine: '/your/cpu/machine/config/path'       # 进行VASP分步优化计算的机器参数
+  resources: '/your/cpu/resources/config/path'   # 进行VASP分步优化计算的资源参数
+  nodes: 2                                       # 占用CPU节点数
+  molecules_prior: True                          # 是否检查离子晶体结构中所有离子的结构
