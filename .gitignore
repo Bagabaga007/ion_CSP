@@ -15,7 +15,6 @@ __pycache__/
 *results*
 *test/
 *outputs/
-example_*/
 data/
 POSCAR_*
 ori_POSCAR_*
@@ -33,6 +32,9 @@ server_config
 *.yaml
 !simple_config.yaml
 !complete_config.yaml
+!examples/server/*
+!examples/example_1/*
+!examples/example_2/*
 model_ori.pt
 logs/*
 dist/*

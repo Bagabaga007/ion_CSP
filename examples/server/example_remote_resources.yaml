@@ -1,0 +1,21 @@
+# （必须）每个作业所需的节点数。
+number_node: 1
+# （必须）分配给每个作业的每个节点的CPU数量。
+cpu_per_node: 56
+# （必须）分配给每个作业的每个节点的GPU数量。
+gpu_per_node: 0
+# （必须）每个作业中的任务数。0表示无穷大。
+group_size: 1
+# （必须）批处理作业调度系统的队列名称。
+queue_name: "normal"
+# （可选）在执行命令之前要进行source命令的文件。以List[str]形式给出路径。
+source_list: ["/data/env/inteloneapi2021"]
+# （可选）提交作业前要导出的环境变量。以dict形式分别给出变量名与变量内容。
+envs: 
+  PATH: "/data/home/username/soft/vasp.6.3.0/bin:$PATH"
+# （可选）提交作业前要加载到HPC系统上的模块。以List[str]形式给出路径后，执行module load命令。
+module_list: ["intel/parallelstudio/2021.1.1"]
+# （可选）额外的命令行传递给作业提交脚本头部，建议添加-J参数用于指定JOB_NAME
+# SLURM队列系统中通过 #SBATCH -J your_job_name 指定，LSF队列系统中通过#BSUB -J your_job_name 指定
+custom_flags: ["#BSUB -J Stepwise_VASP"]
+# 更详细的参数说明文档：https://docs.deepmodeling.com/projects/dpdispatcher/en/latest/resources.html

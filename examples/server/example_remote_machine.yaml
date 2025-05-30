@@ -1,0 +1,28 @@
+# （必须）批处理作业系统类型。选项：LSF、Bohrium、DistributedShell、JH_UniScheduler、Slurm、Fugaku、SGE、Torque、OpenAPI、PBS、Shell、SlurmJobArray
+batch_type: "LSF"
+# （必须）任务和相关文件所在的目录。通常是项目目录。
+local_root: "./"
+# （必须）在远程计算机上执行任务的目录，且必须是绝对路径。当上下文不是lazy-local时就需要。
+remote_root: "/your/remote/workplace"
+# （必须）用于远程机器的连接。可能的选择：LazyLocalContext、BohriumContext、OpenAPIContext、SSHContext、HDFS Context、LocalContext
+context_type: "SSHContext"
+# 用于保持与远程计算机连接的信息。
+remote_profile:
+  # （必须）ssh连接的主机名或ip。
+  hostname: "202.198.21.184"
+  # （必须）目标linux系统的用户名。
+  username: "your_username"
+  # （可选，新版本已弃用）linux系统的密码。建议改用SSH密钥以提高安全性。
+  password: "your_password"
+  # （可选，默认为22）ssh连接端口。
+  port: 22
+  # （可选，默认为True）是否启用在~/.ssh/中搜索可发现的私钥文件，如果使用密码登录则应设False。
+  look_for_keys: False
+  # （可选，默认为22）ssh连接使用的密钥文件名。如果保留为None，请在~/.ssh中查找密钥或使用密码登录。
+  key_filename: "~/.ssh/id_rsa"
+  # （可选，默认为10）ssh连接超时限制。
+  timeout: 10
+  # （可选，默认为None）ssh连接建立后执行的命令。
+  execute_command: "pwd"
+
+# 更详细的参数说明文档： https://docs.deepmodeling.com/projects/dpdispatcher/en/latest/machine.html

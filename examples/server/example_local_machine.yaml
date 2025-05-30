@@ -1,0 +1,13 @@
+# （必须）批处理作业系统类型。选项：LSF、Bohrium、DistributedShell、JH_UniScheduler、Slurm、Fugaku、SGE、Torque、OpenAPI、PBS、Shell、SlurmJobArray
+batch_type: "Shell"
+# （必须）任务和相关文件所在的目录。通常是项目目录。
+local_root: "./"
+# （必须）在远程计算机上执行任务的目录，且必须是绝对路径。只有当上下文不是lazy-local时才需要。
+remote_root: "/your/remote/workplace"
+# （必须）用于远程机器的连接。可能的选择：LazyLocalContext、BohriumContext、OpenAPIContext、SSHContext、HDFS Context、LocalContext
+context_type: "LocalContext"
+# （必须）用于保持本地计算机的信息。
+remote_profile: 
+  # 是否使用符号链接替换副本。如果批处理系统上无法访问本地目录，则应关闭此选项。
+  symlink: false
+

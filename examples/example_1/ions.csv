@@ -1,0 +1,8 @@
+SMILES,Refcode,Charge
+[NH3+]CC(=O)NCC(=O)NCCCNC(=O)CNC(=O)C[NH3+],ACEGUL,2
+[NH3+]CC(=O)NCC(=O)NCCCCNC(=O)CNC(=O)C[NH3+],ACEHAS,2
+Nc1cc[nH]c(=O)[nH+]1,ACITEM,1
+[NH3+]C1(C(=O)O)CCCC1,ACPABR,1
+O=C([O-])C(O)C(O)C(=O)O,ACTART11,-1
+COC(=O)c1nn[nH]c1[C-]([N+](=O)[O-])[N+](=O)[O-],AGIDOM,-1
+O=C([O-])c1[nH]nnc1[C-]([N+](=O)[O-])[N+](=O)[O-],AGIDUS,-2
