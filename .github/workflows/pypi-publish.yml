@@ -28,8 +28,7 @@ jobs:
 
       - name: Build release distributions
         env:
-          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+          TWINE_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           # NOTE: put your own distribution build steps here.
           python -m pip install build
@@ -54,7 +53,7 @@ jobs:
     environment:
       name: pypi
       # OPTIONAL: uncomment and update to include your PyPI project URL in the deployment status:
-      # url: https://pypi.org/p/YOURPROJECT
+      url: https://pypi.org/project/ion-CSP
       #
       # ALTERNATIVE: if your GitHub Release name is the PyPI project version string
       # ALTERNATIVE: exactly, uncomment the following line instead:
@@ -71,3 +70,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          repository-url: https://upload.pypi.org/legacy/
+          password: ${{ secrets.PYPI_API_TOKEN}}
+          skip-existing: true

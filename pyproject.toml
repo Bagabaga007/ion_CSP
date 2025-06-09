@@ -11,7 +11,7 @@ authors = [
 ]
 description = "Crystal Structure Design Software Based on Molecular/Ionic Configuration."
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",

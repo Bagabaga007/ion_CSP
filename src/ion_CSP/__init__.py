@@ -1,8 +1,19 @@
-from importlib.metadata import version, PackageNotFoundError
+__author__ = "Ze Yang"
+__contact__ = "yangze1995007@163.com"
+__license__ = "MIT"
+__version__ = "2.1.2"
+__date__ = "2025-06-09"
+
 
 try:
-    __version__ = version("binary4fun")
-except PackageNotFoundError:
-    __version__ = "unknown version"
+    from importlib.metadata import version  # python >= 3.11
+except Exception:
+    try:
+        from importlib_metadata import version
+    except Exception:
+        pass
 
-name = "ion_CSP"
+try:
+    __version__ = version("ion_CSP")
+except Exception:
+    pass

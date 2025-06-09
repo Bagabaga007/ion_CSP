@@ -3,7 +3,7 @@ import importlib.util
 
 
 def get_version():
-    spec = importlib.util.spec_from_file_location("ion_CSP", "src/__init__.py")
+    spec = importlib.util.spec_from_file_location("ion_CSP", "src/ion_CSP/__init__.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.__version__

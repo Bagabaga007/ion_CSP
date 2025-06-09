@@ -15,9 +15,7 @@ requirements.txt
 setup.cfg
 setup.py
 uv.lock
-.github/workflows/CI-build.yml
 .github/workflows/python-package-conda.yml
-.github/workflows/python-publish.yml
 .vscode/settings.json
 config/complete_config.yaml
 config/simple_config.yaml
@@ -39,11 +37,15 @@ model/options/model.ckpt-4000000.pt
 param/INCAR_0
 param/INCAR_1
 param/INCAR_2
+param/INCAR_3
 param/POTCAR_C
 param/POTCAR_H
 param/POTCAR_N
 param/POTCAR_O
 param/g16_sub.sh
+param/sub_final.sh
+param/sub_ori.sh
+param/sub_supple.sh
 scripts/CLI.py
 scripts/CLI.sh
 scripts/main_CSP.sh
