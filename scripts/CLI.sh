@@ -54,10 +54,10 @@ task_runner() {
     {
         case $MODULE in
             EE)
-                nohup python -m src.main_EE $WORK_DIR > "${WORK_DIR}/main_EE_console.log" 2>&1 &
+                nohup python -m run.main_EE $WORK_DIR > "${WORK_DIR}/main_EE_console.log" 2>&1 &
                 ;;
             CSP)
-                nohup python -m src.main_CSP $WORK_DIR > "${WORK_DIR}/main_CSP_console.log" 2>&1 &
+                nohup python -m run.main_CSP $WORK_DIR > "${WORK_DIR}/main_CSP_console.log" 2>&1 &
                 ;;
         esac
         # 等待进程初始化与文件创建

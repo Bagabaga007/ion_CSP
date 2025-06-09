@@ -1,4 +1,4 @@
-SYSTEM = VAG
+SYSTEM = ION_CSP
 NPAR = 4
 PREC = Accurate 
 ENCUT = 800

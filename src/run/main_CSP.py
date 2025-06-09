@@ -3,7 +3,7 @@ import logging
 from ion_CSP.gen_opt import CrystalGenerator
 from ion_CSP.read_mlp_density import ReadMlpDensity
 from ion_CSP.vasp_processing import VaspProcessing
-from ion_CSP.log_and_time import StatusLogger 
+from ion_CSP.log_and_time import StatusLogger
 from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_config
 
 # 默认配置
@@ -33,6 +33,7 @@ def main(work_dir, config):
         "1_optimization": lambda: mlp_optimization_task(work_dir, config),
         "2_read_mlp_density": lambda: read_mlp_density_task(work_dir, config),
         "3_vasp_optimization": lambda: vasp_optimization_task(work_dir, config),
+        "3_vasp_relaxation": lambda: vasp_relaxation_task(work_dir, config),
     }
     for task_name, task_func in tasks.items():
         task_logger = StatusLogger(work_dir=work_dir, task_name=task_name)
@@ -44,6 +45,7 @@ def main(work_dir, config):
             except Exception:
                 task_logger.set_failure()
                 raise
+    logging.info(f"All tasks have been run successfully, including {tasks.keys()}")
 
 
 def generation_task(work_dir, config):
@@ -89,10 +91,10 @@ def read_mlp_density_task(work_dir, config):
 
 
 def vasp_optimization_task(work_dir, config):
-    # VASP优化处理
+    # VASP分步固定晶胞角度优化处理
     vasp_result = VaspProcessing(work_dir=work_dir)
     # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
-    vasp_result.dpdisp_vasp_tasks(
+    vasp_result.dpdisp_vasp_optimization_tasks(
         machine=config["vasp_processing"]["machine"],
         resources=config["vasp_processing"]["resources"],
         nodes=config["vasp_processing"]["nodes"],
@@ -101,6 +103,22 @@ def vasp_optimization_task(work_dir, config):
     vasp_result.read_vaspout_save_csv(
         molecules_prior=config["vasp_processing"]["molecules_prior"]
     )
+
+
+def vasp_relaxation_task(work_dir, config):
+    # VASP无约束晶胞优化处理
+    vasp_result = VaspProcessing(work_dir=work_dir)
+    # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
+    vasp_result.dpdisp_vasp_relaxation_tasks(
+        machine=config["vasp_processing"]["machine"],
+        resources=config["vasp_processing"]["resources"],
+        nodes=config["vasp_processing"]["nodes"],
+    )
+    # 批量读取 VASP 分步优化的输出文件，并将能量和密度等结果保存到目录中的相应CSV文件
+    vasp_result.read_vaspout_save_csv(
+        molecules_prior=config["vasp_processing"]["molecules_prior"], relaxation=True
+    )
+    vasp_result.export_max_density_structure()
 
 
 if __name__ == "__main__":

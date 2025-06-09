@@ -47,6 +47,9 @@ class TaskManager:
             self.env = "DOCKER"
             self.workspace = Path("/app")
             self.log_dir = Path("/app/logs")
+        conda_env = os.getenv("CONDA_DEFAULT_ENV")
+        env_msg = conda_env if conda_env else "Not Conda Env"
+        self.envs = f"{self.env} ({env_msg})"
         self.workspace.mkdir(exist_ok=True)
 
     def _setup_logging(self):
@@ -224,8 +227,13 @@ class TaskManager:
         console_log = work_dir / f"main_{module}_console.log"
         pid_file = work_dir / "pid.txt"
 
+        # 动态加载模块
+        module_name = f"run.main_{module}"
+        spec = importlib.util.find_spec(module_name)
+        if not spec:
+            raise ImportError(f"Module {module_name} not found")
         # 启动子进程
-        cmd = ["python", "-m", f"src.main_{module}", str(work_dir)]
+        cmd = [sys.executable, "-m", module_name, str(work_dir)]
 
         with open(console_log, "w") as f:
             process = subprocess.Popen(
@@ -271,6 +279,9 @@ class TaskManager:
                 continue
             try:
                 file_path = log_file.resolve(strict=True)
+                if not os.path.exists(file_path):
+                    os.remove(log_file)
+                    continue
                 mtime = file_path.stat().st_mtime
                 log_tasks.append({
                     "pid": 0,  # 日志无PID
@@ -358,7 +369,7 @@ class TaskManager:
             os.system("clear" if os.name == "posix" else "cls")
             print("========== Task Execution Sys1tem ==========")
             print(f"Current Version: {self.version}")
-            print(f"Current Environment: {self.env}")
+            print(f"Current Environment: {self.envs}")
             print(f"Current Directory: {self.workspace}")
             print(f"Log Base Directory: {self.log_dir}")
             print("=" * 50)

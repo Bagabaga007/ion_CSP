@@ -1,12 +1,12 @@
 Metadata-Version: 2.4
 Name: ion_CSP
-Version: 2.1.0
+Version: 2.1.1
 Summary: Crystal Structure Design Software Based on Molecular/Ionic Configuration.
 Home-page: https://github.com/bagabaga007/ion_CSP
 Author: Ze Yang
 Author-email: Ze Yang <yangze1995007@163.com>
 License-Expression: MIT
-Keywords: ion_crystal, crystal_structure_prediction
+Keywords: Ion_Crystal, Crystal_Structure_Prediction
 Classifier: Programming Language :: Python :: 3
 Classifier: Operating System :: OS Independent
 Requires-Python: >=3.11
@@ -27,7 +27,7 @@ Dynamic: home-page
 Dynamic: license-file
 Dynamic: requires-python
 
-# Crystal Structure Design Software V2.0
+# Crystal Structure Design Software V2.1
 
 ## 项目概述
 基于分子/离子构型的晶体结构设计软件通过结合经验公式、机器学习势函数微调、第一性原理分步优化和分子/离子识别技术，实现了从分子/离子构型出发的高效晶体结构设计。该软件采用模块化设计，支持全流程自动化材料筛选，在保证预测精度的同时显著提升计算效率。

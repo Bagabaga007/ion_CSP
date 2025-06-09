@@ -1,13 +1,13 @@
 [build-system]
-requires = [ "setuptools", "setuptools-scm", "wheel" ]
+requires = ["setuptools", "setuptools-scm", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ion_CSP"
-dynamic = [ "version" ]
-keywords = [ "ion_crystal, crystal_structure_prediction" ]
+dynamic = ["version"]
+keywords = ["Ion_Crystal, Crystal_Structure_Prediction"]
 authors = [
-    { name = "Ze Yang", email = "yangze1995007@163.com" }
+    {name = "Ze Yang", email = "yangze1995007@163.com"}
 ]
 description = "Crystal Structure Design Software Based on Molecular/Ionic Configuration."
 readme = "README.md"
@@ -29,6 +29,9 @@ dependencies = [
     "rdkit==2024.3.3",
     "pytest==8.3.4",
 ]
+
+[tool.setuptools.package-dir]
+src = "src"
 
 [tool.setuptools_scm]
 

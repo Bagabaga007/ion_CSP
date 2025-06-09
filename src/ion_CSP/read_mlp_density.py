@@ -81,8 +81,8 @@ class ReadMlpDensity:
         os.makedirs(self.max_density_dir, exist_ok=True)
         for density, CONTCAR_filename in sorted_filename[:n_screen]:
             # 生成新的包含密度值的文件名，并重命名文件
-            # 密度转换为字符串，保留4位小数
-            density_str = f'{density:.4f}'
+            # 密度转换为字符串，保留3位小数
+            density_str = f'{density:.3f}'
             mlp_densities.append(density_str)
             # 保留 CONTCAR 的序数信息，方便回推检查
             number = CONTCAR_filename.split("_")[1]
