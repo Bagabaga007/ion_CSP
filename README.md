@@ -42,6 +42,10 @@
 
 ### 安装步骤
 ```bash
+pip install ion-csp
+```
+或
+```bash
 # 创建虚拟环境
 python -m venv venv
 source venv/bin/activate  # Linux/Mac

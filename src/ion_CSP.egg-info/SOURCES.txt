@@ -15,7 +15,8 @@ requirements.txt
 setup.cfg
 setup.py
 uv.lock
-.github/workflows/python-package-conda.yml
+.github/workflows/conda-env-build.yml
+.github/workflows/pypi-publish.yml
 .vscode/settings.json
 config/complete_config.yaml
 config/simple_config.yaml
@@ -81,4 +82,5 @@ src/run/run_upload_download.py
 src/run/run_vasp_processing.py
 tests/__init__.py
 tests/test1_task_manager1.py
+tests/test_log_and_time.py
 tests/test_task_manager.py

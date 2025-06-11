@@ -62,7 +62,5 @@ if __name__ == "__main__":
     except FileNotFoundError:
         print(f"config.yaml not found in {args.work_dir}.")
         raise
-    # 获取当前脚本的名称
-    script_name = os.path.basename(__file__)
     # 调用主函数
-    main(script_name, args.work_dir, config)
+    main(args.work_dir, config)

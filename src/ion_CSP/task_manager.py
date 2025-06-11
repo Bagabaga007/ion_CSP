@@ -32,7 +32,7 @@ class TaskManager:
             # 使用 importlib 动态加载
             spec = importlib.util.spec_from_file_location(
                 "ion_CSP", 
-                os.path.join(self.project_root, "src/__init__.py")
+                os.path.join(self.project_root, "src/ion_CSP/__init__.py")
             )
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
@@ -253,7 +253,7 @@ class TaskManager:
             process.terminate()
             return
         # 创建符号链接
-        output_log = work_dir / f"main_{module}.py_output.log"
+        output_log = work_dir / f"main_{module}_output.log"
         print(f"Original log file: {output_log}")
         std_log = Path(self.log_dir) / f"{module}_{process.pid}.log"
         try:

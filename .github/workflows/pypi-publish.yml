@@ -71,5 +71,5 @@ jobs:
         with:
           packages-dir: dist/
           repository-url: https://upload.pypi.org/legacy/
-          password: ${{ secrets.PYPI_API_TOKEN}}
+          password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true

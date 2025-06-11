@@ -1,4 +1,3 @@
-import os
 from ion_CSP.vasp_processing import VaspProcessing
 from ion_CSP.log_and_time import StatusLogger
 from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_config
@@ -40,4 +39,4 @@ if __name__ == "__main__":
         default_config=DEFAULT_CONFIG, user_config=config, key="vasp_processing"
     )
     # 调用主函数
-    main(os.path.basename(__file__), work_dir, config)
+    main(work_dir, config)

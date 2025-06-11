@@ -1,4 +1,3 @@
-import os
 import logging
 from ion_CSP.gen_opt import CrystalGenerator
 from ion_CSP.read_mlp_density import ReadMlpDensity
@@ -131,4 +130,4 @@ if __name__ == "__main__":
             default_config=DEFAULT_CONFIG, user_config=config, key=module
         )
     # 调用主函数
-    main(os.path.basename(__file__), work_dir, config)
+    main(work_dir, config)

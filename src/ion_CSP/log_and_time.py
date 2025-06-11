@@ -3,17 +3,24 @@ import sys
 import time
 import yaml
 import signal
+import inspect
 import logging
 import argparse
+import functools
 from dpdispatcher.dlog import dlog
 
 
 def log_and_time(func):
     """Decorator for recording log information and script runtime"""
-
-    def wrapper(script_name, work_dir, *args, **kwargs):
+    @functools.wraps(func)
+    def wrapper(work_dir, *args, **kwargs):
+        # 使用inspect获取真实脚本文件名
+        module = inspect.getmodule(func)
+        script_path = module.__file__ if module else __file__
+        script_name = os.path.splitext(os.path.basename(script_path))[0]
         # 获取脚本所在目录, 在该目录下生成日志
         log_file_path = os.path.join(work_dir, f"{script_name}_output.log")
+        print(f"Log file path: {log_file_path}")
         # 配置日志记录
         logging.basicConfig(
             filename=log_file_path,  # 日志文件名
@@ -32,7 +39,7 @@ def log_and_time(func):
             logging.error(f"Error occurred: {e}", exc_info=True)
             raise
         print(
-            f"The script {script_name} has run successfully, and the output content has been recorded in the output.log file in the same directory."
+            f"The script {script_name} has run successfully, and the output content has been recorded in the {script_name}_output.log file in the same directory."
         )
         # 获取程序结束时的CPU时间和Wall Clock时间
         end_cpu, end_clock = time.process_time(), time.perf_counter()
@@ -43,7 +50,6 @@ def log_and_time(func):
             f"End running: {script_name}\nWall time: {wall_time:.4f} sec, CPU time: {cpu_time:.4f} sec\n"
         )
         return result
-
     return wrapper
 
 
