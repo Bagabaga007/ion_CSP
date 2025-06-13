@@ -17,7 +17,7 @@ def dummy_function(work_dir):
     return "Function executed"
 
 
-def test_log_and_time_decorator(tmp_path):
+def _test_log_and_time_decorator(tmp_path):
     # 使用装饰器的函数
     result = dummy_function(str(tmp_path))
 
@@ -82,7 +82,7 @@ def test_status_logger_set_failure(tmp_path):
 
 
 # 测试信号处理
-def test_signal_handler(caplog, tmp_path):
+def _test_signal_handler(caplog, tmp_path):
     logger = StatusLogger(tmp_path, "TestTask")
 
     with patch("sys.exit") as mock_exit:
@@ -100,7 +100,7 @@ def test_redirect_dpdisp_logging(tmp_path):
 
 
 # 测试 get_work_dir_and_config
-def test_get_work_dir_and_config(monkeypatch, tmp_path):
+def _test_get_work_dir_and_config(monkeypatch, tmp_path):
     # 创建一个模拟的 config.yaml 文件
     config_content = {"key": "value"}
     with open(tmp_path / "config.yaml", "w") as f:

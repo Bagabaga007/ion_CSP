@@ -103,8 +103,8 @@ graph TD
 本项目采用MIT许可证，详见LICENSE文件。
 
 ## 技术支持
-- **文档更新**：2025年5月
-- **最新版本**：v2.1.0
+- **文档更新**：2025年6月
+- **最新版本**：v2.1.4
 - **问题追踪**：https://github.com/bagabaga007/ion_CSP/issues
 
 ---
@@ -210,6 +210,6 @@ graph TD
 MIT License, see LICENSE file.
 
 ## Support
-- Documentation last updated: May 2025
-- Latest version: v2.1.0
+- Documentation last updated: June 2025
+- Latest version: v2.1.4
 - Issue tracker: https://github.com/bagabaga007/ion_CSP/issues

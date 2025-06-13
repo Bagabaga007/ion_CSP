@@ -29,17 +29,14 @@ class TaskManager:
     def _get_version(self):
         """版本获取"""
         try:
-            # 使用 importlib 动态加载
-            spec = importlib.util.spec_from_file_location(
-                "ion_CSP", 
-                os.path.join(self.project_root, "src/ion_CSP/__init__.py")
-            )
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module.__version__
+            return importlib.metadata.version("ion_CSP")
+        except importlib.metadata.PackageNotFoundError:
+            logging.error("Version detection failed")
+            return "unknown"
         except Exception as e:
             logging.error(f"Version detection failed: {e}")
             return "unknown"
+
 
     def _detect_env(self):
         """检测运行环境 - Detect execution environment"""

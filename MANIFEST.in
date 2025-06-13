@@ -1,3 +1,5 @@
 include README.md
 include LICENSE
 include src/run/*.py
+include param/*
+include model/model.pt
