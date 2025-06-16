@@ -32,9 +32,6 @@ examples/server/example_local_machine.yaml
 examples/server/example_local_resources.yaml
 examples/server/example_remote_machine.yaml
 examples/server/example_remote_resources.yaml
-model/model.pt
-model/options/README.md
-model/options/model.ckpt-4000000.pt
 param/INCAR_0
 param/INCAR_1
 param/INCAR_2
@@ -71,6 +68,19 @@ src/ion_CSP.egg-info/dependency_links.txt
 src/ion_CSP.egg-info/entry_points.txt
 src/ion_CSP.egg-info/requires.txt
 src/ion_CSP.egg-info/top_level.txt
+src/ion_CSP/model/model.pt
+src/ion_CSP/param/INCAR_0
+src/ion_CSP/param/INCAR_1
+src/ion_CSP/param/INCAR_2
+src/ion_CSP/param/INCAR_3
+src/ion_CSP/param/POTCAR_C
+src/ion_CSP/param/POTCAR_H
+src/ion_CSP/param/POTCAR_N
+src/ion_CSP/param/POTCAR_O
+src/ion_CSP/param/g16_sub.sh
+src/ion_CSP/param/sub_final.sh
+src/ion_CSP/param/sub_ori.sh
+src/ion_CSP/param/sub_supple.sh
 src/run/__init__.py
 src/run/main_CSP.py
 src/run/main_EE.py
@@ -80,6 +90,7 @@ src/run/run_gen_opt.py
 src/run/run_read_mlp_density.py
 src/run/run_upload_download.py
 src/run/run_vasp_processing.py
+src/run/update_changelog.py
 tests/__init__.py
 tests/test1_task_manager1.py
 tests/test_log_and_time.py

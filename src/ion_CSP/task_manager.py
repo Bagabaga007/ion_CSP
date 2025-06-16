@@ -364,7 +364,7 @@ class TaskManager:
         """主菜单循环 - Main menu loop"""
         while True:
             os.system("clear" if os.name == "posix" else "cls")
-            print("========== Task Execution Sys1tem ==========")
+            print("========== Task Execution System ==========")
             print(f"Current Version: {self.version}")
             print(f"Current Environment: {self.envs}")
             print(f"Current Directory: {self.workspace}")

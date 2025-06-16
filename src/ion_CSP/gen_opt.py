@@ -4,11 +4,12 @@ import time
 import shutil
 import logging
 import subprocess
+import importlib.resources
+from typing import List
 from ase.io import read
+from dpdispatcher import Machine
 from pyxtal import pyxtal
 from pyxtal.msg import Comp_CompatibilityError, Symm_CompatibilityError
-from dpdispatcher import Machine
-from typing import List
 from ion_CSP.log_and_time import redirect_dpdisp_logging
 
 
@@ -19,29 +20,31 @@ class CrystalGenerator:
         """
         redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
         self.script_dir = os.path.dirname(__file__)
-        self.mlp_opt_file = os.path.join(self.script_dir, "mlp_opt.py")
-        self.model_file = os.path.join(self.script_dir, "../../model/model.pt")
+        # self.mlp_opt_file = os.path.join(self.script_dir, "mlp_opt.py")
+        # self.model_file = os.path.join(self.script_dir, "../../model/model.pt")
+        self.mlp_opt_file = importlib.resources.files("ion_CSP").joinpath("mlp_opt.py")
+        self.model_file = importlib.resources.files("ion_CSP.model").joinpath("model.pt")
         # 获取当前脚本的路径以及同路径下离子晶体组分的结构文件, 并将这一路径作为工作路径来避免可能的错误
         self.base_dir = work_dir
         os.chdir(self.base_dir)
         self.ion_numbers = ion_numbers
         self.species = species
         self.species_paths = []
-        ion_atomss, species_atomss = [], []
+        ion_atomss, species_atoms = [], []
         # 读取离子晶体各组分的原子数，并在日志文件中记录
         for ion, number in zip(self.species, self.ion_numbers):
             species_path = os.path.join(self.base_dir, ion)
             self.species_paths.append(species_path)
             species_atom = len(read(species_path))
-            species_atomss.append(species_atom)
-            species_atoms = species_atom * number
-            ion_atomss.append(species_atoms)
+            species_atoms.append(species_atom)
+            ion_atoms = species_atom * number
+            ion_atomss.append(ion_atoms)
         self.cell_atoms = sum(ion_atomss)
         logging.info(
             f"The components of ions {self.species} in the ionic crystal are {self.ion_numbers}"
         )
         logging.info(
-            f"The number of atoms for each ion is: {species_atomss}, and the total number of atoms is {self.cell_atoms}"
+            f"The number of atoms for each ion is: {species_atoms}, and the total number of atoms is {self.cell_atoms}"
         )
         self.generation_dir = os.path.join(self.base_dir, "1_generated")
         os.makedirs(self.generation_dir, exist_ok=True)

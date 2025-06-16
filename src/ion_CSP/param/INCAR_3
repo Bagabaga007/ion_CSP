@@ -1,0 +1,19 @@
+SYSTEM = ION_CSP
+NPAR = 4
+PREC = Accurate 
+ENCUT = 800
+EDIFF = 1e-6
+IBRION = 2 
+ISIF = 3 
+NSW = 300  # 200
+ISMEAR = 0 ; SIGMA = 0.05 
+POTIM = 0.05 
+#No writing charge density and wavefunction 
+LCHARG = FALSE 
+LWAVE = FALSE 
+#Target Pressure 
+#PSTRESS = 100 
+#Finer optimization 
+EDIFFG = -0.02
+KSPACING = 0.5
+IVDW = 12
