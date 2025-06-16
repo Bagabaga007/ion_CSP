@@ -19,7 +19,7 @@ jobs:
         python-version: '3.11'  # 指定 Python 版本
 
     - name: Update CHANGELOG.md
-      run: python -m run.update_changelog
+      run: python -m ion_CSP.run.update_changelog
 
     - name: Commit and push changes
       run: |
