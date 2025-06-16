@@ -1,5 +1,15 @@
 # Changelog
 
+## V2.1.5
+### 934f0fa (2025-06-16)
+Add dependency descriptions for the Scipy version;  Fixed missing example 2 in the examples section.
+
+### 31087de (2025-06-16)
+Update version to 2.1.5.
+
+### 3edd170 (2025-06-16)
+Added the function of automatically updating CHANGELOG; Import configuration and data files through importlib.resosourced to fix file read errors in the pypi distribution package.
+
 ## V2.1.4
 ### ad5c1d7 (2025-06-13)
 Optimize the packaging behavior when building pypi distribution packages to make them easier to use

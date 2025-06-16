@@ -19,9 +19,6 @@ class CrystalGenerator:
         Initialize the class based on the provided ionic crystal composition structure files and corresponding composition numbers.
         """
         redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
-        # self.script_dir = os.path.dirname(__file__)
-        # self.mlp_opt_file = os.path.join(self.script_dir, "mlp_opt.py")
-        # self.model_file = os.path.join(self.script_dir, "../../model/model.pt")
         self.mlp_opt_file = importlib.resources.files("ion_CSP").joinpath("mlp_opt.py")
         self.model_file = importlib.resources.files("ion_CSP.model").joinpath("model.pt")
         # 获取当前脚本的路径以及同路径下离子晶体组分的结构文件, 并将这一路径作为工作路径来避免可能的错误
@@ -241,9 +238,10 @@ class CrystalGenerator:
         elif machine_inform["context_type"] == "LocalContext":
             # 如果在本地运行作业，则只在后续创建一级目录
             parent = ""
-            # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
-            selected_gpu = wait_for_gpu(memory_percent_threshold=40, wait_time=600)
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
+            if machine_inform["batch_type"] == "Shell":
+                # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
+                selected_gpu = wait_for_gpu(memory_percent_threshold=40, wait_time=600)
+                os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
 
         from dpdispatcher import Resources, Task, Submission
 

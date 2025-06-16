@@ -4,6 +4,7 @@ import json
 import yaml
 import shutil
 import logging
+import importlib.resources
 from ase.io import ParseError
 from ase.io.vasp import read_vasp_out
 from dpdispatcher import Machine, Resources, Task, Submission
@@ -18,7 +19,7 @@ class VaspProcessing:
         os.chdir(self.base_dir)
         self.for_vasp_opt_dir = f"{work_dir}/3_for_vasp_opt"
         self.vasp_optimized_dir = f"{work_dir}/4_vasp_optimized"
-        self.param_dir = os.path.join(os.path.dirname(__file__), "../../param")
+        self.param_dir = importlib.resources.files("ion_CSP.param")
 
     def dpdisp_vasp_optimization_tasks(
         self,
@@ -79,7 +80,7 @@ class VaspProcessing:
             task_dir = os.path.join(self.for_vasp_opt_dir, f"{parent}pop{pop}")
             os.makedirs(task_dir, exist_ok=True)
             for file in forward_files:
-                shutil.copyfile(f"{self.param_dir}/{file}", f"{task_dir}/{file}")
+                shutil.copyfile(self.param_dir.joinpath(file), f"{task_dir}/{file}")
             for job_i in node_jobs[pop]:
                 # 将分配好的POSCAR文件添加到对应的上传文件中
                 forward_files.append(mlp_contcar_files[job_i])
@@ -199,7 +200,7 @@ class VaspProcessing:
             task_dir = os.path.join(self.vasp_optimized_dir, f"{parent}pop{pop}")
             os.makedirs(task_dir, exist_ok=True)
             for file in forward_files:
-                shutil.copyfile(f"{self.param_dir}/{file}", f"{task_dir}/{file}")
+                shutil.copyfile(self.param_dir.joinpath(file), f"{task_dir}/{file}")
             for job_i in node_jobs[pop]:
                 # 将分配好的POSCAR文件添加到对应的上传文件中
                 vasp_dir = vasp_optimized_folders[job_i]
@@ -311,7 +312,7 @@ class VaspProcessing:
             task_dir = os.path.join(self.for_vasp_opt_dir, f"{parent}pop{pop}")
             os.makedirs(task_dir, exist_ok=True)
             for file in forward_files:
-                shutil.copyfile(f"{self.param_dir}/{file}", f"{task_dir}/{file}")
+                shutil.copyfile(self.param_dir.joinpath(file), f"{task_dir}/{file}")
             for job_i in node_jobs[pop]:
                 # 将分配好的POSCAR文件添加到对应的上传文件中
                 forward_files.append(mlp_contcar_files[job_i])

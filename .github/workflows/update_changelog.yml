@@ -16,11 +16,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.x'  # 指定 Python 版本
-
-    - name: Install dependencies
-      run: |
-        pip install -e .
+        python-version: '3.11'  # 指定 Python 版本
 
     - name: Update CHANGELOG.md
       run: python -m run.update_changelog

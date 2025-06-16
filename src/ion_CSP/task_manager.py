@@ -225,7 +225,7 @@ class TaskManager:
         pid_file = work_dir / "pid.txt"
 
         # 动态加载模块
-        module_name = f"run.main_{module}"
+        module_name = f"ion_CSP.run.main_{module}"
         spec = importlib.util.find_spec(module_name)
         if not spec:
             raise ImportError(f"Module {module_name} not found")

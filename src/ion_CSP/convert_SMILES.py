@@ -2,6 +2,7 @@ import os
 import shutil
 import logging
 import pandas as pd
+import importlib.resources
 from typing import List
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -28,7 +29,7 @@ class SmilesProcessing:
             self.base_dir, converted_folder, os.path.splitext(csv_file)[0]
         )
         self.gaussian_optimized_dir = os.path.join(self.base_dir, optimized_dir)
-        self.param_dir = os.path.join(os.path.dirname(__file__), "../../param")
+        self.param_dir = importlib.resources.files("ion_CSP.param")
         original_df = pd.read_csv(csv_path)
         logging.info(f"Processing {csv_path}")
         # 对SMILES码去重
@@ -233,7 +234,7 @@ class SmilesProcessing:
                 task_dir = os.path.join(self.converted_dir, f"{parent}pop{pop}")
                 os.makedirs(task_dir, exist_ok=True)
                 for file in forward_files:
-                    shutil.copyfile(f"{self.param_dir}/{file}", f"{task_dir}/{file}")
+                    shutil.copyfile(self.param_dir.joinpath(file), f"{task_dir}/{file}")
                 for job_i in node_jobs[pop]:
                     # 将分配好的 .gjf 文件添加到对应的上传文件中
                     forward_files.append(gjf_files[job_i])
