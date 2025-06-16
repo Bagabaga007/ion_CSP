@@ -34,7 +34,7 @@ server_config
 !complete_config.yaml
 !examples/server/*
 !examples/example_1/*
-!examples/example_2/*
+!examples/example_2/combo_1/*
 model_ori.pt
 logs/*
 dist/*

@@ -19,7 +19,7 @@ class CrystalGenerator:
         Initialize the class based on the provided ionic crystal composition structure files and corresponding composition numbers.
         """
         redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
-        self.script_dir = os.path.dirname(__file__)
+        # self.script_dir = os.path.dirname(__file__)
         # self.mlp_opt_file = os.path.join(self.script_dir, "mlp_opt.py")
         # self.model_file = os.path.join(self.script_dir, "../../model/model.pt")
         self.mlp_opt_file = importlib.resources.files("ion_CSP").joinpath("mlp_opt.py")
@@ -202,14 +202,10 @@ class CrystalGenerator:
             logging.info("Start running phonopy processing ...")
             for _, filename in POSCAR_file_index_pairs:
                 self._single_phonopy_processing(filename=filename)
-            # 准备dpdispatcher运行所需的文件，将其复制到primitive_cell文件夹中
-            self.required_files = [self.mlp_opt_file, self.model_file]
-            for file in self.required_files:
-                shutil.copy(file, self.primitive_cell_dir)
+            # 在 phonopy 成功进行对称化处理后，删除 1_generated/POSCAR_Files 文件夹以节省空间
             logging.info(
                 "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder."
             )
-            # 在 phonopy 成功进行对称化处理后，删除 1_generated/POSCAR_Files 文件夹以节省空间
             shutil.rmtree(self.POSCAR_dir)
         except FileNotFoundError:
             logging.error(
@@ -218,6 +214,7 @@ class CrystalGenerator:
             raise FileNotFoundError(
                 "There are no POSCAR structure files after generating.\nPlease check the error during generation"
             )
+        
 
     def dpdisp_mlp_tasks(self, machine: str, resources: str, nodes: int = 1):
         """
@@ -225,6 +222,10 @@ class CrystalGenerator:
         """
         # 调整工作目录，减少错误发生
         os.chdir(self.primitive_cell_dir)
+        # 准备dpdispatcher运行所需的文件，将其复制到primitive_cell文件夹中
+        self.required_files = [self.mlp_opt_file, self.model_file]
+        for file in self.required_files:
+            shutil.copy(file, self.primitive_cell_dir)
         # 读取machine和resources的参数
         if machine.endswith(".json"):
             machine = Machine.load_from_json(machine)

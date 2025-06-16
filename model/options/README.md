@@ -1,4 +1,4 @@
-## 目录 ./model
+# 目录 ./model
 用于存放所调用的机器学习势文件，文件名必须为 model.pt。
 
 # 目录 ./model/options

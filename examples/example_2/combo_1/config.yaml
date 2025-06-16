@@ -1,0 +1,43 @@
+convert_SMILES:
+  charge_screen: -1
+  csv_file: ions.csv
+  group_name: nitro
+  group_screen: '[N+](=O)[O-]'
+  group_screen_invert: false
+  machine: /workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_machine.yaml
+  nodes: 2
+  resources: /workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_resources.yaml
+  screen: true
+empirical_estimate:
+  folders:
+  - charge_2
+  - charge_-1
+  ion_numbers:
+  - 2
+  - 4
+  make_combo_dir: true
+  num_combos: 20
+  ratios:
+  - 1
+  - 2
+gen_opt:
+  ion_numbers:
+  - 2
+  - 4
+  machine: /workplace/yz/ion_CSP/server_config/6001_local/6001_local_machine.yaml
+  nodes: 1
+  num_per_group: 10
+  resources: /workplace/yz/ion_CSP/server_config/6001_local/6001_local_resources.yaml
+  space_groups_limit: 15
+  species:
+  - ACEGUL.gjf
+  - AGIDOM.gjf
+read_mlp_density:
+  detail_log: false
+  molecules_screen: true
+  n_screen: 2
+vasp_processing:
+  machine: /workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_machine.yaml
+  molecules_prior: true
+  nodes: 2
+  resources: /workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_resources.yaml
