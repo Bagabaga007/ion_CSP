@@ -1,10 +1,13 @@
-# Crystal Structure Design Software V2.1
+# 基于分子/离子构型的晶体结构设计软件 V2.1
 
 ## 项目概述
+
 基于分子/离子构型的晶体结构设计软件通过结合经验公式、机器学习势函数微调、第一性原理分步优化和分子/离子识别技术，实现了从分子/离子构型出发的高效晶体结构设计。该软件采用模块化设计，支持全流程自动化材料筛选，在保证预测精度的同时显著提升计算效率。
 
 ## 功能特性
+
 ### 核心功能
+
 - **双模块工作流**  
   - **EE模块**：基于经验评估的离子组合生成  
   - **CSP模块**：基于离子晶体结构预测的优化筛选  
@@ -18,13 +21,16 @@
   - 软链接解析显示实际路径
 
 ### 技术特性
+
 - 跨平台支持（Linux/Docker）
 - 基于Python 3.11+的面向对象架构
 - 集成psutil进程管理
 - 结构化日志记录系统
 
 ## 安装指南
+
 ### 环境要求
+
 | 组件        | 最低版本 |
 |-------------|----------|
 | Python      | 3.11     |
@@ -41,10 +47,13 @@
 | rdkit       | 2024.03.3|
 
 ### 安装步骤
+
 ```bash
 pip install ion-csp
 ```
+
 或
+
 ```bash
 # 创建虚拟环境
 python -m venv venv
@@ -57,29 +66,39 @@ pip install -e .
 ```
 
 ## 快速入门
+
 ### 交互模式
+
 ```bash
 ion-csp
 ```
+
 启动交互式命令行界面，支持以下操作：
+
 - 模块选择
 - 日志查看
 - 进程管理
 
 ### 脚本调用
+
 #### EE模块示例
+
 ```bash
 ./scripts/main_EE.sh examples/example_1
 ```
+
 从SMILES表格生成离子组合
 
 #### CSP模块示例
+
 ```bash
 ./scripts/main_CSP.sh examples/example_2
 ```
+
 从离子组合生成并优化晶体结构
 
 ## 技术架构
+
 ```mermaid
 graph TD
     A[用户界面] --> B[任务管理器]
@@ -94,28 +113,26 @@ graph TD
 ```
 
 ## 贡献指南
+
 1. Fork仓库并创建特性分支
 2. 编写单元测试覆盖新功能
 3. 提交Pull Request时注明关联Issue
 4. 遵循PEP8代码规范
 
 ## 许可证
-本项目采用MIT许可证，详见LICENSE文件。
 
-## 技术支持
-- **文档更新**：2025年6月
-- **最新版本**：v2.1.5
-- **问题追踪**：https://github.com/bagabaga007/ion_CSP/issues
+本项目采用MIT许可证，详见LICENSE文件。
 
 ---
 
-# Crystal Structure Design Software V2.1
-
 ## Project Overview
+
 This software enables efficient crystal structure design from molecular/ion configurations by integrating empirical formulas, tuned machine learning potentials, stepwise first-principles optimization, and molecular/ion recognition techniques. The modular architecture ensures extensibility and maintainability while maintaining prediction accuracy.
 
 ## Key Features
+
 ### Core Functionalities
+
 - **Dual-Module Workflow**
   - **EE Module**: Empirical evaluation-based ion combination generation
   - **CSP Module**: Ion crystal structure prediction and optimization
@@ -129,13 +146,16 @@ This software enables efficient crystal structure design from molecular/ion conf
   - Symlink resolution for actual log paths
 
 ### Technical Specifications
+
 - Cross-platform support (Linux/Docker)
 - Object-oriented architecture with Python 3.11+
 - Integrated process management via psutil
 - Structured logging system
 
 ## Installation
+
 ### Prerequisites
+
 | Component   | Min Version |
 |-------------|-------------|
 | Python      | 3.11     |
@@ -152,6 +172,7 @@ This software enables efficient crystal structure design from molecular/ion conf
 | rdkit       | 2024.03.3|
 
 ### Installation Steps
+
 ```bash
 # Create virtual environment
 python -m venv venv
@@ -164,29 +185,39 @@ pip install -e .
 ```
 
 ## Quick Start
+
 ### Interactive Mode
+
 ```bash
 ion-csp
 ```
+
 Launches CLI interface with:
+
 - Module selection
 - Log management
 - Process control
 
 ### Script Execution
+
 #### EE Module Example
+
 ```bash
 ./scripts/main_EE.sh examples/example_1
 ```
+
 Generates ion combinations from SMILES tables
 
 #### CSP Module Example
+
 ```bash
 ./scripts/main_CSP.sh examples/example_2
 ```
+
 Optimizes crystal structures from ion combinations
 
 ## Technical Architecture
+
 ```mermaid
 graph TD
     A[User Interface] --> B[Task Manager]
@@ -201,15 +232,12 @@ graph TD
 ```
 
 ## Contribution Guide
+
 1. Fork repository and create feature branch
 2. Write unit tests for new features
 3. Submit PR with issue reference
 4. Follow PEP8 coding standards
 
 ## License
-MIT License, see LICENSE file.
 
-## Support
-- Documentation last updated: June 2025
-- Latest version: v2.1.5
-- Issue tracker: https://github.com/bagabaga007/ion_CSP/issues
+MIT License, see LICENSE file.

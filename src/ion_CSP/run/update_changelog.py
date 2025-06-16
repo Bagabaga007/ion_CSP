@@ -32,7 +32,7 @@ def generate_changelog(commit_details, tags):
     new_changelog_content = []
 
     # 添加标题
-    new_changelog_content.append("# Changelog\n\n")
+    new_changelog_content.append("# Changelog\n\n## Latest Changes\n\n")
 
     # 添加每个提交的详细信息
     for detail in commit_details:
@@ -43,14 +43,14 @@ def generate_changelog(commit_details, tags):
         if tags.get(hash_value):
             # 添加标签信息
             for tag in tags[hash_value]:
-                new_changelog_content.append(f"## {tag}\n")
+                new_changelog_content.append(f"## {tag}\n\n")
 
             # 添加提交信息
-            new_changelog_content.append(f"### {hash_value} ({date})\n")
+            new_changelog_content.append(f"### {hash_value} ({date})\n\n")
             new_changelog_content.append(f"{message}\n\n")
         else:
             # 如果没有标签，直接添加提交信息
-            new_changelog_content.append(f"### {hash_value} ({date})\n")
+            new_changelog_content.append(f"### {hash_value} ({date})\n\n")
             new_changelog_content.append(f"{message}\n\n")
 
     # 写入 CHANGELOG.md
