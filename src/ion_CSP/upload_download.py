@@ -484,4 +484,3 @@ class SSHBatchJob:
     def close_connection(self):
         self.sftp.close()
         self.client.close()
-

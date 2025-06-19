@@ -17,6 +17,11 @@ class CrystalGenerator:
     def __init__(self, work_dir: str, ion_numbers: List[int], species: List[str]):
         """
         Initialize the class based on the provided ionic crystal composition structure files and corresponding composition numbers.
+
+        :params
+            work_dir: The working directory where the ionic crystal structure files are located.
+            ion_numbers: A list of integers representing the number of each ion in the ionic crystal.
+            species: A list of strings representing the species of ions in the ionic crystal.
         """
         redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
         self.mlp_opt_file = importlib.resources.files("ion_CSP").joinpath("mlp_opt.py")
@@ -52,6 +57,10 @@ class CrystalGenerator:
         """
         Private method:
         Extract numbers from file names, convert them to integers, sort them by sequence, and return a list containing both indexes and file names
+
+        :params
+            directory: The directory where the files are located.
+            prefix_name: The prefix of the file names to be processed, e.g., 'POSCAR_'.
         """
         # 获取dir文件夹中所有以prefix_name开头的文件，在此实例中为POSCAR_
         files = [f for f in os.listdir(directory) if f.startswith(prefix_name)]
@@ -69,6 +78,9 @@ class CrystalGenerator:
     ):
         """
         Based on the provided ion species and corresponding numbers, use pyxtal to randomly generate ion crystal structures based on crystal space groups.
+        :params
+            num_per_group: The number of POSCAR files to be generated for each space group, default is 100.
+            space_groups_limit: The maximum number of space groups to be searched, default is 230, which is the total number of space groups.
         """
         # 如果目录不存在，则创建POSCAR_Files文件夹
         os.makedirs(self.POSCAR_dir, exist_ok=True)
@@ -132,7 +144,14 @@ class CrystalGenerator:
         )
 
     def _single_phonopy_processing(self, filename):
-    # 按顺序处理POSCAR文件，首先复制一份无数字后缀的POSCAR文件
+        """
+        Private method: 
+        Process a single POSCAR file using phonopy to generate symmetric primitive cells and conventional cells.
+
+        :params
+            filename: The name of the POSCAR file to be processed.
+        """
+        # 按顺序处理POSCAR文件，首先复制一份无数字后缀的POSCAR文件
         shutil.copy(f"{self.POSCAR_dir}/{filename}", f"{self.POSCAR_dir}/POSCAR")
         try:
             subprocess.run(["nohup", "phonopy", "--symmetry", "POSCAR"], check=True)
@@ -150,7 +169,7 @@ class CrystalGenerator:
         # 检查生成的POSCAR中的原子数，如果不匹配则删除该POSCAR并在日志中记录
         if cell_atoms != self.cell_atoms:
             error_message = f"Atom number mismatch ({cell_atoms} vs {self.cell_atoms})"
-            logging.error(f"{filename} - {error_message}")
+            print(f"{filename} - {error_message}")
             
             # 新增：回溯空间群归属
             poscar_index = int(filename.split('_')[1])  # 提取POSCAR编号
@@ -176,7 +195,15 @@ class CrystalGenerator:
             os.remove(f"{self.primitive_cell_dir}/{filename}")
 
     def _find_space_group(self, poscar_index: int) -> int:
-        """根据POSCAR编号查找对应的空间群"""
+        """
+        Private method:
+        Find the space group for a given POSCAR index based on the group_counts.
+
+        :params
+            poscar_index: The index of the POSCAR file to find the space group for.
+
+        :return: The space group number corresponding to the POSCAR index.
+        """
         cumulative = 0
         for idx, count in enumerate(self.group_counts, start=1):
             if cumulative <= poscar_index < cumulative + count:
@@ -216,6 +243,11 @@ class CrystalGenerator:
     def dpdisp_mlp_tasks(self, machine: str, resources: str, nodes: int = 1):
         """
         Based on the dpdispatcher module, prepare and submit files for optimization on remote server or local machine.
+
+        params:
+            machine: The machine configuration file for dpdispatcher, can be in JSON or YAML format.
+            resources: The resources configuration file for dpdispatcher, can be in JSON or YAML format.
+            nodes: The number of nodes to be used for optimization, default is 1.
         """
         # 调整工作目录，减少错误发生
         os.chdir(self.primitive_cell_dir)
@@ -240,7 +272,7 @@ class CrystalGenerator:
             parent = ""
             if machine_inform["batch_type"] == "Shell":
                 # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
-                selected_gpu = wait_for_gpu(memory_percent_threshold=40, wait_time=600)
+                selected_gpu = _wait_for_gpu(memory_percent_threshold=40, wait_time=600)
                 os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
 
         from dpdispatcher import Resources, Task, Submission
@@ -335,8 +367,14 @@ class CrystalGenerator:
         logging.info("Batch optimization completed!!!")
 
 
-def get_available_gpus(memory_percent_threshold=40):
-    """获取可用的 GPU 节点，内存负载低于指定阈值且没有其他用户的任务在运行"""
+def _get_available_gpus(memory_percent_threshold=40):
+    """
+    Private method:
+    Get available GPUs with memory usage below the specified threshold.
+
+    params:
+        memory_percent_threshold (int): The threshold for GPU memory usage percentage.
+    """
     try:
         # 获取 nvidia-smi 的输出
         output = subprocess.check_output(
@@ -366,10 +404,16 @@ def get_available_gpus(memory_percent_threshold=40):
         return []
 
 
-def wait_for_gpu(memory_percent_threshold=40, wait_time=300):
-    """等待直到有可用的 GPU"""
+def _wait_for_gpu(memory_percent_threshold=40, wait_time=300):
+    """
+    Private method:
+    Wait until a GPU is available with memory usage below the specified threshold.
+    params:
+        memory_percent_threshold (int): The threshold for GPU memory usage percentage.
+        wait_time (int): The time to wait before checking again, in seconds.
+    """
     while True:
-        available_gpus = get_available_gpus(memory_percent_threshold)
+        available_gpus = _get_available_gpus(memory_percent_threshold)
         logging.info(f"Available GPU: {available_gpus}")
         if available_gpus:
             selected_gpu = available_gpus[0]

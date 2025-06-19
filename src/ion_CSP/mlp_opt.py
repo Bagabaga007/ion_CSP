@@ -14,13 +14,22 @@ base_dir = os.path.dirname(__file__)
 relative_path = './model.pt'
 file_path = os.path.join(base_dir, relative_path)
 calc = DP(file_path)
-'''
+"""
 structure optimization with DP model and ASE
 PSTRESS and fmax should exist in input.dat
-'''
+"""
 
 def get_element_num(elements):
-    '''Using the Atoms.symples to Know Element&Num'''
+    """
+    Using the Atoms.symples to Know Element and Number
+
+    :params
+        elements: list of elements in the structure
+
+    :returns
+        element: list of unique elements in the structure
+        ele: dictionary with elements as keys and their counts as values
+    """
     element = []
     ele = {}
     element.append(elements[0])
@@ -32,7 +41,15 @@ def get_element_num(elements):
     return element, ele 
         
 def write_CONTCAR(element, ele, lat, pos, index):
-    '''Write CONTCAR''' 
+    """
+    Write CONTCAR file in VASP format
+
+    :params
+        element: list of elements in the structure
+        ele: dictionary of element counts
+        lat: lattice vectors
+        pos: atomic positions in direct coordinates
+        index: index for the output file""" 
     f = open(f'{base_dir}/CONTCAR_'+str(index),'w')
     f.write('ASE-DPKit-Optimization\n')
     f.write('1.0\n') 
@@ -51,7 +68,21 @@ def write_CONTCAR(element, ele, lat, pos, index):
         f.write('%15.10f %15.10f %15.10f\n' % tuple(dpos[i]))
         
 def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pstress, index):
-    '''Write OUTCAR'''
+    """
+    Write OUTCAR file in VASP format
+    :params
+        element: list of elements in the structure
+        ele: dictionary of element counts
+        masses: total mass of the atoms
+        volume: volume of the unit cell
+        lat: lattice vectors
+        pos: atomic positions in direct coordinates
+        ene: total energy of the system
+        force: forces on the atoms
+        stress: stress tensor components
+        pstress: external pressure
+        index: index for the output file
+    """
     f = open(f'{base_dir}/OUTCAR_'+str(index),'w')
     for x in element: 
         f.write('VRHFIN =' + str(x) + '\n')
@@ -88,6 +119,13 @@ def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pst
     f.write('enthalpy TOTEN    = %20.6f %20.6f\n' % (enthalpy, enthalpy/na)) 
         
 def get_indexes():
+    """
+    Get the indexes of POSCAR files in the current directory.
+    This function scans the current directory for files starting with 'POSCAR_' and extracts their numeric indexes.
+
+    :returns
+        A sorted list of indexes extracted from the POSCAR files.
+    """
     base_dir = os.path.dirname(__file__)
     POSCAR_files = [f for f in os.listdir(base_dir) if f.startswith('POSCAR_')]
     indexes = []
@@ -100,7 +138,11 @@ def get_indexes():
     return indexes
 
 def run_opt(index: int): 
-    '''Using the ASE&DP to Optimize Configures''' 
+    """
+    Using the ASE&DP to Optimize Configures
+    :params
+        index: index of the POSCAR file to be optimized
+    """
     if os.path.isfile(f'{base_dir}/OUTCAR'):
         os.system(f'mv {base_dir}/OUTCAR {base_dir}/OUTCAR-last')
     fmax, pstress = 0.03, 0
@@ -143,6 +185,10 @@ def run_opt(index: int):
 
 
 def main():
+    """
+    Main function to run the optimization in parallel.
+    It initializes a multiprocessing pool and maps the run_opt function to the indexes of POSCAR files.
+    """
     ctx=multiprocessing.get_context("spawn")
     pool=ctx.Pool(8)
     indexes = get_indexes()

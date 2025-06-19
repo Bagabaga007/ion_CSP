@@ -9,6 +9,13 @@ from ion_CSP.identify_molecules import identify_molecules, molecules_information
 class ReadMlpDensity:
     
     def __init__(self, work_dir:str):
+        """
+        This class is designed to read and process MLP optimized files, specifically CONTCAR files, to calculate and sort their densities.
+        The class also provides functionality to process these files using phonopy for symmetry analysis and primitive cell generation.
+
+        :params
+            work_dir: The working directory where the MLP optimized files are located.
+        """
         # 获取脚本的当前目录
         self.base_dir = work_dir
         os.chdir(self.base_dir)
@@ -39,7 +46,8 @@ class ReadMlpDensity:
         """
         Obtain the atomic mass and unit cell volume from the optimized CONTCAR file, and obtain the ion crystal density. Finally, take n CONTCAR files with the highest density and save them separately for viewing.
         
-        :param n_screen: 取前n个最大密度的文件
+        :params
+            n_screen: 取前n个最大密度的文件
         """
         os.chdir(self.base_dir)
         # 获取所有以'CONTCAR_'开头的文件，并按数字顺序处理
@@ -135,6 +143,10 @@ class ReadMlpDensity:
     def phonopy_processing_max_density(self, specific_directory :str = None):
         """
         Use phonopy to check and generate symmetric primitive cells, reducing the complexity of subsequent optimization calculations, and preventing pyxtal.from_random from generating double proportioned supercells. 
+        
+        :params
+            specific_directory: If specified, phonopy will process the files in this directory instead of the max_density directory.
+            If not specified, it will process the files in the max_density directory.
         """
         if specific_directory:
             self.phonopy_dir = os.path.join(self.base_dir, specific_directory)

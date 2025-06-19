@@ -11,7 +11,14 @@ from dpdispatcher.dlog import dlog
 
 
 def log_and_time(func):
-    """Decorator for recording log information and script runtime"""
+    """
+    Decorator for recording log information and script runtime
+
+    :params
+        func: The function to be decorated
+        
+    :return: The decorated function with logging and timing capabilities
+    """
     @functools.wraps(func)
     def wrapper(work_dir, *args, **kwargs):
         # 使用inspect获取真实脚本文件名
@@ -54,20 +61,49 @@ def log_and_time(func):
 
 
 def merge_config(default_config, user_config, key):
+    """
+    Merge default configuration with user-provided configuration for a specific key.
+
+    :params 
+        default_config: The default configuration dictionary.
+        user_config: The user-provided configuration dictionary.
+        key: The key for which the configuration should be merged.
+
+    :return: A merged configuration dictionary for the specified key.
+    """
+    if key not in default_config:
+        raise KeyError(f"Key '{key}' not found in default configuration.")
+    if key not in user_config:
+        raise KeyError(f"Key '{key}' not found in user configuration.")
+    if not isinstance(default_config[key], dict) or not isinstance(user_config.get(key, {}), dict):
+        raise TypeError(f"Both default and user configurations for '{key}' must be dictionaries.")
+    # 合并两个参数配置，优先使用用户参数配置
     return {**default_config[key], **user_config.get(key, {})}
 
 
 class StatusLogger:
+    """
+    A singleton class to log the status of a workflow, including RUNNING, SUCCESS, FAILURE, and KILLED.
+    It initializes a logger that writes to a log file and a YAML file to record the status of the workflow.
+    The logger captures the process ID and handles termination signals (SIGINT, SIGTERM).
+    """
+    _name = "WorkflowLogger"
     _instance = None
 
     def __new__(cls, *args, **kwargs):
+        """Ensure that only one instance of StatusLogger is created (Singleton Pattern)"""
         if not cls._instance:
             cls._instance = super(StatusLogger, cls).__new__(cls)
             cls._instance.__init__(*args, **kwargs)
         return cls._instance
 
     def __init__(self, work_dir, task_name):
-        """Initialize workflow status logger and generate the .log and .yaml file to record the status"""
+        """
+        Initialize workflow status logger and generate the .log and .yaml file to record the status
+
+        :params
+            work_dir: The working directory where the log and yaml files will be created
+            task_name: The name of the task to be logged"""
         # 使用单例模式，避免重复的日志记录，缺点是再重新给定task_name之后会覆盖原来的实例，只能顺序调用
         self.task_name = task_name
         log_file = os.path.join(work_dir, "workflow_status.log")
@@ -97,12 +133,17 @@ class StatusLogger:
         self._init_yaml()
 
     def set_running(self):
+        """
+        Set the current task status to RUNNING and log the event.
+        This method increments the run count and updates the YAML file.
+        """
         self.current_status = "RUNNING"
         self.logger.info(f"{self.task_name} Status: {self.current_status}")
         self.run_count += 1
         self._update_yaml()
 
     def set_success(self):
+        """Set the current task status to SUCCESS and log the event"""
         self.current_status = "SUCCESS"
         self.logger.info(f"{self.task_name} Status: {self.current_status}\n")
         self._update_yaml()
@@ -112,12 +153,16 @@ class StatusLogger:
         return self.current_status == "SUCCESS"
 
     def set_failure(self):
+        """Set the current task status to FAILURE and log the event"""
         self.current_status = "FAILURE"
         self.logger.error(f"{self.task_name} Status: {self.current_status}\n")
         self._update_yaml()
 
     def _signal_handler(self, signum, _):
-        """Handle termination signals and log the event"""
+        """
+        Handle termination signals and log the event
+        :params
+            signum: The signal number received (e.g., SIGINT, SIGTERM)"""
         if signum == 2:
             self.logger.warning(
                 f"Process {os.getpid()} has been interrupted by 'Ctrl + C'\n"
@@ -134,6 +179,7 @@ class StatusLogger:
         sys.exit(0)
 
     def _set_killed(self):
+        """Set the current task status to KILLED and log the event"""
         self.current_status = "KILLED"
         self.logger.warning(f"{self.task_name} Status: {self.current_status}\n")
         self._update_yaml()
@@ -193,11 +239,12 @@ def redirect_dpdisp_logging(custom_log_path):
 
 
 def get_work_dir_and_config():
-    """获取工作目录并加载配置文件
-    Returns:
-        tuple: (工作目录路径, 合并后的配置字典)
-    Raises:
-        SystemExit: 当输入无效时退出程序
+    """
+    Get the working directory and user configuration from command line arguments or interactive input.
+    If the working directory is not specified, it prompts the user to input it interactively.
+    It also reads the configuration from a 'config.yaml' file in the specified directory.
+    
+    :return: A tuple containing the working directory and the user configuration dictionary.
     """
     parser = argparse.ArgumentParser(
         description="The full workflow of ionic crystal design for a certain ion combination, including generation, mlp optimization, screening, vasp optimization and analysis."

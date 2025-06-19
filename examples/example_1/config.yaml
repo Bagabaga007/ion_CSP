@@ -5,8 +5,8 @@ convert_SMILES:
   group_screen: '[N+](=O)[O-]'  # 对于官能团SMILES码的筛选
   group_screen_invert: False    # 对官能团的反选与否，默认为否
   group_name: 'nitro'           # 自定义官能团的名字
-  machine: '/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_machine.yaml'       # 进行Gaussian优化计算的机器参数
-  resources: '/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_resources.yaml'   # 进行Gaussian优化计算的资源参数
+  machine: '/workplace/yz/server_config/JLU_184/JLU_184_machine.yaml'       # 进行Gaussian优化计算的机器参数
+  resources: '/workplace/yz/server_config/JLU_184/JLU_184_resources.yaml'   # 进行Gaussian优化计算的资源参数
   nodes: 2                                       # 占用CPU节点数
 
 empirical_estimate:

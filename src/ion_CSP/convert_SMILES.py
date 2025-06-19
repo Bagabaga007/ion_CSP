@@ -14,9 +14,13 @@ class SmilesProcessing:
     
     def __init__(self, work_dir: str, csv_file: str, converted_folder: str = '1_1_SMILES_gjf', optimized_dir: str = '1_2_Gaussian_optimized'):
         """
-        args:
+        This class is used to process SMILES codes from a CSV file, convert them into Gaussian input files, and prepare for optimization tasks. It also supports grouping by charge and filtering based on functional groups.
+
+        params:
             work_dir: the path of the working directory.
             csv_file: the csv file name in the working directory.
+            converted_folder: the folder name for storing converted SMILES files.
+            optimized_dir: the folder name for storing Gaussian optimized files.
         """
         redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
         # 读取csv文件并处理数据, csv文件的表头包括 SMILES, Charge, Refcode或Number
@@ -54,13 +58,15 @@ class SmilesProcessing:
         self, dir: str, smiles: str, basename: str, charge: int
     ):
         """
-        Private method: Use the rdkit module to read SMILES code and convert it into the required file types such as gjf, xyz, mol, etc.
+        Private method: 
+        Use the rdkit module to read SMILES code and convert it into the required file types such as gjf, xyz, mol, etc.
 
-        args:
+        params:
             dir: The directory used for outputting files, regardless of existence of the directory.
             smiles: SMILES code to be converted.
             basename: The reference code or number corresponding to SMILES code.
             charge: The charge carried by ions.
+            
         return:
             result_code: Result code 0 or -1, representing success and failure respectively.
             basename: The corresponding basename.
@@ -145,6 +151,12 @@ class SmilesProcessing:
     ):
         """
         Screen based on the provided functional groups and charges.
+
+        params:
+            charge_screen: The charge to screen for, default is 0.
+            group_screen: The functional group to screen for, default is empty string.
+            group_name: The name of the functional group, used for naming the output directory.
+            group_screen_invert: If True, invert the screening condition for the functional group.
         """
         # 另外筛选出符合条件的离子
         screened = self.df
@@ -180,6 +192,12 @@ class SmilesProcessing:
     ):
         """
         Based on the dpdispatcher module, prepare and submit files for optimization on remote server or local machine.
+        
+        params:
+            folders: List of folders containing .gjf files to be processed, if empty, all folders in the converted directory will be processed.
+            machine: The machine configuration file for dpdispatcher, can be a JSON or YAML file.
+            resources: The resources configuration file for dpdispatcher, can be a JSON or YAML file.
+            nodes: The number of nodes to distribute the tasks to, default is 1.
         """
         if os.path.exists(self.gaussian_optimized_dir):
             logging.error(f'The directory {self.gaussian_optimized_dir} has already existed.')
@@ -275,11 +293,14 @@ class SmilesProcessing:
                 for job_i in node_jobs[pop]:
                     base_name, _ = os.path.splitext(gjf_files[job_i])
                     # 在优化后都取回每个 .gjf 文件对应的 .log、.fchk 输出文件
-                    for ext in ['gjf', 'log', 'fchk']:
-                        shutil.copyfile(
-                            f"{task_dir}/{base_name}.{ext}",
-                            f"{optimized_folder_dir}/{base_name}.{ext}"
-                        )
+                    try:
+                        for ext in ['gjf', 'log', 'fchk']:
+                            shutil.copyfile(
+                                f"{task_dir}/{base_name}.{ext}",
+                                f"{optimized_folder_dir}/{base_name}.{ext}"
+                            )
+                    except FileNotFoundError as e:
+                        logging.error(f"File not found during copying, please check the configuration and state of Gaussian: {e}")
                 # 在成功完成Gaussian优化后，删除 1_1_SMILES_gjf/{csv}/{parent}/pop{n} 文件夹以节省空间
                 shutil.rmtree(task_dir)
         shutil.copyfile(

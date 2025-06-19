@@ -55,7 +55,13 @@ class EmpiricalEstimation:
     
     def __init__(self, work_dir: str, folders: List[str], ratios: List[int], sort_by: str):
         """
-        Retrieve the directory where the current script is located and use it as the working directory.
+        This class is designed to process Gaussian calculation files, perform electrostatic potential analysis using Multiwfn, and estimate the nitrogen content or density of ion crystal combinations. The class will also generate .csv files containing sorted nitrogen content or density based on the specified sorting criterion.
+
+        :params
+            work_dir: The working directory where the Gaussian calculation files are located.
+            folders: A list of folder names containing the Gaussian calculation files.
+            ratios: A list of integers representing the ratio of each folder in the combination.
+            sort_by: A string indicating the sorting criterion, either 'density' or 'nitrogen'.
         """
         self.base_dir = work_dir
         os.chdir(self.base_dir)
@@ -73,6 +79,9 @@ class EmpiricalEstimation:
     def multiwfn_process_fchk_to_json(self, specific_directory: str = None):
         '''
         If a specific directory is given, this method can be used separately to implement batch processing of FCHK files with Multiwfn and save the desired electrostatic potential analysis results to the corresponding JSON file. Otherwise, the folder list provided during initialization will be processed sequentially.
+
+        :params
+            specific_directory: The specific directory to process. If None, all folders will be processed.
         '''
         if specific_directory is None:
             for folder in self.folders:
@@ -84,7 +93,11 @@ class EmpiricalEstimation:
 
     def _multiwfn_process_fchk_to_json(self, folder: str):
         '''
+        Private method:
         Perform electrostatic potential analysis on .fchk files using Multiwfn and save the analysis results to a .json file.
+
+        :params
+            folder: The folder containing the .fchk files to be processed.
         '''
         # 在每个文件夹中获取 .fchk 文件并根据文件名排序, 再用 Multiwfn 进行静电势分析, 最后将分析结果保存到同名 .json 文件中
         fchk_files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.fchk')]
@@ -117,26 +130,94 @@ class EmpiricalEstimation:
                     logging.error(f'Error with moving bad files: {e}')
         logging.info(f'\nElectrostatic potential analysis by Multiwfn for {folder} folder has completed, and the results have been stored in the corresponding json files.\n')
 
+    def _check_multiwfn_executable(self):
+        '''
+        Private method:
+        Check if the Multiwfn executable file exists in the system PATH.
+        If not, raise a FileNotFoundError with an appropriate error message.
+        '''
+        multiwfn_path = shutil.which("Multiwfn_noGUI") or shutil.which("Multiwfn")
+        if not multiwfn_path:
+            error_msg = (
+                "Error: No detected Multiwfn executable file (Multiwfn or Multiwfn_GUI), please check:\n "
+                "1. Has Multiwfn been installed correctly?\n"
+                "2. Has Multiwfn been added to the system PATH environment variable"
+            )
+            print(error_msg)
+            logging.error(error_msg)
+            raise FileNotFoundError("No detected Multiwfn executable file (Multiwfn or Multiwfn_GUI)")
+        return multiwfn_path
+
+    def _multiwfn_cmd_build(self, input_content):
+        '''
+        Private method:
+        Build the Multiwfn command to be executed based on the input content.
+        This method is used to create the input file for Multiwfn.
+
+        :params
+            input_content: The content to be written to the input file for Multiwfn.
+        '''
+        # 检查Multiwfn可执行文件是否存在
+        multiwfn_path = self._check_multiwfn_executable()
+        # 创建 input.txt 用于存储 Multiwfn 命令内容
+        with open('input.txt', 'w') as input_file:
+            input_file.write(input_content)
+        # 通过 input.txt 执行 Multiwfn 命令, 并将输出结果重定向到output.txt中
+        cmd = [multiwfn_path, "<", "input.txt", ">", "output.txt"]
+        try:
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=300)
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Multiwfn execution failed (return code {e.returncode}): Error output: {e.stderr}"
+            print(error_msg)
+            logging.error(error_msg)
+            raise
+        except subprocess.TimeoutExpired:
+            error_msg = "Error: Multiwfn process timeout (exceeding 300 seconds)"
+            print(error_msg)
+            logging.error(error_msg)
+            raise
+        except Exception as e:
+            error_msg = f"Unexpected Error: {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            raise
+        finally:
+            # 清理临时文件
+            try:
+                os.remove("input.txt")
+            except Exception as e:
+                logging.warning(f"无法删除临时文件 input.txt: {str(e)}")
+
     def _single_multiwfn_fchk_to_json(self, fchk_filename: str):
         '''
-        Private method: Use multiwfn to perform electrostatic potential analysis on each FCHK file separately, and save the required results to a corresponding JSON file.
+        Private method: 
+        Use multiwfn to perform electrostatic potential analysis on each FCHK file separately, and save the required results to a corresponding JSON file.
+
+        :params 
+            fchk_filename: The full path of the FCHK file to be processed.
+
+        :return: True if the processing is successful, False if the FCHK file is invalid.
         '''
         print(f'Multiwfn processing {fchk_filename}')
         logging.info(f'Multiwfn processing {fchk_filename}')
         result_flag = True
-        # 创建 input.txt 用于存储 Multiwfn 命令内容
-        with open('input.txt', 'w') as input_file:
-            input_file.write(f"{fchk_filename}\n12\n0\nq\n")
-        # 通过 input.txt 执行 Multiwfn 命令, 并将输出结果重定向到output.txt中
-        try:
-            subprocess.run('Multiwfn_noGUI < input.txt > output.txt', shell=True, capture_output=True)
-        except FileNotFoundError:
-            subprocess.run('Multiwfn < input.txt > output.txt', shell=True, capture_output=True)
+        self._multiwfn_cmd_build(input_content=f"{fchk_filename}\n12\n0\nq\n")
+
         # 获取目录以及 .fchk 文件的无后缀文件名, 即 refcode
         folder, filename = os.path.split(fchk_filename)
         refcode, _ = os.path.splitext(filename)
-        with open('output.txt', 'r') as output_file:
-            output_content = output_file.read()
+        try:
+            with open('output.txt', 'r') as output_file:
+                output_content = output_file.read()
+        except Exception as e:
+            logging.error(f"Error reading output.txt: {e}")
+            raise
+        finally:
+            # 清理临时文件
+            try:
+                os.remove("output.txt")
+            except Exception as e:
+                logging.warning(f"无法删除临时文件 output.txt: {str(e)}")
         # 提取所需数据
         volume_match = re.search(r'Volume:\s*([\d.]+)\s*Bohr\^3\s+\(\s*([\d.]+)\s*Angstrom\^3\)', output_content)
         density_match = re.search(r'Estimated density according to mass and volume \(M/V\):\s*([\d.]+)\s*g/cm\^3', output_content)
@@ -186,8 +267,6 @@ class EmpiricalEstimation:
             with open (f"{folder}/{refcode}.json", 'w') as json_file:
                 json.dump(result, json_file, indent=4)
             shutil.copyfile(src=f"{folder}/{refcode}.json", dst=f"Optimized/{folder}/{refcode}.json")
-        os.remove('input.txt')
-        os.remove('output.txt')
         logging.info(f'Finished processing {fchk_filename}')
         return result_flag
 
@@ -195,6 +274,9 @@ class EmpiricalEstimation:
         """
         If a specific directory is given, this method can be used separately to batch process the last frame of Gaussian optimized LOG files into GJF files using Multiwfn.
         Otherwise, the folder list provided during initialization will be processed in order.
+
+        :params
+            specific_directory: The specific directory to process. If None, all folders will be processed.
         """
         if specific_directory is None:
             for folder in self.folders:
@@ -206,7 +288,11 @@ class EmpiricalEstimation:
             
     def _gaussian_log_to_optimized_gjf(self, folder: str):
         '''
+        Private method:
         Due to the lack of support of Pyxtal module for LOG files in subsequent crystal generation, it is necessary to convert the last frame of the Gaussian optimized LOG file to a .gjf file with Multiwfn processing.
+
+        :params
+            folder: The folder containing the Gaussian LOG files to be processed.
         '''
         # 在每个文件夹中获取 .log 文件并根据文件名排序, 再用Multiwfn载入优化最后一帧转换为 gjf 文件
         log_files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith('.log')]
@@ -226,10 +312,19 @@ class EmpiricalEstimation:
             pass
         logging.info(f'\nThe .log to .gjf conversion by Multiwfn for {folder} folder has completed, and the optimized .gjf structures have been stored in the optimized directory.\n')
 
-    def _single_multiwfn_log_to_gjf(self, folder: str, log_filename: str):        
+    def _single_multiwfn_log_to_gjf(self, folder: str, log_filename: str):  
+        """
+        Private method: 
+        Use Multiwfn to convert the last frame of the Gaussian optimized LOG file to a .gjf file.
+
+        :params
+            folder: The folder containing the Gaussian LOG file to be processed.
+            log_filename: The full path of the LOG file to be processed.
+        """      
         # 获取目录以及 .fchk 文件的无后缀文件名, 即 refcode
         _, filename = os.path.split(log_filename)
         refcode, _ = os.path.splitext(filename)
+        
         try:
             # 创建 input.txt 用于存储 Multiwfn 命令内容
             with open('input.txt', 'w') as input_file:
@@ -291,6 +386,15 @@ class EmpiricalEstimation:
             writer.writerows(data)  # 写入排序后的数
 
     def _read_gjf_elements(self, gjf_file):
+        """
+        Private method:
+        Read the elements from a .gjf file and return a dictionary with element counts.
+
+        :params
+            gjf_file: The full path of the .gjf file to be processed.
+
+        :return: A dictionary with element symbols as keys and their counts as values.
+        """
         # 根据每一个组合中的组分找到对应的 JSON 文件并读取其中的性质内容
         with open(gjf_file, 'r') as file:
             lines = file.readlines()
@@ -317,6 +421,15 @@ class EmpiricalEstimation:
         return atomic_counts
 
     def _generate_combinations(self, suffix: str):
+        """
+        Private method:
+        Generate all valid combinations of files based on the specified suffix and ratios.
+
+        :params
+            suffix: The file suffix to filter the files in the folders.
+
+        :return: A list of dictionaries representing the combinations of files with their respective ratios.
+        """
         # 获取所有符合后缀名条件的文件
         all_files = []
         for folder in self.folders:
@@ -411,6 +524,15 @@ class EmpiricalEstimation:
             writer.writerows(data)  # 写入排序后的数
 
     def _copy_combo_file(self, combo_path, folder_basename, file_type):
+        """
+        Private method:
+        Copy the specified file type from the Optimized directory to the combo_n folder.
+
+        :params
+            combo_path: The path to the combo_n folder where the file will be copied.
+            folder_basename: The basename of the folder containing the file to be copied.
+            file_type: The type of file to be copied (e.g., '.gjf', '.json').
+        """
         filename = f"{folder_basename}{file_type}"
         source_path = os.path.join(self.base_dir, 'Optimized', filename)
         # 复制指定后缀名文件到对应的 combo_n 文件夹
@@ -428,9 +550,10 @@ class EmpiricalEstimation:
         """
         Create a combo_n folder based on the .csv file and copy the corresponding .gjf structure file.
         
-        :param target_directory: The target directory of the combo folder to be created
-        :param num_folders: The number of combo folders to be created
-        :param ion_numbers: The number of ions for ionic crystal generation step (generated in config.yaml in the corresponding combo_dir automatically)
+        :params 
+            target_directory: The target directory of the combo folder to be created
+            num_folders: The number of combo folders to be created
+            ion_numbers: The number of ions for ionic crystal generation step (generated in config.yaml in the corresponding combo_dir automatically)
         """
         if self.sort_by == 'density':
             base_csv = self.density_csv

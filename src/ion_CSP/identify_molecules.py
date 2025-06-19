@@ -7,6 +7,17 @@ from ase.neighborlist import NeighborList, natural_cutoffs
 
 
 def identify_molecules(atoms) -> Tuple[List[Dict[str, int]], bool]:
+    """
+    Identify independent molecules in a given set of atoms.
+    This function uses a depth-first search (DFS) approach to find connected components in the atomic structure,
+    treating each connected component as a separate molecule.
+    params:
+        atoms: ASE Atoms object containing the atomic structure.
+    returns:
+        A tuple containing:
+        - A list of dictionaries, each representing a molecule with element counts.
+        - A boolean flag indicating whether the identified molecules match the initial set of molecules.
+    """
     visited = set()  # 用于记录已经访问过的原子索引
     identified_molecules = []   # 用于存储识别到的独立分子
     # 基于共价半径为每个原子生成径向截止
@@ -63,6 +74,10 @@ def identify_molecules(atoms) -> Tuple[List[Dict[str, int]], bool]:
 def molecules_information(molecules: List[Dict[str, int]], molecules_flag: bool, initial_information: List[Dict[str, int]]):
     """
     Set the output format of the molecule. Output simplified element information in the specified order of C, N, O, H, which may include other elements.
+    params:
+        molecules: A list of dictionaries representing identified molecules with element counts.
+        molecules_flag: A boolean flag indicating whether the identified molecules match the initial set of molecules.
+        initial_information: A list of dictionaries representing the initial set of molecules with element counts.
     """
     # 定义固定顺序的元素
     fixed_order = ['C', 'N', 'O', 'H']

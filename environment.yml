@@ -9,6 +9,7 @@ dependencies:
   - wheel
   - setuptools-scm
   - ase=3.23.0
+  - scipy=1.15.2
   - numpy=1.26.4
   - paramiko=3.5.1
   - pyxtal=1.0.4

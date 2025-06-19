@@ -14,6 +14,12 @@ from ion_CSP.identify_molecules import identify_molecules, molecules_information
 
 class VaspProcessing:
     def __init__(self, work_dir: str):
+        """
+        This directory is used to store all the files related to VASP optimizations.
+
+        :params
+            work_dir: The working directory where VASP optimization files will be stored.
+        """
         redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
         self.base_dir = work_dir
         os.chdir(self.base_dir)
@@ -29,6 +35,10 @@ class VaspProcessing:
     ):
         """
         Based on the dpdispatcher module, prepare and submit files for optimization on remote server or local machine.
+        :params
+            machine: The machine configuration file, which can be in JSON or YAML format.
+            resources: The resources configuration file, which can be in JSON or YAML format.
+            nodes: The number of nodes to distribute the optimization tasks across.
         """
         # 调整工作目录，减少错误发生
         os.chdir(self.for_vasp_opt_dir)
@@ -147,7 +157,11 @@ class VaspProcessing:
         nodes: int = 1,
     ):
         """
-        Based on the dpdispatcher module, prepare and submit files for optimization on remote server or local machine.
+        Based on the dpdispatcher module, prepare and submit files for VASP relaxation on remote server or local machine.
+        :params
+            machine: The machine configuration file, which can be in JSON or YAML format.
+            resources: The resources configuration file, which can be in JSON or YAML format.
+            nodes: The number of nodes to distribute the optimization tasks across.
         """
         # 调整工作目录，减少错误发生
         os.chdir(self.vasp_optimized_dir)
