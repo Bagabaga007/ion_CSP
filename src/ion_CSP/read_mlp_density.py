@@ -47,7 +47,9 @@ class ReadMlpDensity:
         Obtain the atomic mass and unit cell volume from the optimized CONTCAR file, and obtain the ion crystal density. Finally, take n CONTCAR files with the highest density and save them separately for viewing.
         
         :params
-            n_screen: 取前n个最大密度的文件
+            n_screen: The number of CONTCAR files with the highest density to be saved.
+            molecules_screen: If True, only consider ionic crystals with original ions.
+            detail_log: If True, print detailed information about the molecules identified in the CONTCAR files.
         """
         os.chdir(self.base_dir)
         # 获取所有以'CONTCAR_'开头的文件，并按数字顺序处理

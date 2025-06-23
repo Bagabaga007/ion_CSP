@@ -1,6 +1,7 @@
-##  (2025-06-16)
+##  (2025-06-19)
 
 * Introduce importlib.resourses in multiple modules to improve file path management; ([2ea0ac4](https://github.com/Bagabaga007/ion_CSP/commit/2ea0ac4))
+* Update dependencies, improve documentation, and enhance error handling ([b68c9ac](https://github.com/Bagabaga007/ion_CSP/commit/b68c9ac))
 * Update GitHub Actions workflow to trigger builds upon release, modify the steps for updating CHANGEL ([bf651e6](https://github.com/Bagabaga007/ion_CSP/commit/bf651e6))
 * Update update_changelog.yml ([5c3c950](https://github.com/Bagabaga007/ion_CSP/commit/5c3c950))
 * Update update_changelog.yml ([346d034](https://github.com/Bagabaga007/ion_CSP/commit/346d034))

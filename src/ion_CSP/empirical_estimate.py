@@ -165,14 +165,9 @@ class EmpiricalEstimation:
         # 通过 input.txt 执行 Multiwfn 命令, 并将输出结果重定向到output.txt中
         cmd = [multiwfn_path, "<", "input.txt", ">", "output.txt"]
         try:
-            subprocess.run(cmd, shell=True, capture_output=True, timeout=300)
+            subprocess.run(cmd, shell=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             error_msg = f"Multiwfn execution failed (return code {e.returncode}): Error output: {e.stderr}"
-            print(error_msg)
-            logging.error(error_msg)
-            raise
-        except subprocess.TimeoutExpired:
-            error_msg = "Error: Multiwfn process timeout (exceeding 300 seconds)"
             print(error_msg)
             logging.error(error_msg)
             raise

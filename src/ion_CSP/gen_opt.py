@@ -7,7 +7,7 @@ import subprocess
 import importlib.resources
 from typing import List
 from ase.io import read
-from dpdispatcher import Machine
+from dpdispatcher import Machine, Resources
 from pyxtal import pyxtal
 from pyxtal.msg import Comp_CompatibilityError, Symm_CompatibilityError
 from ion_CSP.log_and_time import redirect_dpdisp_logging
@@ -262,27 +262,31 @@ class CrystalGenerator:
             machine = Machine.load_from_yaml(machine)
         else:
             raise KeyError("Not supported machine file type")
-        # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
-        machine_inform = machine.serialize()
-        if machine_inform["context_type"] == "SSHContext":
-            # 如果调用远程服务器，则创建二级目录
-            parent = "data/"
-        elif machine_inform["context_type"] == "LocalContext":
-            # 如果在本地运行作业，则只在后续创建一级目录
-            parent = ""
-            if machine_inform["batch_type"] == "Shell":
-                # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
-                selected_gpu = _wait_for_gpu(memory_percent_threshold=40, wait_time=600)
-                os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
-
-        from dpdispatcher import Resources, Task, Submission
-
         if resources.endswith(".json"):
             resources = Resources.load_from_json(resources)
         elif resources.endswith(".yaml"):
             resources = Resources.load_from_yaml(resources)
         else:
             raise KeyError("Not supported resources file type")
+        # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
+        machine_inform = machine.serialize()
+        resources_inform = resources.serialize()
+        if machine_inform["context_type"] == "SSHContext":
+            # 如果调用远程服务器，则创建二级目录
+            parent = "data/"
+        elif machine_inform["context_type"] == "LocalContext":
+            # 如果在本地运行作业，则只在后续创建一级目录
+            parent = ""
+            if (
+                machine_inform["batch_type"] == "Shell"
+                and resources_inform["gpu_per_node"] != 0
+            ):
+                # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
+                selected_gpu = _wait_for_gpu(memory_percent_threshold=40, wait_time=600)
+                os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
+
+        from dpdispatcher import Task, Submission
+
         # 依次读取primitive_cell文件夹中的所有POSCAR文件和对应的序号
         primitive_cell_file_index_pairs = self._sequentially_read_files(
             self.primitive_cell_dir, prefix_name="POSCAR_"

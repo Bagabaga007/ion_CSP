@@ -637,6 +637,11 @@ class VaspProcessing:
             with open(csv_file_path, "r") as csvfile:
                 reader = csv.reader(csvfile)
                 # 跳过表头读取第一行结构序号，即符合结构筛选要求的最大密度结构
+                header = next(reader)
+                if header[0] != "Number":
+                    raise KeyError(
+                        "The first column of the CSV file is not 'Number', please check the file format."
+                    )
                 first_row = next(reader)
                 structure_number = str(first_row[0])
             # 根据结构序号构建要查找的文件夹路径
@@ -647,24 +652,27 @@ class VaspProcessing:
                     structure_number
                 ):
                     # 查找 CONTCAR 文件
-                    final_contcar_path = os.path.join(
-                        vasp_folder_path, "fine", "final", "CONTCAR"
-                    )
+                    # final_contcar_path = os.path.join(
+                    #     vasp_folder_path, "fine", "final", "CONTCAR"
+                    # )
+                    # print(f"Trying to get the final structure from {vasp_folder_path}")
+                    # logging.info(
+                    #     f"Trying to get the final structure from {vasp_folder_path}"
+                    # )
+                    # if os.path.exists(final_contcar_path):
+                    #     # 复制 CONTCAR 文件到 combo_n 文件夹并重命名为 POSCAR
+                    #     shutil.copy(
+                    #         final_contcar_path, os.path.join(self.base_dir, "POSCAR")
+                    #     )
+                    #     print(f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {final_contcar_path}")
+                    #     logging.info(
+                    #         f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {final_contcar_path}"
+                    #     )
                     fine_contcar_path = os.path.join(
                         vasp_folder_path, "fine", "CONTCAR"
                     )
-                    logging.info(
-                        f"Trying to get the final structure from {vasp_folder_path}"
-                    )
-                    if os.path.exists(final_contcar_path):
-                        # 复制 CONTCAR 文件到 combo_n 文件夹并重命名为 POSCAR
-                        shutil.copy(
-                            final_contcar_path, os.path.join(self.base_dir, "POSCAR")
-                        )
-                        logging.info(
-                            f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {final_contcar_path}"
-                        )
-                    elif os.path.exists(fine_contcar_path):
+                    if os.path.exists(fine_contcar_path):
+                        print(f"CONTCAR not found in {os.path.join(vasp_folder_path, 'fine', 'final')}")
                         logging.info(
                             f"CONTCAR not found in {os.path.join(vasp_folder_path, 'fine', 'final')}"
                         )
@@ -672,10 +680,15 @@ class VaspProcessing:
                         shutil.copy(
                             fine_contcar_path, os.path.join(self.base_dir, "POSCAR")
                         )
+                        print(f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {fine_contcar_path}")
                         logging.info(
                             f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {fine_contcar_path}"
                         )
                     else:
                         print(f"Eligible CONTCAR not found in {vasp_folder_path}")
+                        logging.info(
+                            f"Eligible CONTCAR not found in {vasp_folder_path}"
+                        )
         else:
+            print(f"CSV file not found in {self.base_dir}")
             logging.info(f"CSV file not found in {self.base_dir}")

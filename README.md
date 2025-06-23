@@ -107,7 +107,7 @@ graph TD
     B --> E[日志系统]
     B --> F[任务调度]
     C --> G[经验评估引擎]
-    D --> H[晶体预测引擎]
+    D --> H[离子晶体结构预测引擎]
     E --> I[结构化日志]
     F --> J[进程终止]
 ```
@@ -226,7 +226,7 @@ graph TD
     B --> E[Log System]
     B --> F[Task Scheduler]
     C --> G[Empirical Evaluation Engine]
-    D --> H[Crystal Prediction Engine]
+    D --> H[Ionic Crystal Structure Prediction Engine]
     E --> I[Structured Logs]
     F --> J[Process Termination]
 ```
