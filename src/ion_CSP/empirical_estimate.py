@@ -53,7 +53,14 @@ x.fchk //指定计算文件
 
 class EmpiricalEstimation:
     
-    def __init__(self, work_dir: str, folders: List[str], ratios: List[int], sort_by: str):
+    def __init__(
+        self,
+        work_dir: str,
+        folders: List[str],
+        ratios: List[int],
+        sort_by: str,
+        optimized_dir: str = "1_2_Gaussian_optimized",
+    ):
         """
         This class is designed to process Gaussian calculation files, perform electrostatic potential analysis using Multiwfn, and estimate the nitrogen content or density of ion crystal combinations. The class will also generate .csv files containing sorted nitrogen content or density based on the specified sorting criterion.
 
@@ -64,7 +71,8 @@ class EmpiricalEstimation:
             sort_by: A string indicating the sorting criterion, either 'density' or 'nitrogen'.
         """
         self.base_dir = work_dir
-        os.chdir(self.base_dir)
+        self.gaussian_optimized_dir = os.path.join(self.base_dir, optimized_dir)
+        os.chdir(self.gaussian_optimized_dir)
         # 确保所取的文件夹数与配比数是对应的
         if len(folders) != len(ratios):
             raise ValueError('The number of folders must match the number of ratios.')
@@ -75,6 +83,79 @@ class EmpiricalEstimation:
             raise ValueError(f"The sort_by parameter must be either 'density' or 'nitrogen', but got '{sort_by}'")
         self.density_csv = "sorted_density.csv"
         self.nitrogen_csv = "sorted_nitrogen.csv"
+        self.carbon_nitrogen_csv = "specific_C_N_ratio.csv"
+        # 检查Multiwfn可执行文件是否存在
+        self.multiwfn_path = self._check_multiwfn_executable()
+    
+    def _check_multiwfn_executable(self):
+        '''
+        Private method:
+        Check if the Multiwfn executable file exists in the system PATH.
+        If not, raise a FileNotFoundError with an appropriate error message.
+        '''
+        multiwfn_path = shutil.which("Multiwfn_noGUI") or shutil.which("Multiwfn")
+        if not multiwfn_path:
+            error_msg = (
+                "Error: No detected Multiwfn executable file (Multiwfn or Multiwfn_GUI), please check:\n "
+                "1. Has Multiwfn been installed correctly?\n"
+                "2. Has Multiwfn been added to the system PATH environment variable"
+            )
+            print(error_msg)
+            logging.error(error_msg)
+            raise FileNotFoundError("No detected Multiwfn executable file (Multiwfn or Multiwfn_GUI)")
+        else:
+            print(f"Multiwfn executable found at: {multiwfn_path}")
+            logging.info(f"Multiwfn executable found at: {multiwfn_path}")
+        return multiwfn_path
+
+    def _multiwfn_cmd_build(self, input_content, output_file=None):
+        '''
+        Private method:
+        Build the Multiwfn command to be executed based on the input content.
+        This method is used to create the input file for Multiwfn.
+
+        :params
+            input_content: The content to be written to the input file for Multiwfn.
+        '''
+        # 创建 input.txt 用于存储 Multiwfn 命令内容
+        with open('input.txt', 'w') as input_file:
+            input_file.write(input_content)
+        if output_file:
+            with open('output.txt', 'w') as output_file, open('input.txt', 'r') as input_file:
+                try:
+                    # 通过 input.txt 执行 Multiwfn 命令, 并将输出结果重定向到 output.txt 中
+                    subprocess.run([self.multiwfn_path], stdin=input_file, stdout=output_file, check=True)
+                except subprocess.CalledProcessError as e:
+                    logging.error(
+                        f"Error executing Multiwfn command with input {input_content}: {e}"
+                    )
+                except Exception as e:
+                    logging.error(f"Unexpected error: {e}")
+                    raise
+                finally:
+                    # 清理临时文件
+                    try:
+                        os.remove("input.txt")
+                    except Exception as e:
+                        logging.warning(f"Cannot remove temporary file input.txt: {str(e)}")
+        else:
+            with open("input.txt", "r") as input_file:
+                try:
+                    # 通过 input.txt 执行 Multiwfn 命令, 并将输出结果重定向到 output.txt 中
+                    subprocess.run([self.multiwfn_path], stdin=input_file, check=True)
+                except subprocess.CalledProcessError as e:
+                    logging.error(
+                        f"Error executing Multiwfn command with input {input_content}: {e}"
+                    )
+                except Exception as e:
+                    logging.error(f"Unexpected error: {e}")
+                    raise
+                finally:
+                    # 清理临时文件
+                    try:
+                        os.remove("input.txt")
+                    except Exception as e:
+                        logging.warning(f"Cannot remove temporary file input.txt: {str(e)}")
 
     def multiwfn_process_fchk_to_json(self, specific_directory: str = None):
         '''
@@ -130,59 +211,6 @@ class EmpiricalEstimation:
                     logging.error(f'Error with moving bad files: {e}')
         logging.info(f'\nElectrostatic potential analysis by Multiwfn for {folder} folder has completed, and the results have been stored in the corresponding json files.\n')
 
-    def _check_multiwfn_executable(self):
-        '''
-        Private method:
-        Check if the Multiwfn executable file exists in the system PATH.
-        If not, raise a FileNotFoundError with an appropriate error message.
-        '''
-        multiwfn_path = shutil.which("Multiwfn_noGUI") or shutil.which("Multiwfn")
-        if not multiwfn_path:
-            error_msg = (
-                "Error: No detected Multiwfn executable file (Multiwfn or Multiwfn_GUI), please check:\n "
-                "1. Has Multiwfn been installed correctly?\n"
-                "2. Has Multiwfn been added to the system PATH environment variable"
-            )
-            print(error_msg)
-            logging.error(error_msg)
-            raise FileNotFoundError("No detected Multiwfn executable file (Multiwfn or Multiwfn_GUI)")
-        return multiwfn_path
-
-    def _multiwfn_cmd_build(self, input_content):
-        '''
-        Private method:
-        Build the Multiwfn command to be executed based on the input content.
-        This method is used to create the input file for Multiwfn.
-
-        :params
-            input_content: The content to be written to the input file for Multiwfn.
-        '''
-        # 检查Multiwfn可执行文件是否存在
-        multiwfn_path = self._check_multiwfn_executable()
-        # 创建 input.txt 用于存储 Multiwfn 命令内容
-        with open('input.txt', 'w') as input_file:
-            input_file.write(input_content)
-        # 通过 input.txt 执行 Multiwfn 命令, 并将输出结果重定向到output.txt中
-        cmd = [multiwfn_path, "<", "input.txt", ">", "output.txt"]
-        try:
-            subprocess.run(cmd, shell=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            error_msg = f"Multiwfn execution failed (return code {e.returncode}): Error output: {e.stderr}"
-            print(error_msg)
-            logging.error(error_msg)
-            raise
-        except Exception as e:
-            error_msg = f"Unexpected Error: {str(e)}"
-            print(error_msg)
-            logging.error(error_msg)
-            raise
-        finally:
-            # 清理临时文件
-            try:
-                os.remove("input.txt")
-            except Exception as e:
-                logging.warning(f"无法删除临时文件 input.txt: {str(e)}")
-
     def _single_multiwfn_fchk_to_json(self, fchk_filename: str):
         '''
         Private method: 
@@ -196,7 +224,10 @@ class EmpiricalEstimation:
         print(f'Multiwfn processing {fchk_filename}')
         logging.info(f'Multiwfn processing {fchk_filename}')
         result_flag = True
-        self._multiwfn_cmd_build(input_content=f"{fchk_filename}\n12\n0\nq\n")
+        self._multiwfn_cmd_build(
+            input_content=f"{fchk_filename}\n12\n0\n-1\n-1\nq\n", 
+            output_file='output.txt')
+        print(f'Finished processing {fchk_filename}')
 
         # 获取目录以及 .fchk 文件的无后缀文件名, 即 refcode
         folder, filename = os.path.split(fchk_filename)
@@ -207,12 +238,6 @@ class EmpiricalEstimation:
         except Exception as e:
             logging.error(f"Error reading output.txt: {e}")
             raise
-        finally:
-            # 清理临时文件
-            try:
-                os.remove("output.txt")
-            except Exception as e:
-                logging.warning(f"无法删除临时文件 output.txt: {str(e)}")
         # 提取所需数据
         volume_match = re.search(r'Volume:\s*([\d.]+)\s*Bohr\^3\s+\(\s*([\d.]+)\s*Angstrom\^3\)', output_content)
         density_match = re.search(r'Estimated density according to mass and volume \(M/V\):\s*([\d.]+)\s*g/cm\^3', output_content)
@@ -263,6 +288,10 @@ class EmpiricalEstimation:
                 json.dump(result, json_file, indent=4)
             shutil.copyfile(src=f"{folder}/{refcode}.json", dst=f"Optimized/{folder}/{refcode}.json")
         logging.info(f'Finished processing {fchk_filename}')
+        try:
+            os.remove("output.txt")
+        except Exception as e:
+            logging.warning(f"Cannot remove temporary file output.txt: {str(e)}")
         return result_flag
 
     def gaussian_log_to_optimized_gjf(self, specific_directory: str = None):
@@ -321,14 +350,10 @@ class EmpiricalEstimation:
         refcode, _ = os.path.splitext(filename)
         
         try:
-            # 创建 input.txt 用于存储 Multiwfn 命令内容
-            with open('input.txt', 'w') as input_file:
-                input_file.write(f"{log_filename}\ngi\nOptimized/{folder}/{refcode}.gjf\nq\n")
             # Multiwfn首先载入优化任务的out/log文件, 然后输入gi, 再输入要保存的gjf文件名, 此时里面的结构就是优化最后一帧的, 还避免了使用完全图形界面  
-            try:         
-                subprocess.run('Multiwfn_noGUI < input.txt', shell=True, capture_output=True)
-            except FileNotFoundError:
-                subprocess.run('Multiwfn < input.txt', shell=True, capture_output=True)
+            self._multiwfn_cmd_build(
+                input_content=f"{log_filename}\ngi\nOptimized/{folder}/{refcode}.gjf\nq\n"
+            )
             if os.path.exists(f"Optimized/{folder}/{refcode}.gjf"):
                 print(f'Finished converting {refcode} .log to .gjf')
                 logging.info(f'Finished converting {refcode} .log to .gjf')
@@ -338,6 +363,45 @@ class EmpiricalEstimation:
         except Exception as e:
             print(f'Error with processing {log_filename}: {e}')
             logging.error(f'Error with processing {log_filename}: {e}')
+
+    def _read_gjf_elements(self, gjf_file):
+        """
+        Private method:
+        Read the elements from a .gjf file and return a dictionary with element counts.
+
+        :params
+            gjf_file: The full path of the .gjf file to be processed.
+
+        :return: A dictionary with element symbols as keys and their counts as values.
+        """
+        # 根据每一个组合中的组分找到对应的 JSON 文件并读取其中的性质内容
+        with open(gjf_file, "r") as file:
+            lines = file.readlines()
+        atomic_counts = {}
+        # 找到原子信息的开始行
+        start_reading = False
+        for line in lines:
+            line = line.strip()
+            # 跳过注释和空行
+            if line.startswith("%") or line.startswith("#") or not line:
+                continue
+            # 检测只包含两个数字的行
+            parts = line.split()
+            if (
+                len(parts) == 2
+                and parts[0].lstrip("-").isdigit()
+                and parts[1].isdigit()
+            ):
+                start_reading = True
+                continue
+            if start_reading:
+                element = parts[0]  # 第一个部分是元素符号
+                # 更新元素计数
+                if element in atomic_counts:
+                    atomic_counts[element] += 1
+                else:
+                    atomic_counts[element] = 1
+        return atomic_counts
 
     def nitrogen_content_estimate(self):
         """
@@ -380,73 +444,62 @@ class EmpiricalEstimation:
             writer.writerow(header)  # 写入表头
             writer.writerows(data)  # 写入排序后的数
 
-    def _read_gjf_elements(self, gjf_file):
+    def carbon_nitrogen_ratio_estimate(self):
         """
-        Private method:
-        Read the elements from a .gjf file and return a dictionary with element counts.
-
-        :params
-            gjf_file: The full path of the .gjf file to be processed.
-
-        :return: A dictionary with element symbols as keys and their counts as values.
+        Evaluate the priority of ion crystal combinations based on carbon and nitrogen ratio
+        (C:N < 1:8) and sort by oxygen content, then generate .csv files.
         """
-        # 根据每一个组合中的组分找到对应的 JSON 文件并读取其中的性质内容
-        with open(gjf_file, 'r') as file:
-            lines = file.readlines()
-        atomic_counts = {}
-        # 找到原子信息的开始行
-        start_reading = False
-        for line in lines:
-            line = line.strip()
-            # 跳过注释和空行
-            if line.startswith("%") or line.startswith("#") or not line:
-                continue
-            # 检测只包含两个数字的行
-            parts = line.split()
-            if len(parts) == 2 and parts[0].lstrip("-").isdigit() and parts[1].isdigit():
-                start_reading = True
-                continue
-            if start_reading:
-                element = parts[0]  # 第一个部分是元素符号
-                # 更新元素计数
-                if element in atomic_counts:
-                    atomic_counts[element] += 1
-                else:
-                    atomic_counts[element] = 1
-        return atomic_counts
+        atomic_masses = {"H": 1.008, "C": 12.01, "N": 14.01, "O": 16.00}
+        # 获取所有 .gjf 文件
+        combinations = self._generate_combinations(suffix=".gjf")
+        filtered_data = []
 
-    def _generate_combinations(self, suffix: str):
-        """
-        Private method:
-        Generate all valid combinations of files based on the specified suffix and ratios.
+        for combo in combinations:
+            total_atoms = 0
+            carbon_atoms = 0
+            nitrogen_atoms = 0
+            oxygen_atoms = 0
 
-        :params
-            suffix: The file suffix to filter the files in the folders.
+            for gjf_file, ion_count in combo.items():
+                atomic_counts = self._read_gjf_elements(gjf_file)
+                for element, atom_count in atomic_counts.items():
+                    if element in atomic_masses:
+                        total_atoms += atom_count * ion_count
+                        if element == "C":
+                            carbon_atoms += atom_count * ion_count
+                        elif element == "N":
+                            nitrogen_atoms += atom_count * ion_count
+                        elif element == "O":
+                            oxygen_atoms += atom_count * ion_count
+                    else:
+                        raise ValueError(
+                            "Contains element information not included, unable to calculate ratios"
+                        )
 
-        :return: A list of dictionaries representing the combinations of files with their respective ratios.
-        """
-        # 获取所有符合后缀名条件的文件
-        all_files = []
-        for folder in self.folders:
-            suffix_files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(suffix)]
-            suffix_files.sort()
-            print(f'Valid {suffix} file number in {folder}: {len(suffix_files)}')
-            logging.info(f"Valid {suffix} file number in {folder}: {len(suffix_files)}")
-            if not suffix_files:
-                raise FileNotFoundError(f'No available {suffix} files in {folder} folder')
-            all_files.append(suffix_files)
+            # 计算 C:N 比率
+            if carbon_atoms != 0:  # 确保氮的质量大于 0，避免除以零
+                nitrogen_carbon_ratio = round(nitrogen_atoms / carbon_atoms, 2)
+            else:
+                nitrogen_carbon_ratio = 100.0
+            filtered_data.append((combo, nitrogen_carbon_ratio, oxygen_atoms))
 
-        # 对所有文件根据其文件夹与配比进行组合
-        combinations = []
-        for folder_files in itertools.product(*all_files):
-            # 根据给定的配比生成字典形式的组合
-            ratio_combination = {}
-            for folder_index, count in enumerate(self.ratios):
-                ratio_combination.update({folder_files[folder_index]: count})
-            combinations.append(ratio_combination)
-        print(f'Valid combination number: {len(combinations)}')
-        logging.info(f'Valid combination number: {len(combinations)}')
-        return combinations
+        # 根据氧含量排序
+        filtered_data.sort(key=lambda x: (-x[1], -x[2]))
+
+        # 写入排序后的 .csv 文件
+        with open(self.carbon_nitrogen_csv, "w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.writer(csv_file)
+            # 动态生成表头
+            num_components = len(combinations[0]) if combinations else 0
+            header = [f"Component {i + 1}" for i in range(num_components)] + ["N_C_Ratio", "O_Atoms"]
+            writer.writerow(header)  # 写入表头
+
+            # 写入筛选后的组合和氧含量
+            for combo, nitrogen_carbon_ratio, oxygen_content in filtered_data:
+                cleaned_combo = [name.replace(".gjf", "") for name in combo]
+                writer.writerow(
+                    cleaned_combo + [nitrogen_carbon_ratio, oxygen_content]
+                )  # 写入每一行
 
     def empirical_estimate(self):
         """
@@ -518,6 +571,39 @@ class EmpiricalEstimation:
             writer.writerow(header)  # 写入表头
             writer.writerows(data)  # 写入排序后的数
 
+    def _generate_combinations(self, suffix: str):
+        """
+        Private method:
+        Generate all valid combinations of files based on the specified suffix and ratios.
+
+        :params
+            suffix: The file suffix to filter the files in the folders.
+
+        :return: A list of dictionaries representing the combinations of files with their respective ratios.
+        """
+        # 获取所有符合后缀名条件的文件
+        all_files = []
+        for folder in self.folders:
+            suffix_files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(suffix)]
+            suffix_files.sort()
+            print(f'Valid {suffix} file number in {folder}: {len(suffix_files)}')
+            logging.info(f"Valid {suffix} file number in {folder}: {len(suffix_files)}")
+            if not suffix_files:
+                raise FileNotFoundError(f'No available {suffix} files in {folder} folder')
+            all_files.append(suffix_files)
+
+        # 对所有文件根据其文件夹与配比进行组合
+        combinations = []
+        for folder_files in itertools.product(*all_files):
+            # 根据给定的配比生成字典形式的组合
+            ratio_combination = {}
+            for folder_index, count in enumerate(self.ratios):
+                ratio_combination.update({folder_files[folder_index]: count})
+            combinations.append(ratio_combination)
+        print(f'Valid combination number: {len(combinations)}')
+        logging.info(f'Valid combination number: {len(combinations)}')
+        return combinations
+
     def _copy_combo_file(self, combo_path, folder_basename, file_type):
         """
         Private method:
@@ -529,7 +615,7 @@ class EmpiricalEstimation:
             file_type: The type of file to be copied (e.g., '.gjf', '.json').
         """
         filename = f"{folder_basename}{file_type}"
-        source_path = os.path.join(self.base_dir, 'Optimized', filename)
+        source_path = os.path.join(self.gaussian_optimized_dir, "Optimized", filename)
         # 复制指定后缀名文件到对应的 combo_n 文件夹
         if os.path.exists(source_path):
             if os.path.exists(os.path.join(combo_path, os.path.basename(filename))):
@@ -539,7 +625,9 @@ class EmpiricalEstimation:
                 shutil.copy(source_path, combo_path)
                 logging.info(f'Copied {os.path.basename(source_path)} to {combo_path}')
         else:
-            logging.error(f'File of {filename} does not exist in {self.base_dir}')
+            logging.error(
+                f"File of {filename} does not exist in {self.gaussian_optimized_dir}"
+            )
 
     def make_combo_dir(self, target_dir: str, num_combos: int, ion_numbers: List[int]):
         """
@@ -582,15 +670,15 @@ class EmpiricalEstimation:
                     gjf_names.append(f"{folder_basename.split('/')[1]}.gjf")
                 
                 # 生成上级目录路径并解析 .yaml 文件
-                parent_dir = os.path.dirname(self.base_dir)
+                parent_dir = self.base_dir
                 parent_config_path = os.path.join(parent_dir, 'config.yaml')
-                base_config_path = os.path.join(self.base_dir, "config.yaml")
+                base_config_path = os.path.join(self.gaussian_optimized_dir, "config.yaml")
                 try:
                     with open(parent_config_path, 'r') as file:
                         config = yaml.safe_load(file)
                 except FileNotFoundError as e:
                     logging.warning(f"No available config.yaml file in parent directory: {parent_dir} \n{e}")
-                    logging.info(f"Trying to load config.yaml file from base directory: {self.base_dir}")
+                    logging.info(f"Trying to load config.yaml file from base directory: {parent_dir}")
                     try:
                         with open(base_config_path, 'r') as file:
                             try:
@@ -598,11 +686,10 @@ class EmpiricalEstimation:
                             except yaml.YAMLError as e:
                                 logging.error(f"YAML configuration file parsing failed: {e}")
                     except FileNotFoundError as e:
-                        logging.error(f"No available config.yaml file either in parent directory: {parent_dir} and base directory {self.base_dir} \n{e}")
+                        logging.error(
+                            f"No available config.yaml file either in parent directory: {parent_dir} and base directory {self.gaussian_optimized_dir} \n{e}"
+                        )
                         raise
-                except PermissionError:
-                    logging.error(f'No read permission for the path: {parent_dir}')
-                    raise
                 except Exception as e:
                     logging.error(f'Unexpected error: {e}')
                     raise
@@ -620,4 +707,3 @@ class EmpiricalEstimation:
                         yaml.dump(config, file)
                 except Exception as e:
                     logging.error(f"Unexpected error: {e}")
-                

@@ -54,6 +54,7 @@ scripts/CLI.py
 scripts/CLI.sh
 scripts/main_CSP.sh
 scripts/main_EE.sh
+scripts/update_changelog.py
 src/__init__.py
 src/ion_CSP/__init__.py
 src/ion_CSP/__main__.py
@@ -98,7 +99,6 @@ src/ion_CSP/run/run_gen_opt.py
 src/ion_CSP/run/run_read_mlp_density.py
 src/ion_CSP/run/run_upload_download.py
 src/ion_CSP/run/run_vasp_processing.py
-src/ion_CSP/run/update_changelog.py
 tests/__init__.py
 tests/test1_task_manager1.py
 tests/test_log_and_time.py

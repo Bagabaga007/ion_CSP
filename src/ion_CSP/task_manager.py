@@ -31,7 +31,7 @@ class TaskManager:
         try:
             return importlib.metadata.version("ion_CSP")
         except importlib.metadata.PackageNotFoundError:
-            logging.error("Version detection failed")
+            logging.error("Package not found")
             return "unknown"
         except Exception as e:
             logging.error(f"Version detection failed: {e}")

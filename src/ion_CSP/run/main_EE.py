@@ -1,4 +1,3 @@
-import os
 import logging
 from ion_CSP.convert_SMILES import SmilesProcessing
 from ion_CSP.empirical_estimate import EmpiricalEstimation
@@ -31,11 +30,10 @@ DEFAULT_CONFIG = {
 @log_and_time
 def main(work_dir, config):
     logging.info(f"Using config: {config}")
-    empirical_estimate_dir = os.path.join(work_dir, "1_2_Gaussian_optimized")
     tasks = {
         "0_convertion": lambda: convertion_task(work_dir, config),
-        "0_estimation": lambda: estimation_task(empirical_estimate_dir, config),
-        "0_update_combo": lambda: combination_task(empirical_estimate_dir, config),
+        "0_estimation": lambda: estimation_task(work_dir, config),
+        "0_update_combo": lambda: combination_task(work_dir, config),
     }
     for task_name, task_func in tasks.items():
         task_logger = StatusLogger(work_dir=work_dir, task_name=task_name)
@@ -52,7 +50,7 @@ def main(work_dir, config):
         task_logger = StatusLogger(work_dir=work_dir, task_name="0_update_combo")
         try:
             task_logger.set_running()
-            combination_task(empirical_estimate_dir, config)
+            combination_task(work_dir, config)
             task_logger.set_success()
         except Exception:
             task_logger.set_failure()
@@ -94,14 +92,6 @@ def estimation_task(work_dir, config):
     estimation.multiwfn_process_fchk_to_json()
     # 由于后续晶体生成不支持 .log 文件，需要将 Gaussian 优化得到的 .log 文件最后一帧转为 .gjf 结构文件
     estimation.gaussian_log_to_optimized_gjf()
-    # 如果依据密度排序，则需要经验公式根据配比生成离子晶体组合，读取 .json 文件并将静电势分析得到的各离子性质代入经验公式
-    if config["empirical_estimate"]["sort_by"] == "density":
-        # 最终将预测的离子晶体密度以及对应的组分输出到 .csv 文件并根据密度从大到小排序
-        estimation.empirical_estimate()
-    # 如果依据氮含量排序，则调用另一套根据 .gjf 文件中化学分布信息
-    elif config["empirical_estimate"]["sort_by"] == "nitrogen":
-        # 最终将预测的离子晶体氮含量以及对应的组分输出到 .csv 文件并根据氮含量从大到小排序
-        estimation.nitrogen_content_estimate()
 
 def combination_task(work_dir, config):
     # 在工作目录下准备 Gaussian 优化处理后具有 .gjf、.fchk 和 .log 文件的文件夹, 并提供对应的离子配比
@@ -111,6 +101,14 @@ def combination_task(work_dir, config):
         ratios=config["empirical_estimate"]["ratios"],
         sort_by=config["empirical_estimate"]["sort_by"],
     )
+    # 如果依据密度排序，则需要经验公式根据配比生成离子晶体组合，读取 .json 文件并将静电势分析得到的各离子性质代入经验公式
+    if config["empirical_estimate"]["sort_by"] == "density":
+        # 最终将预测的离子晶体密度以及对应的组分输出到 .csv 文件并根据密度从大到小排序
+        combination.empirical_estimate()
+    # 如果依据氮含量排序，则调用另一套根据 .gjf 文件中化学分布信息
+    elif config["empirical_estimate"]["sort_by"] == "nitrogen":
+        # 最终将预测的离子晶体氮含量以及对应的组分输出到 .csv 文件并根据氮含量从大到小排序
+        combination.nitrogen_content_estimate()
     # 基于排序依据 sort_by 对应的 .csv 文件创建 combo_n 文件夹，并复制相应的 .gjf 结构文件。
     if config["empirical_estimate"]["make_combo_dir"]:
         combination.make_combo_dir(

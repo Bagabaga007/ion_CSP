@@ -1,12 +1,12 @@
 __author__ = "Ze Yang"
 __contact__ = "yangze1995007@163.com"
 __license__ = "MIT"
-__version__ = "2.1.8"
-__date__ = "2025-06-23"
+__version__ = "2.1.9"
+__date__ = "2025-06-27"
 
 
 try:
-    from importlib.metadata import version  # python >= 3.11
+    from importlib.metadata import version
 except Exception:
     try:
         from importlib_metadata import version

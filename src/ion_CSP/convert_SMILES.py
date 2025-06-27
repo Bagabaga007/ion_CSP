@@ -72,7 +72,13 @@ class SmilesProcessing:
             basename: The corresponding basename.
         """
         mol = Chem.MolFromSmiles(smiles)
-        mol = Chem.AddHs(mol)
+        try:
+            mol = Chem.AddHs(mol)
+        except Exception as e:
+            logging.error(
+                f"Error occurred while adding hydrogens to molecule {basename} with charge {charge}: {e}"
+            )
+            return 1, basename  # 返回错误码1表示失败
         try:
             # 生成3D坐标
             AllChem.EmbedMolecule(mol)
