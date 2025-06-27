@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### 30a2f56 (2025-06-27)
+
+Optimize the file copying logic in VASP processing to ensure that copying operations are only performed when files exist
+
 ### 0acedac (2025-06-27)
 
 Update the version number to 2.1.9, adjust the version detection error information in the task manager, optimize the error handling of multiple modules, optimize the EE workflow, make its operation and calling more stable, and work logic more rigorous.
