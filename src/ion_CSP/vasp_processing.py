@@ -256,10 +256,15 @@ class VaspProcessing:
             task_dir = os.path.join(self.vasp_optimized_dir, f"{parent}pop{pop}")
             for job_i in node_jobs[pop]:
                 vasp_dir = vasp_optimized_folders[job_i]
-                shutil.copytree(
-                    f"{task_dir}/{vasp_dir}/fine/final",
-                    f"{self.vasp_optimized_dir}/{vasp_dir}/fine/final",
-                )
+                try:
+                    shutil.copytree(
+                        f"{task_dir}/{vasp_dir}/fine/final",
+                        f"{self.vasp_optimized_dir}/{vasp_dir}/fine/final",
+                    )
+                except FileNotFoundError:
+                    logging.error(
+                        f"  No final optimization results found for {vasp_dir} in {task_dir}"
+                    )
             # 在成功完成 VASP 分步优化后，删除 4_vasp_optimized /{parent}/pop{n} 文件夹以节省空间
             shutil.rmtree(task_dir)
         if machine_inform["context_type"] == "SSHContext":

@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### 8ad4b47 (2025-06-27)
+
+Modify the hooks of post-commit to use self-written python script.
+
 ### 30a2f56 (2025-06-27)
 
 Optimize the file copying logic in VASP processing to ensure that copying operations are only performed when files exist
