@@ -219,14 +219,15 @@ class VaspProcessing:
                 # 将分配好的POSCAR文件添加到对应的上传文件中
                 vasp_dir = vasp_optimized_folders[job_i]
                 fine_optimized_file = f"{vasp_dir}/fine/CONTCAR"
-                forward_files.append(fine_optimized_file)
-                os.makedirs(
-                    os.path.dirname(f"{task_dir}/{fine_optimized_file}"), exist_ok=True
-                )
-                shutil.copyfile(
-                    f"{self.vasp_optimized_dir}/{fine_optimized_file}",
-                    f"{task_dir}/{fine_optimized_file}",
-                )
+                if os.path.exists(fine_optimized_file):
+                    forward_files.append(fine_optimized_file)
+                    os.makedirs(
+                        os.path.dirname(f"{task_dir}/{fine_optimized_file}"), exist_ok=True
+                    )
+                    shutil.copyfile(
+                        f"{self.vasp_optimized_dir}/{fine_optimized_file}",
+                        f"{task_dir}/{fine_optimized_file}",
+                    )
                 # 每个POSCAR文件在优化后都取回对应的CONTCAR和OUTCAR输出文件
                 backward_files.append(f"{vasp_dir}/*")
                 backward_files.append(f"{vasp_dir}/fine/*")

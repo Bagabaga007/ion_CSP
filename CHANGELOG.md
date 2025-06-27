@@ -1,94 +1,292 @@
-##  (2025-06-23)
+# Changelog
 
-* Introduce importlib.resourses in multiple modules to improve file path management; ([2ea0ac4](https://github.com/Bagabaga007/ion_CSP/commit/2ea0ac4))
-* Update dependencies, improve documentation, and enhance error handling ([b68c9ac](https://github.com/Bagabaga007/ion_CSP/commit/b68c9ac))
-* Update GitHub Actions workflow to trigger builds upon release, modify the steps for updating CHANGEL ([bf651e6](https://github.com/Bagabaga007/ion_CSP/commit/bf651e6))
-* Update update_changelog.yml ([5c3c950](https://github.com/Bagabaga007/ion_CSP/commit/5c3c950))
-* Update update_changelog.yml ([346d034](https://github.com/Bagabaga007/ion_CSP/commit/346d034))
-* Update version number to 2.1.8, optimize error handling in code, and update multiple modules to impr ([b534c0e](https://github.com/Bagabaga007/ion_CSP/commit/b534c0e))
-* Use git hooks to automatcally update CHANGELOG.md ([162ddc4](https://github.com/Bagabaga007/ion_CSP/commit/162ddc4))
+## Latest Changes
 
+### 0acedac (2025-06-27)
 
+Update the version number to 2.1.9, adjust the version detection error information in the task manager, optimize the error handling of multiple modules, optimize the EE workflow, make its operation and calling more stable, and work logic more rigorous.
 
-## <small>2.1.5 (2025-06-16)</small>
+## V2.1.8
 
-* Add dependency descriptions for the Scipy version; ([934f0fa](https://github.com/Bagabaga007/ion_CSP/commit/934f0fa))
-* Added the function of automatically updating CHANGELOG; ([3edd170](https://github.com/Bagabaga007/ion_CSP/commit/3edd170))
-* Update version to 2.1.5. ([31087de](https://github.com/Bagabaga007/ion_CSP/commit/31087de))
+### b534c0e (2025-06-23)
 
+Update version number to 2.1.8, optimize error handling in code, and update multiple modules to improve readability and functionality.
 
+### b68c9ac (2025-06-19)
 
-## <small>2.1.4 (2025-06-13)</small>
+Update dependencies, improve documentation, and enhance error handling
 
-* Optimize the packaging behavior when building pypi distribution packages to make them easier to use ([ad5c1d7](https://github.com/Bagabaga007/ion_CSP/commit/ad5c1d7))
+### 162ddc4 (2025-06-16)
 
+Use git hooks to automatcally update CHANGELOG.md
 
+### 80f0d24 (2025-06-16)
 
-## <small>2.1.3 (2025-06-11)</small>
+Merge branch 'main' of https://github.com/Bagabaga007/ion_CSP
 
-* Updata version to 2.1.3 ([d503641](https://github.com/Bagabaga007/ion_CSP/commit/d503641))
+### bf651e6 (2025-06-16)
 
+Update GitHub Actions workflow to trigger builds upon release, modify the steps for updating CHANGELOG to ensure proper installation of dependencies, update version number to 2.1.6, and optimize the generation format of CHANGELOG.
 
+### 5c3c950 (2025-06-16)
 
-## <small>2.1.2 (2025-06-09)</small>
+Update update_changelog.yml
 
-* Implement centralized management of version numbers and automatic synchronization of multiple config ([1befcf7](https://github.com/Bagabaga007/ion_CSP/commit/1befcf7))
+### 346d034 (2025-06-16)
 
+Update update_changelog.yml
 
+### 2ea0ac4 (2025-06-16)
 
-## <small>2.1.1 (2025-06-09)</small>
+Introduce importlib.resourses in multiple modules to improve file path management;  Fix the module import path in the task manager.
 
-* 1. Improve the dockerfile to ensure smooth operation inside the container; ([f034fbe](https://github.com/Bagabaga007/ion_CSP/commit/f034fbe))
-* Add conda environment configuration ([0675303](https://github.com/Bagabaga007/ion_CSP/commit/0675303))
-* Add template configuration files and corresponding usage document in the config folder under the roo ([80a3e3d](https://github.com/Bagabaga007/ion_CSP/commit/80a3e3d))
-* Add unit testing module for task_manager. ([070c86f](https://github.com/Bagabaga007/ion_CSP/commit/070c86f))
-* Added Python version of interactive main function entry and corresponding app files. ([98f7382](https://github.com/Bagabaga007/ion_CSP/commit/98f7382))
-* Added usage and configuration examples in the project root directory. ([bb0d853](https://github.com/Bagabaga007/ion_CSP/commit/bb0d853))
-* Adjust the depencies installation order ([3866521](https://github.com/Bagabaga007/ion_CSP/commit/3866521))
-* Adjust the installation method of the code, use git clone and pip install - e. commands to install t ([7f383b0](https://github.com/Bagabaga007/ion_CSP/commit/7f383b0))
-* After machine learning potential optimization and structure filtering, CSV files were added to summa ([6f29d21](https://github.com/Bagabaga007/ion_CSP/commit/6f29d21))
-* After successfully completing the task using the dpdispatcher module, delete the corresponding folde ([d079b70](https://github.com/Bagabaga007/ion_CSP/commit/d079b70))
-* Change some certain packages installation way to pip installation. ([ff92e05](https://github.com/Bagabaga007/ion_CSP/commit/ff92e05))
-* Change the version number to 2.0.0. ([9ddb0c4](https://github.com/Bagabaga007/ion_CSP/commit/9ddb0c4))
-* committed ([2bef3e2](https://github.com/Bagabaga007/ion_CSP/commit/2bef3e2))
-* Create python-package-conda.yml ([7b1752b](https://github.com/Bagabaga007/ion_CSP/commit/7b1752b))
-* Create python-publish.yml ([1cbba7e](https://github.com/Bagabaga007/ion_CSP/commit/1cbba7e))
-* Create SECURITY.md ([30c455b](https://github.com/Bagabaga007/ion_CSP/commit/30c455b))
-* Delete 1_preparation directory ([05931e7](https://github.com/Bagabaga007/ion_CSP/commit/05931e7))
-* Delete 2_generation directory ([380eedb](https://github.com/Bagabaga007/ion_CSP/commit/380eedb))
-* Delete 3_postprocessing directory ([c4400f0](https://github.com/Bagabaga007/ion_CSP/commit/c4400f0))
-* Fix the bug in environment.yml file ([049d915](https://github.com/Bagabaga007/ion_CSP/commit/049d915))
-* Fully automated EE workflow ([c367bc3](https://github.com/Bagabaga007/ion_CSP/commit/c367bc3))
-* Fully automated ion CSP workflow. ([f8e6c73](https://github.com/Bagabaga007/ion_CSP/commit/f8e6c73))
-* Ignore the big-size dist files ([cb7dcb0](https://github.com/Bagabaga007/ion_CSP/commit/cb7dcb0))
-* Modification of conda package build yml file. ([1d0d5fc](https://github.com/Bagabaga007/ion_CSP/commit/1d0d5fc))
-* Modification of conda package build yml file. ([83f25cb](https://github.com/Bagabaga007/ion_CSP/commit/83f25cb))
-* Modified the yml file for github actions ([f2a8abc](https://github.com/Bagabaga007/ion_CSP/commit/f2a8abc))
-* Modified yml file for github actions ([01f2095](https://github.com/Bagabaga007/ion_CSP/commit/01f2095))
-* Modified yml file for Github actions. ([90bfd07](https://github.com/Bagabaga007/ion_CSP/commit/90bfd07))
-* ok ([a22b9e8](https://github.com/Bagabaga007/ion_CSP/commit/a22b9e8))
-* ok ([7f6d3b1](https://github.com/Bagabaga007/ion_CSP/commit/7f6d3b1))
-* ok ([c13cd0c](https://github.com/Bagabaga007/ion_CSP/commit/c13cd0c))
-* ok ([1a2b2d5](https://github.com/Bagabaga007/ion_CSP/commit/1a2b2d5))
-* ok ([2d8aafd](https://github.com/Bagabaga007/ion_CSP/commit/2d8aafd))
-* ok ([7fbfd27](https://github.com/Bagabaga007/ion_CSP/commit/7fbfd27))
-* ok ([a0b84fc](https://github.com/Bagabaga007/ion_CSP/commit/a0b84fc))
-* ok ([9878e9d](https://github.com/Bagabaga007/ion_CSP/commit/9878e9d))
-* ok ([b07065c](https://github.com/Bagabaga007/ion_CSP/commit/b07065c))
-* ok ([68b6b0a](https://github.com/Bagabaga007/ion_CSP/commit/68b6b0a))
-* ok ([f6a30b0](https://github.com/Bagabaga007/ion_CSP/commit/f6a30b0))
-* ok ([0e434f6](https://github.com/Bagabaga007/ion_CSP/commit/0e434f6))
-* OK ([fd404eb](https://github.com/Bagabaga007/ion_CSP/commit/fd404eb))
-* Refactoring the project structure, configuring packaging parameters, and modifying sub process call  ([bde5189](https://github.com/Bagabaga007/ion_CSP/commit/bde5189))
-* Remove invalid channel and adapt the mixed installation method. ([24832ea](https://github.com/Bagabaga007/ion_CSP/commit/24832ea))
-* Remove the flake8 installation in conda package construction. ([5540449](https://github.com/Bagabaga007/ion_CSP/commit/5540449))
-* Remove torchvision package dependencies to allow pip to attempt to solve the dependency conflict. ([72ccfad](https://github.com/Bagabaga007/ion_CSP/commit/72ccfad))
-* Significantly optimized the logging system and task management of the interactive program entrance. ([15c4628](https://github.com/Bagabaga007/ion_CSP/commit/15c4628))
-* Significantly optimized the program logic of the interactive entrance and fixed a large number of po ([bfec475](https://github.com/Bagabaga007/ion_CSP/commit/bfec475))
-* Unified the interactive interface between shell and Python versions, and uploaded distribution files ([ebf54e3](https://github.com/Bagabaga007/ion_CSP/commit/ebf54e3))
-* Update information in README.md ([01af54c](https://github.com/Bagabaga007/ion_CSP/commit/01af54c))
-* Update README.md and modified the yml file for github action of conda package build ([1ff9020](https://github.com/Bagabaga007/ion_CSP/commit/1ff9020))
-* Update the corresponding information yml to resolve the conda environment configuration actions in G ([c2a01ee](https://github.com/Bagabaga007/ion_CSP/commit/c2a01ee))
+## V2.1.5
 
+### 934f0fa (2025-06-16)
 
+Add dependency descriptions for the Scipy version;  Fixed missing example 2 in the examples section.
+
+### 31087de (2025-06-16)
+
+Update version to 2.1.5.
+
+### 3edd170 (2025-06-16)
+
+Added the function of automatically updating CHANGELOG; Import configuration and data files through importlib.resosourced to fix file read errors in the pypi distribution package.
+
+## V2.1.4
+
+### ad5c1d7 (2025-06-13)
+
+Optimize the packaging behavior when building pypi distribution packages to make them easier to use
+
+## V2.1.3
+
+### d503641 (2025-06-11)
+
+Updata version to 2.1.3
+
+## V2.1.2
+
+### 1befcf7 (2025-06-09)
+
+Implement centralized management of version numbers and automatic synchronization of multiple configuration files to ensure consistency and reliability in the construction process.
+
+## V2.1.1
+
+### bde5189 (2025-06-09)
+
+Refactoring the project structure, configuring packaging parameters, and modifying sub process call logic to address the issue of module path failure in PyPI distribution packages;  To modify VASP optimization steps in the workflow: 1  Rough optimization of limiting cell shape 2. Fine optimization of limiting cell shape 3. Final optimization without cell constraints
+
+### bb0d853 (2025-05-30)
+
+Added usage and configuration examples in the project root directory. Added permission items in the CI Build workflow to enhance security. Added parameters to the example resources.yaml file to specify JOB_NAME to optimize the readability of jobs.
+
+### 80a3e3d (2025-05-23)
+
+Add template configuration files and corresponding usage document in the config folder under the root directory
+
+### 7f383b0 (2025-05-21)
+
+Adjust the installation method of the code, use git clone and pip install - e. commands to install the source code, and continue to optimize the use of code installed using distribution packages in the future.  Correspondingly updated the version number and the documentation content of README.md.
+
+### 1d0d5fc (2025-05-16)
+
+Modification of conda package build yml file.
+
+### 83f25cb (2025-05-16)
+
+Modification of conda package build yml file.
+
+### 5540449 (2025-05-16)
+
+Remove the flake8 installation in conda package construction.
+
+### 01af54c (2025-05-16)
+
+Update information in README.md
+
+### cb7dcb0 (2025-05-15)
+
+Ignore the big-size dist files
+
+### 1ff9020 (2025-05-13)
+
+Update README.md and modified the yml file for github action of conda package build
+
+### 01f2095 (2025-05-13)
+
+Modified yml file for github actions
+
+### 90bfd07 (2025-05-13)
+
+Modified yml file for Github actions.
+
+### 6f29d21 (2025-05-13)
+
+After machine learning potential optimization and structure filtering, CSV files were added to summarize the sequence number, density, and energy of the filtered structures, making it easier to visualize the interface.
+
+### f2a8abc (2025-05-09)
+
+Modified the yml file for github actions
+
+### b5d1bcd (2025-05-09)
+
+Merge branch 'main' of https://github.com/Bagabaga007/ion_CSP
+
+### bfec475 (2025-05-09)
+
+Significantly optimized the program logic of the interactive entrance and fixed a large number of potential bugs. Integrate pagination display function to reduce code duplication. Add unit testing modules for this interactive entry program.
+
+### 30c455b (2025-04-25)
+
+Create SECURITY.md
+
+### 070c86f (2025-04-25)
+
+Add unit testing module for task_manager.
+
+### 72ccfad (2025-04-25)
+
+Remove torchvision package dependencies to allow pip to attempt to solve the dependency conflict.
+
+### 049d915 (2025-04-25)
+
+Fix the bug in environment.yml file
+
+### 3866521 (2025-04-25)
+
+Adjust the depencies installation order
+
+### ff92e05 (2025-04-25)
+
+Change some certain packages installation way to pip installation.
+
+### 24832ea (2025-04-25)
+
+Remove invalid channel and adapt the mixed installation method.
+
+### c2a01ee (2025-04-25)
+
+Update the corresponding information yml to resolve the conda environment configuration actions in Github
+
+### 0675303 (2025-04-25)
+
+Add conda environment configuration
+
+### b91ee5c (2025-04-25)
+
+Merge branch 'main' of https://github.com/Bagabaga007/ion_CSP
+
+### 15c4628 (2025-04-25)
+
+Significantly optimized the logging system and task management of the interactive program entrance.  The specific functions implemented include: real-time process monitoring (PID tracking), automatic symbolic linking of log files, process security termination and resource cleaning, log pagination browsing (10 entries/page), module filtering (CSP/EE), and soft link parsing to display the actual path.  Greatly optimized the README.md file, providing bilingual support in both Chinese and English that is more in line with Python project specifications.
+
+### 7b1752b (2025-04-23)
+
+Create python-package-conda.yml
+
+### 0cf8d07 (2025-04-23)
+
+Merge branch 'main' of https://github.com/Bagabaga007/ion_CSP
+
+### ebf54e3 (2025-04-23)
+
+Unified the interactive interface between shell and Python versions, and uploaded distribution files to Pypi
+
+### 1cbba7e (2025-04-23)
+
+Create python-publish.yml
+
+### 98f7382 (2025-04-22)
+
+Added Python version of interactive main function entry and corresponding app files.
+
+### f034fbe (2025-04-21)
+
+1. Improve the dockerfile to ensure smooth operation inside the container; 2. Added a terminal interactive entrance for the program, supporting both Linux terminals and Docker environments, supporting runtime experience evaluation and ion crystal structure prediction modules, and able to capture the PID of Python programs and link logs for easy monitoring of task status and results, as well as task killing. 3. Optimize the task step logic of the EE module to avoid possible redundant Gaussian calculations, and provide batch update parameters for the config. yaml configuration file in the combined folder. 4. Generate CSV files for echo information during the structure generation stage, saving the structure generation information of each space group and the exception types when pyxtal generation fails. At the same time, based on the results of phonopy symmetry processing, remove the double atom structure generated by pyxtal and update the CSV file information.
+
+### d079b70 (2025-04-11)
+
+After successfully completing the task using the dpdispatcher module, delete the corresponding folder for submission to save space.
+
+### 9ddb0c4 (2025-04-11)
+
+Change the version number to 2.0.0.
+
+### c367bc3 (2025-04-09)
+
+Fully automated EE workflow
+
+### f8e6c73 (2025-04-08)
+
+Fully automated ion CSP workflow.
+
+### c4400f0 (2025-04-02)
+
+Delete 3_postprocessing directory
+
+### 380eedb (2025-04-02)
+
+Delete 2_generation directory
+
+### 05931e7 (2025-04-02)
+
+Delete 1_preparation directory
+
+### a22b9e8 (2024-12-23)
+
+ok
+
+### 7f6d3b1 (2024-12-23)
+
+ok
+
+### c13cd0c (2024-12-20)
+
+ok
+
+### 1a2b2d5 (2024-12-19)
+
+ok
+
+### fd404eb (2024-12-19)
+
+OK
+
+### 2d8aafd (2024-12-17)
+
+ok
+
+### 7fbfd27 (2024-12-16)
+
+ok
+
+### a0b84fc (2024-12-16)
+
+ok
+
+### 9878e9d (2024-12-16)
+
+ok
+
+### b07065c (2024-12-16)
+
+ok
+
+### 68b6b0a (2024-12-16)
+
+ok
+
+### f6a30b0 (2024-12-14)
+
+ok
+
+### 0e434f6 (2024-12-14)
+
+ok
+
+### 2bef3e2 (2024-12-12)
+
+committed
 
