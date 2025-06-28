@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 import time
 import numpy as np
 import multiprocessing

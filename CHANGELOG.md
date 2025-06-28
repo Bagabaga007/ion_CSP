@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### 18b9eba (2025-06-28)
+
+Optimize the file copying logic in vasp_processing to ensure that copying operations are only performed when the file exists; Update sorting parameters to support 'NC_ratio' and modify the relevant CSV file names accordingly.
+
 ### 14ffac2 (2025-06-27)
 
 Update version number to 2.2.0, optimize file replication logic in VASP processing, add error handling to ensure errors are recorded when files do not exist, modify README and CHANGELOG to reflect the latest changes.
