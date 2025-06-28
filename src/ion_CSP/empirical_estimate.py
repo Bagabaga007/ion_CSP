@@ -79,11 +79,11 @@ class EmpiricalEstimation:
         self.folders = folders
         self.ratios = ratios
         self.sort_by = sort_by
-        if sort_by not in ("density", "nitrogen"):
-            raise ValueError(f"The sort_by parameter must be either 'density' or 'nitrogen', but got '{sort_by}'")
+        if sort_by not in ("density", "nitrogen", "NC_ratio"):
+            raise ValueError(f"The sort_by parameter must be either 'density' 'nitrogen' or 'NC_ratio', but got '{sort_by}'")
         self.density_csv = "sorted_density.csv"
         self.nitrogen_csv = "sorted_nitrogen.csv"
-        self.carbon_nitrogen_csv = "specific_C_N_ratio.csv"
+        self.NC_ratio_csv = "specific_NC_ratio.csv"
         # 检查Multiwfn可执行文件是否存在
         self.multiwfn_path = self._check_multiwfn_executable()
     
@@ -487,7 +487,7 @@ class EmpiricalEstimation:
         filtered_data.sort(key=lambda x: (-x[1], -x[2]))
 
         # 写入排序后的 .csv 文件
-        with open(self.carbon_nitrogen_csv, "w", newline="", encoding="utf-8") as csv_file:
+        with open(self.NC_ratio_csv, "w", newline="", encoding="utf-8") as csv_file:
             writer = csv.writer(csv_file)
             # 动态生成表头
             num_components = len(combinations[0]) if combinations else 0
@@ -642,6 +642,8 @@ class EmpiricalEstimation:
             base_csv = self.density_csv
         elif self.sort_by == 'nitrogen':
             base_csv = self.nitrogen_csv
+        elif self.sort_by == "NC_ratio":
+            base_csv = self.NC_ratio_csv
         if not target_dir:
             target_dir = f'../2_{self.sort_by}_combos'
         with open(base_csv, mode='r', newline='') as file:

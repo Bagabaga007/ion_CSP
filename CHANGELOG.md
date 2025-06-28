@@ -2,6 +2,12 @@
 
 ## Latest Changes
 
+### 14ffac2 (2025-06-27)
+
+Update version number to 2.2.0, optimize file replication logic in VASP processing, add error handling to ensure errors are recorded when files do not exist, modify README and CHANGELOG to reflect the latest changes.
+
+## V2.1.9
+
 ### 8ad4b47 (2025-06-27)
 
 Modify the hooks of post-commit to use self-written python script.
