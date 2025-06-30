@@ -11,17 +11,16 @@ import multiprocessing
 from ase.io.vasp import read_vasp
 from ase.optimize import LBFGS
 from ase.constraints import UnitCellFilter
-from deepmd.calculator import DP
+# from deepmd.calculator import DP
+from mattersim.forcefield import MatterSimCalculator
 
 # 根据脚本位置确定model.pt文件的位置, 减少错误发生
 base_dir = os.path.dirname(__file__)
 relative_path = './model.pt'
 file_path = os.path.join(base_dir, relative_path)
-calc = DP(file_path)
-"""
-structure optimization with DP model and ASE
-PSTRESS and fmax should exist in input.dat
-"""
+# calc = DP(file_path)
+calc = MatterSimCalculator(device="cuda")
+
 
 def get_element_num(elements):
     """
@@ -55,7 +54,7 @@ def write_CONTCAR(element, ele, lat, pos, index):
         pos: atomic positions in direct coordinates
         index: index for the output file""" 
     f = open(f'{base_dir}/CONTCAR_'+str(index),'w')
-    f.write('ASE-DPKit-Optimization\n')
+    f.write('ASE-MLP-Optimization\n')
     f.write('1.0\n') 
     for i in range(3):
         f.write('%15.10f %15.10f %15.10f\n' % tuple(lat[i]))
@@ -143,7 +142,7 @@ def get_indexes():
 
 def run_opt(index: int): 
     """
-    Using the ASE&DP to Optimize Configures
+    Using the ASE & MLP to Optimize Configures
     :params
         index: index of the POSCAR file to be optimized
     """
@@ -151,7 +150,7 @@ def run_opt(index: int):
         os.system(f'mv {base_dir}/OUTCAR {base_dir}/OUTCAR-last')
     fmax, pstress = 0.03, 0
 
-    print('Start to Optimize Structures by DP----------')
+    print('Start to Optimize Structures by MLP----------')
         
     Opt_Step = 2000
     start = time.time() 

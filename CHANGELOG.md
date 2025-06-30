@@ -2,6 +2,12 @@
 
 ## Latest Changes
 
+### d6abfb5 (2025-06-28)
+
+Optimize the environment variable settings in mlp_opt.py to disable numpy's multithreading and ensure the stability of multi-threaded computation.
+
+## V2.2.0
+
 ### 18b9eba (2025-06-28)
 
 Optimize the file copying logic in vasp_processing to ensure that copying operations are only performed when the file exists; Update sorting parameters to support 'NC_ratio' and modify the relevant CSV file names accordingly.

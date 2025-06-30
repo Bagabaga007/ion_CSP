@@ -109,6 +109,8 @@ def combination_task(work_dir, config):
     elif config["empirical_estimate"]["sort_by"] == "nitrogen":
         # 最终将预测的离子晶体氮含量以及对应的组分输出到 .csv 文件并根据氮含量从大到小排序
         combination.nitrogen_content_estimate()
+    elif config["empirical_estimate"]["sort_by"] == "NC_ratio":
+        combination.carbon_nitrogen_ratio_estimate()
     # 基于排序依据 sort_by 对应的 .csv 文件创建 combo_n 文件夹，并复制相应的 .gjf 结构文件。
     if config["empirical_estimate"]["make_combo_dir"]:
         combination.make_combo_dir(

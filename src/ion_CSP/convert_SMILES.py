@@ -131,7 +131,7 @@ class SmilesProcessing:
                 f"{self.converted_dir}/charge_{charge}"
             )
             os.makedirs(charge_dir, exist_ok=True)
-            # 通过SMILE_to函数依次处理SMILES码
+            # 通过_convert_SMILES函数依次处理SMILES码
             for _, row in group.iterrows():
                 result_code, basename = self._convert_SMILES(
                     dir=charge_dir,
@@ -238,8 +238,10 @@ class SmilesProcessing:
         for folder in folders:
             folder_dir = os.path.join(self.converted_dir, folder)
             if not os.path.exists(folder_dir):
-                logging.error(f'Provided folder {folder} is not in the directory {folder_dir}')
-                continue
+                folder_dir = os.path.join(self.base_dir, folder)
+                if not os.path.exists(folder_dir):
+                    logging.error(f'Provided folder {folder} is not either in the work directory or the converted directory.\n')
+                    continue
             # 获取文件夹中所有以 .gjf 结尾的文件
             gjf_files = [
                 f for f in os.listdir(folder_dir) if f.endswith(".gjf")
