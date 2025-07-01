@@ -10,16 +10,17 @@ import numpy as np
 import multiprocessing
 from ase.io.vasp import read_vasp
 from ase.optimize import LBFGS
-from ase.constraints import UnitCellFilter
-# from deepmd.calculator import DP
-from mattersim.forcefield import MatterSimCalculator
+# from ase.constraints import UnitCellFilter
+from ase.filters import ExpCellFilter
+from deepmd.calculator import DP
+# from mattersim.forcefield import MatterSimCalculator
 
 # 根据脚本位置确定model.pt文件的位置, 减少错误发生
 base_dir = os.path.dirname(__file__)
 relative_path = './model.pt'
 file_path = os.path.join(base_dir, relative_path)
-# calc = DP(file_path)
-calc = MatterSimCalculator(device="cuda")
+calc = DP(file_path)
+# calc = MatterSimCalculator(device="cuda")
 
 
 def get_element_num(elements):
@@ -161,7 +162,8 @@ def run_opt(index: int):
     aim_stress = 1.0 * pstress * 0.01 * 0.6242 / 10.0 
     atoms = read_vasp('POSCAR_'+str(index)) 
     atoms.calc = calc 
-    ucf = UnitCellFilter(atoms, scalar_pressure=aim_stress)
+    # ucf = UnitCellFilter(atoms, scalar_pressure=aim_stress)
+    ucf = ExpCellFilter(atoms, scalar_pressure=aim_stress)
     # optimization
     opt = LBFGS(ucf) 
     opt.run(fmax=fmax,steps=Opt_Step) 

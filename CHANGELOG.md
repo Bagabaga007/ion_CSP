@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### 1754cc7 (2025-06-30)
+
+Update version number to 2.2.1, fix file copying logic in main_EE workflow, update mlp_opt.py to use MatterSimCalculator to develop calculation efficiency.
+
 ### d6abfb5 (2025-06-28)
 
 Optimize the environment variable settings in mlp_opt.py to disable numpy's multithreading and ensure the stability of multi-threaded computation.

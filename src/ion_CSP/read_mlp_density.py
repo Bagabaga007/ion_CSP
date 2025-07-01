@@ -8,7 +8,7 @@ from ion_CSP.identify_molecules import identify_molecules, molecules_information
 
 class ReadMlpDensity:
     
-    def __init__(self, work_dir:str):
+    def __init__(self, work_dir:str, folder:str = '2_mlp_optimized'):
         """
         This class is designed to read and process MLP optimized files, specifically CONTCAR files, to calculate and sort their densities.
         The class also provides functionality to process these files using phonopy for symmetry analysis and primitive cell generation.
@@ -20,7 +20,7 @@ class ReadMlpDensity:
         self.base_dir = work_dir
         os.chdir(self.base_dir)
         # 寻找同一目录下的2_mlp_optimized文件夹
-        self.folder_dir = os.path.join(self.base_dir, '2_mlp_optimized')
+        self.folder_dir = os.path.join(self.base_dir, folder)
         self.max_density_dir = os.path.join(self.folder_dir, 'max_density')
         self.primitive_cell_dir = os.path.join(self.folder_dir, 'primitive_cell')
         print(f"Processing MLP CONTCARs in {self.folder_dir}")

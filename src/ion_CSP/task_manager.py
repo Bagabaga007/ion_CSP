@@ -219,7 +219,9 @@ class TaskManager:
     def task_runner(self, module: str, work_dir: str):
         """任务执行器 - Task execution handler"""
         work_dir = Path(work_dir)
-        work_dir.mkdir(exist_ok=True)
+        if not os.path.exists(work_dir):
+            print(f"Work directory {work_dir} does not exist")
+            return
 
         console_log = work_dir / f"main_{module}_console.log"
         pid_file = work_dir / "pid.txt"
