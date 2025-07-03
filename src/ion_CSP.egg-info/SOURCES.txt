@@ -100,6 +100,6 @@ src/ion_CSP/run/run_read_mlp_density.py
 src/ion_CSP/run/run_upload_download.py
 src/ion_CSP/run/run_vasp_processing.py
 tests/__init__.py
-tests/test1_task_manager1.py
+tests/test_identify_molecules.py
 tests/test_log_and_time.py
 tests/test_task_manager.py

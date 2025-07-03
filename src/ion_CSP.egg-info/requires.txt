@@ -1,6 +1,6 @@
 ase==3.23.0
 scipy==1.15.2
-deepmd-kit==3.0.1
+deepmd-kit>=3.0.1
 torch==2.5.0
 dpdispatcher==0.6.7
 numpy==1.26.4

@@ -116,9 +116,8 @@ class CrystalGenerator:
                     pyxtal_structure.to_file(POSCAR_path, fmt="poscar")
                     total_count += 1
                     group_count += 1
+                # 捕获对于某一空间群生成结构的运行时间过长、组成兼容性错误、对称性兼容性错误等异常，使结构生成能够完全进行而不中断
                 except (RuntimeError, Comp_CompatibilityError, Symm_CompatibilityError) as e:
-                    # 捕获对于某一空间群生成结构的运行时间过长、组成兼容性错误、对称性兼容性错误等异常，使结构生成能够完全进行而不中断
-                    logging.error(f"Generating structure error: {e}")
                     # 记录异常类型并跳出当前空间群的生成循环
                     exception_message = type(e).__name__
                     break
@@ -154,7 +153,12 @@ class CrystalGenerator:
         # 按顺序处理POSCAR文件，首先复制一份无数字后缀的POSCAR文件
         shutil.copy(f"{self.POSCAR_dir}/{filename}", f"{self.POSCAR_dir}/POSCAR")
         try:
-            subprocess.run(["nohup", "phonopy", "--symmetry", "POSCAR"], check=True)
+            subprocess.run(
+                ["nohup", "phonopy", "--symmetry", "POSCAR"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         except subprocess.CalledProcessError as e:
             # 新增：捕获phonopy执行错误
             logging.error(f"Phonopy execution failed for {filename}: {str(e)}")
@@ -168,9 +172,6 @@ class CrystalGenerator:
         
         # 检查生成的POSCAR中的原子数，如果不匹配则删除该POSCAR并在日志中记录
         if cell_atoms != self.cell_atoms:
-            error_message = f"Atom number mismatch ({cell_atoms} vs {self.cell_atoms})"
-            print(f"{filename} - {error_message}")
-            
             # 新增：回溯空间群归属
             poscar_index = int(filename.split('_')[1])  # 提取POSCAR编号
             space_group = self._find_space_group(poscar_index)

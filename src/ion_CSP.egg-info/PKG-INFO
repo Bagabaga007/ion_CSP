@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ion_CSP
-Version: 2.2.0
+Version: 2.2.2
 Summary: Crystal Structure Design Software Based on Molecular/Ionic Configuration.
 Home-page: https://github.com/bagabaga007/ion_CSP
 Author: Ze Yang
@@ -14,7 +14,7 @@ Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: ase==3.23.0
 Requires-Dist: scipy==1.15.2
-Requires-Dist: deepmd-kit==3.0.1
+Requires-Dist: deepmd-kit>=3.0.1
 Requires-Dist: torch==2.5.0
 Requires-Dist: dpdispatcher==0.6.7
 Requires-Dist: numpy==1.26.4

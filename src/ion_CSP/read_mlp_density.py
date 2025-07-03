@@ -174,7 +174,12 @@ class ReadMlpDensity:
                     # 使用phonopy模块处理POSCAR结构文件，获取对称化的原胞和常规胞。
                     # 应用晶体的对称操作优化后的原胞可以最好地符合晶体的对称性，减少后续优化计算的复杂性。
                     log.write(f'\nProcessing file: {new_CONTCAR_filename}\n')
-                    result = subprocess.run(['nohup', 'phonopy', '--symmetry', 'POSCAR'], stderr=subprocess.STDOUT)
+                    result = subprocess.run(
+                        ["nohup", "phonopy", "--symmetry", "POSCAR"],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                     log.write(f'Finished processing file: {new_CONTCAR_filename} with return code: {result.returncode}\n')
                 # 将phonopy生成的PPOSCAR（对称化原胞）和BPOSCAR（对称化常规胞）放到对应的文件夹中，并将文件名改回POSCAR_index
                 shutil.move(f'{self.phonopy_dir}/PPOSCAR', f'{self.primitive_cell_dir}/{new_CONTCAR_filename}')

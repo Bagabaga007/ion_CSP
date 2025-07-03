@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### 0a77f51 (2025-07-01)
+
+Due to the unsatisfactory performance of Mattersim in testing, we switched back to fine-tuning the machine learning potential of DP.  The performance of ExpCellFilter in testing is easier to identify experimental structures compared to UnitCellFilter, so it is changed to call ExpCellFilter in mlp_opt.py.
+
 ### 1754cc7 (2025-06-30)
 
 Update version number to 2.2.1, fix file copying logic in main_EE workflow, update mlp_opt.py to use MatterSimCalculator to develop calculation efficiency.
