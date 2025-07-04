@@ -2,6 +2,12 @@
 
 ## Latest Changes
 
+### d914d90 (2025-07-03)
+
+Update the version to 2.2.2. The redundant output content of the console is greatly reduced to control the size of the console. log file. Specifically, the redundant log records are reduced in gen_opt when exceptions occur in the structure generation process, and the redundant log records in gen_opt and read_mlp_density are reduced when calling the phonopy toolkit.
+
+## V2.2.1
+
 ### 0a77f51 (2025-07-01)
 
 Due to the unsatisfactory performance of Mattersim in testing, we switched back to fine-tuning the machine learning potential of DP.  The performance of ExpCellFilter in testing is easier to identify experimental structures compared to UnitCellFilter, so it is changed to call ExpCellFilter in mlp_opt.py.

@@ -177,8 +177,7 @@ class ReadMlpDensity:
                     result = subprocess.run(
                         ["nohup", "phonopy", "--symmetry", "POSCAR"],
                         check=True,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL
                     )
                     log.write(f'Finished processing file: {new_CONTCAR_filename} with return code: {result.returncode}\n')
                 # 将phonopy生成的PPOSCAR（对称化原胞）和BPOSCAR（对称化常规胞）放到对应的文件夹中，并将文件名改回POSCAR_index

@@ -156,8 +156,7 @@ class CrystalGenerator:
             subprocess.run(
                 ["nohup", "phonopy", "--symmetry", "POSCAR"],
                 check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL
             )
         except subprocess.CalledProcessError as e:
             # 新增：捕获phonopy执行错误

@@ -264,7 +264,7 @@ class TaskManager:
             std_log.symlink_to(output_log)
 
         print('Starting task ......')
-        time.sleep(6)
+        time.sleep(3)
         logging.info(f"Started {module} module (PID: {process.pid})")
         print(f"Task started (PID: {process.pid})")
         print(f"Normalized log file: {std_log}")
