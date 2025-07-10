@@ -2,6 +2,16 @@
 
 ## Latest Changes
 
+### 42fad92 (2025-07-10)
+
+Stabilized version functionality, restored import of cell filters, and resumed use of UnitCellFilter to optimize atomic structure pressure constraints.
+
+## V2.2.2
+
+### 19a1b2d (2025-07-04)
+
+Adjust the sleep time in task_manager and add molecular recognition test cases.
+
 ### d914d90 (2025-07-03)
 
 Update the version to 2.2.2. The redundant output content of the console is greatly reduced to control the size of the console. log file. Specifically, the redundant log records are reduced in gen_opt when exceptions occur in the structure generation process, and the redundant log records in gen_opt and read_mlp_density are reduced when calling the phonopy toolkit.
