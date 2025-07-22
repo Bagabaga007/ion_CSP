@@ -13,11 +13,19 @@ from ase.optimize import LBFGS
 from ase.constraints import UnitCellFilter
 from deepmd.calculator import DP
 
-# 根据脚本位置确定model.pt文件的位置, 减少错误发生
+
 base_dir = os.path.dirname(__file__)
-relative_path = './model.pt'
-file_path = os.path.join(base_dir, relative_path)
-calc = DP(file_path)
+
+
+def get_mlp_calc(relative_path='./model.pt'):
+    """
+    Get the MLP calculator for ASE.
+    This function initializes the DP calculator with a model file located in the same directory as this script.
+    """
+    # 根据脚本位置确定model.pt文件的位置, 减少错误发生
+    file_path = os.path.join(base_dir, relative_path)
+    calc = DP(file_path)
+    return calc
 
 
 def get_element_num(elements):
@@ -41,7 +49,7 @@ def get_element_num(elements):
         ele[x] = elements.count(x)
     return element, ele 
         
-def write_CONTCAR(element, ele, lat, pos, index):
+def write_CONTCAR(element, ele, lat, pos, index, output_dir=None):
     """
     Write CONTCAR file in VASP format
 
@@ -50,8 +58,11 @@ def write_CONTCAR(element, ele, lat, pos, index):
         ele: dictionary of element counts
         lat: lattice vectors
         pos: atomic positions in direct coordinates
-        index: index for the output file""" 
-    f = open(f'{base_dir}/CONTCAR_'+str(index),'w')
+        index: index for the output file
+        output_dir: directory where the CONTCAR file will be saved""" 
+    if output_dir is None:
+        output_dir = base_dir
+    f = open(os.path.join(output_dir, f"CONTCAR_{index}"), "w")
     f.write('ASE-MLP-Optimization\n')
     f.write('1.0\n') 
     for i in range(3):
@@ -68,7 +79,7 @@ def write_CONTCAR(element, ele, lat, pos, index):
     for i in range(na): 
         f.write('%15.10f %15.10f %15.10f\n' % tuple(dpos[i]))
         
-def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pstress, index):
+def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pstress, index, output_dir=None):
     """
     Write OUTCAR file in VASP format
     :params
@@ -83,8 +94,11 @@ def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pst
         stress: stress tensor components
         pstress: external pressure
         index: index for the output file
+        output_dir: directory where the OUTCAR file will be saved
     """
-    f = open(f'{base_dir}/OUTCAR_'+str(index),'w')
+    if output_dir is None:
+        output_dir = base_dir
+    f = open(os.path.join(output_dir, f"OUTCAR_{index}"), "w")
     for x in element: 
         f.write('VRHFIN =' + str(x) + '\n')
     f.write('ions per type =')
@@ -138,14 +152,20 @@ def get_indexes():
     indexes.sort(key=lambda indexes: indexes)
     return indexes
 
-def run_opt(index: int): 
+def run_opt(index: int, output_dir=None): 
     """
     Using the ASE & MLP to Optimize Configures
     :params
         index: index of the POSCAR file to be optimized
+        output_dir: directory where the output files will be saved
     """
-    if os.path.isfile(f'{base_dir}/OUTCAR'):
-        os.system(f'mv {base_dir}/OUTCAR {base_dir}/OUTCAR-last')
+    if output_dir is None:
+        output_dir = base_dir
+    # 修改文件读写路径
+    if os.path.isfile(os.path.join(output_dir, "OUTCAR")):
+        os.system(
+            f"mv {os.path.join(output_dir, 'OUTCAR')} {os.path.join(output_dir, 'OUTCAR-last')}"
+        )
     fmax, pstress = 0.03, 0
 
     print('Start to Optimize Structures by MLP----------')
@@ -158,7 +178,7 @@ def run_opt(index: int):
     # 1 / 160.21766028 ~ 0.006242
     aim_stress = 1.0 * pstress * 0.01 * 0.6242 / 10.0 
     atoms = read_vasp('POSCAR_'+str(index)) 
-    atoms.calc = calc 
+    atoms.calc = get_mlp_calc()
     ucf = UnitCellFilter(atoms, scalar_pressure=aim_stress)
     # optimization
     opt = LBFGS(ucf) 
@@ -176,8 +196,8 @@ def run_opt(index: int):
     atoms_vol = atoms.get_volume()
     element, ele = get_element_num(atoms_symbols) 
 
-    write_CONTCAR(element, ele, atoms_lat, atoms_pos, index)
-    write_OUTCAR(element, ele, atoms_masses, atoms_vol, atoms_lat, atoms_pos, atoms_ene, atoms_force, -10.0 * atoms_stress, pstress, index)
+    write_CONTCAR(element, ele, atoms_lat, atoms_pos, index, output_dir)
+    write_OUTCAR(element, ele, atoms_masses, atoms_vol, atoms_lat, atoms_pos, atoms_ene, atoms_force, -10.0 * atoms_stress, pstress, index, output_dir)
 
     stop = time.time()
     _cwd = os.getcwd()

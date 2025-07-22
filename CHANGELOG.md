@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### 12e7aa8 (2025-07-10)
+
+Update version number to 2.2.3, remove redundant egg info files, and add ignore for *. egg info.
+
 ### 42fad92 (2025-07-10)
 
 Stabilized version functionality, restored import of cell filters, and resumed use of UnitCellFilter to optimize atomic structure pressure constraints.

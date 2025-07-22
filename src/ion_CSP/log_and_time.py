@@ -7,6 +7,7 @@ import inspect
 import logging
 import argparse
 import functools
+from pathlib import Path
 from dpdispatcher.dlog import dlog
 
 
@@ -20,17 +21,17 @@ def log_and_time(func):
     :return: The decorated function with logging and timing capabilities
     """
     @functools.wraps(func)
-    def wrapper(work_dir, *args, **kwargs):
+    def wrapper(work_dir: Path, *args, **kwargs):
         # 使用inspect获取真实脚本文件名
         module = inspect.getmodule(func)
-        script_path = module.__file__ if module else __file__
-        script_name = os.path.splitext(os.path.basename(script_path))[0]
+        script_path = Path(module.__file__ if module else __file__)
+        script_name = script_path.stem
         # 获取脚本所在目录, 在该目录下生成日志
-        log_file_path = os.path.join(work_dir, f"{script_name}_output.log")
+        log_file_path = work_dir / f"{script_name}_output.log"
         print(f"Log file path: {log_file_path}")
         # 配置日志记录
         logging.basicConfig(
-            filename=log_file_path,  # 日志文件名
+            filename=str(log_file_path),  # 日志文件名
             level=logging.INFO,  # 指定日志级别
             format="%(asctime)s - %(levelname)s - %(message)s",  # 日志格式
         )
@@ -97,7 +98,7 @@ class StatusLogger:
             cls._instance.__init__(*args, **kwargs)
         return cls._instance
 
-    def __init__(self, work_dir, task_name):
+    def __init__(self, work_dir: Path, task_name: str):
         """
         Initialize workflow status logger and generate the .log and .yaml file to record the status
 
@@ -106,8 +107,10 @@ class StatusLogger:
             task_name: The name of the task to be logged"""
         # 使用单例模式，避免重复的日志记录，缺点是再重新给定task_name之后会覆盖原来的实例，只能顺序调用
         self.task_name = task_name
-        log_file = os.path.join(work_dir, "workflow_status.log")
-        yaml_file = os.path.join(work_dir, "workflow_status.yaml")
+        self.work_dir = work_dir.resolve()
+        log_file = self.work_dir / "workflow_status.log"
+        yaml_file = self.work_dir / "workflow_status.yaml"
+        log_file.touch(exist_ok=True)
         self.yaml_file = yaml_file
         self._init_yaml()
         if hasattr(self, "initialized"):
@@ -116,7 +119,7 @@ class StatusLogger:
         self.logger = logging.getLogger("WorkflowLogger")
         self.logger.setLevel(logging.INFO)
         # 创建文件处理器
-        file_handler = logging.FileHandler(log_file)
+        file_handler = logging.FileHandler(str(log_file))
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         file_handler.setFormatter(formatter)
         # 添加处理器到 logger
@@ -251,7 +254,7 @@ def get_work_dir_and_config():
     )
     parser.add_argument(
         "work_dir",
-        type=str,
+        type=Path,
         nargs="?",  # 使参数变为可选
         default=None,
         help="The working directory to run. If not specified, interactive input will be used",
@@ -261,10 +264,12 @@ def get_work_dir_and_config():
     # 交互式输入逻辑
     if args.work_dir is None:
         while True:
-            work_dir = input(
+            raw_path = input(
                 "Please enter the working directory: "
             ).strip()
-            if os.path.exists(work_dir) and os.path.isdir(work_dir):
+            # 处理 ~ 和解析绝对路径
+            work_dir = Path(raw_path).expanduser().resolve()
+            if work_dir.exists() and work_dir.is_dir():
                 args.work_dir = work_dir
                 break
             print(f"Error: Directory '{work_dir}' does not exist. Please try again.")

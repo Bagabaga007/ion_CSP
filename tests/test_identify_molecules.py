@@ -2,7 +2,10 @@ import os
 import logging
 import pytest
 from ase import Atoms
-from ion_CSP.identify_molecules import identify_molecules, molecules_information
+from ion_CSP.identify_molecules import (
+    identify_molecules,
+    molecules_information,
+)
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
