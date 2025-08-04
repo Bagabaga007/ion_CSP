@@ -2,9 +2,15 @@
 
 ## Latest Changes
 
+### 1b60821 (2025-07-22)
+
+Fix the version dependency of deepmd kit in pyproject.toml and requirements. txt, refactor log_ and_time. py to support the Path type, add unit testing for mlp. opt. py, and improve the test cases for test_ log_ and time. py.
+
 ### 12e7aa8 (2025-07-10)
 
 Update version number to 2.2.3, remove redundant egg info files, and add ignore for *. egg info.
+
+## V2.2.3
 
 ### 42fad92 (2025-07-10)
 

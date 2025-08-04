@@ -4,6 +4,7 @@ import logging
 import pandas as pd
 import importlib.resources
 from typing import List
+from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from dpdispatcher import Machine, Resources, Task, Submission
@@ -12,7 +13,7 @@ from ion_CSP.log_and_time import redirect_dpdisp_logging
 
 class SmilesProcessing:
     
-    def __init__(self, work_dir: str, csv_file: str, converted_folder: str = '1_1_SMILES_gjf', optimized_dir: str = '1_2_Gaussian_optimized'):
+    def __init__(self, work_dir: Path, csv_file: str, converted_folder: str = '1_1_SMILES_gjf', optimized_dir: str = '1_2_Gaussian_optimized'):
         """
         This class is used to process SMILES codes from a CSV file, convert them into Gaussian input files, and prepare for optimization tasks. It also supports grouping by charge and filtering based on functional groups.
 
@@ -22,17 +23,15 @@ class SmilesProcessing:
             converted_folder: the folder name for storing converted SMILES files.
             optimized_dir: the folder name for storing Gaussian optimized files.
         """
-        redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
+        redirect_dpdisp_logging(work_dir / "dpdispatcher.log")
         # 读取csv文件并处理数据, csv文件的表头包括 SMILES, Charge, Refcode或Number
         self.base_dir = work_dir
         os.chdir(work_dir)
         if not csv_file:
             raise Exception('Necessary .csv file not provided!')
-        csv_path = os.path.join(self.base_dir, csv_file)
-        self.converted_dir = os.path.join(
-            self.base_dir, converted_folder, os.path.splitext(csv_file)[0]
-        )
-        self.gaussian_optimized_dir = os.path.join(self.base_dir, optimized_dir)
+        csv_path = self.base_dir / csv_file
+        self.converted_dir = self.base_dir / converted_folder / Path(csv_file).stem
+        self.gaussian_optimized_dir = self.base_dir / optimized_dir
         self.param_dir = importlib.resources.files("ion_CSP.param")
         original_df = pd.read_csv(csv_path)
         logging.info(f"Processing {csv_path}")
@@ -50,7 +49,6 @@ class SmilesProcessing:
         grouped = df.groupby("Charge")
         duplicate_message = f"\nOriginal SMILES dataset: {len(original_df)}\nAfter SMILES deduplication\n Valid SMILES: {len(df)}\n Duplicate SMILES: {len(original_df) - len(df)}"
         logging.info(duplicate_message)
-        self.csv = csv_file.split(".csv")[0]
         self.df = df
         self.grouped = grouped
 
@@ -72,6 +70,9 @@ class SmilesProcessing:
             basename: The corresponding basename.
         """
         mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            logging.error(f"Invalid SMILES: {smiles} for {basename}")
+            return 1, basename
         try:
             mol = Chem.AddHs(mol)
         except Exception as e:
@@ -127,10 +128,10 @@ class SmilesProcessing:
         success, fail = [], []
         for charge, group in self.grouped:
             # 根据文件类型与电荷分组创建对应的文件夹
-            charge_dir = (
+            charge_dir = Path(
                 f"{self.converted_dir}/charge_{charge}"
             )
-            os.makedirs(charge_dir, exist_ok=True)
+            charge_dir.mkdir(parents=True, exist_ok=True)
             # 通过_convert_SMILES函数依次处理SMILES码
             for _, row in group.iterrows():
                 result_code, basename = self._convert_SMILES(
@@ -180,8 +181,8 @@ class SmilesProcessing:
         screened_message = f"\nNumber of ions with charge of [{charge_screen}] and {group_name} group: {len(screened)}\n"
         logging.info(screened_message)
         # 另外创建文件夹, 并依次处理SMILES码
-        screened_dir = f"{self.converted_dir}/{group_name}_{charge_screen}"
-        os.makedirs(screened_dir, exist_ok=True)
+        screened_dir = Path(f"{self.converted_dir}/{group_name}_{charge_screen}")
+        screened_dir.mkdir(parents=True, exist_ok=True)
         for _, row in screened.iterrows():
             self._convert_SMILES(
                 dir=screened_dir,
@@ -205,7 +206,7 @@ class SmilesProcessing:
             resources: The resources configuration file for dpdispatcher, can be a JSON or YAML file.
             nodes: The number of nodes to distribute the tasks to, default is 1.
         """
-        if os.path.exists(self.gaussian_optimized_dir):
+        if self.gaussian_optimized_dir.exists():
             logging.error(f'The directory {self.gaussian_optimized_dir} has already existed.')
             return
         if not folders:
@@ -236,10 +237,10 @@ class SmilesProcessing:
             parent = ""
 
         for folder in folders:
-            folder_dir = os.path.join(self.converted_dir, folder)
-            if not os.path.exists(folder_dir):
-                folder_dir = os.path.join(self.base_dir, folder)
-                if not os.path.exists(folder_dir):
+            folder_dir = self.converted_dir / folder
+            if not folder_dir.exists():
+                folder_dir = self.base_dir / folder
+                if not folder_dir.exists():
                     logging.error(f'Provided folder {folder} is not either in the work directory or the converted directory.\n')
                     continue
             # 获取文件夹中所有以 .gjf 结尾的文件
@@ -257,14 +258,14 @@ class SmilesProcessing:
                 forward_files = ["g16_sub.sh"]
                 backward_files = ["log", "err"]
                 # 将所有参数文件各复制一份到每个 task_dir 目录下
-                task_dir = os.path.join(self.converted_dir, f"{parent}pop{pop}")
-                os.makedirs(task_dir, exist_ok=True)
+                task_dir = self.converted_dir / f"{parent}pop{pop}"
+                task_dir.mkdir(parents=True, exist_ok=True)
                 for file in forward_files:
                     shutil.copyfile(self.param_dir.joinpath(file), f"{task_dir}/{file}")
                 for job_i in node_jobs[pop]:
                     # 将分配好的 .gjf 文件添加到对应的上传文件中
                     forward_files.append(gjf_files[job_i])
-                    base_name, _ = os.path.splitext(gjf_files[job_i])
+                    base_name = Path(gjf_files[job_i]).stem
                     # 每个 .gjf 文件在优化后都取回对应的 .log、.fchk 输出文件
                     for ext in ['log', 'fchk']:
                         backward_files.append(f'{base_name}.{ext}')
@@ -284,7 +285,7 @@ class SmilesProcessing:
                 task_list.append(task)
 
             submission = Submission(
-                work_base=self.converted_dir,
+                work_base=str(self.converted_dir),
                 machine=machine,
                 resources=resources,
                 task_list=task_list,
@@ -292,14 +293,14 @@ class SmilesProcessing:
             submission.run_submission()
 
             # 创建用于存放优化后文件的 gaussian_optimized 目录
-            optimized_folder_dir = os.path.join(self.gaussian_optimized_dir, folder)
-            os.makedirs(optimized_folder_dir, exist_ok=True)
+            optimized_folder_dir = self.gaussian_optimized_dir / folder
+            optimized_folder_dir.mkdir(parents=True, exist_ok=True)
             for pop in range(nodes):
                 # 从传回目录下的 pop 文件夹中将结果文件取到 gaussian_optimized 目录
-                task_dir = os.path.join(self.converted_dir, f"{parent}pop{pop}")
+                task_dir = self.converted_dir / f"{parent}pop{pop}"
                 # 按照给定的 .gjf 结构文件读取 .log、 文件并复制
                 for job_i in node_jobs[pop]:
-                    base_name, _ = os.path.splitext(gjf_files[job_i])
+                    base_name = Path(gjf_files[job_i]).stem
                     # 在优化后都取回每个 .gjf 文件对应的 .log、.fchk 输出文件
                     try:
                         for ext in ['gjf', 'log', 'fchk']:
@@ -312,10 +313,10 @@ class SmilesProcessing:
                 # 在成功完成Gaussian优化后，删除 1_1_SMILES_gjf/{csv}/{parent}/pop{n} 文件夹以节省空间
                 shutil.rmtree(task_dir)
         shutil.copyfile(
-            os.path.join(self.base_dir, "config.yaml"),
-            os.path.join(optimized_folder_dir, "config.yaml"),
+            self.base_dir / "config.yaml",
+            optimized_folder_dir / "config.yaml",
         )
         if machine_inform["context_type"] == "SSHContext":
             # 如果调用远程服务器，则删除data级目录
-            shutil.rmtree(os.path.join(self.converted_dir, parent))
+            shutil.rmtree(self.converted_dir / parent)
         logging.info("Batch Gaussian optimization completed!!!")
