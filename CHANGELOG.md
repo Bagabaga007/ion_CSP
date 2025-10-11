@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### 7442bf5 (2025-08-04)
+
+Refactoring the SmilesProcessing class to support the Path type, updating initialization methods, fixing error handling for invalid SMILES, and adding unit tests to validate functionality of convert_SMILES module.
+
 ### 1b60821 (2025-07-22)
 
 Fix the version dependency of deepmd kit in pyproject.toml and requirements. txt, refactor log_ and_time. py to support the Path type, add unit testing for mlp. opt. py, and improve the test cases for test_ log_ and time. py.

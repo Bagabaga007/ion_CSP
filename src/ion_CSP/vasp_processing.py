@@ -4,33 +4,67 @@ import json
 import yaml
 import shutil
 import logging
+from pathlib import Path
 import importlib.resources
 from ase.io import ParseError
-from ase.io.vasp import read_vasp_out
+from ase.io.vasp import read_vasp, read_vasp_out
 from dpdispatcher import Machine, Resources, Task, Submission
 from ion_CSP.log_and_time import redirect_dpdisp_logging
 from ion_CSP.identify_molecules import identify_molecules, molecules_information
 
 
 class VaspProcessing:
-    def __init__(self, work_dir: str):
+    def __init__(self, work_dir: Path):
         """
         This directory is used to store all the files related to VASP optimizations.
 
         :params
             work_dir: The working directory where VASP optimization files will be stored.
         """
-        redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
-        self.base_dir = work_dir
-        os.chdir(self.base_dir)
-        self.for_vasp_opt_dir = f"{work_dir}/3_for_vasp_opt"
-        self.vasp_optimized_dir = f"{work_dir}/4_vasp_optimized"
+        self.base_dir = work_dir.resolve()
+        redirect_dpdisp_logging(work_dir / "dpdispatcher.log")
+        self.for_vasp_opt_dir = self.base_dir / "3_for_vasp_opt"
+        self.vasp_optimized_dir = self.base_dir / "4_vasp_optimized"
         self.param_dir = importlib.resources.files("ion_CSP.param")
+
+    def _machine_resources_prep(self, machine_path: str, resources_path: str):
+        """
+        Prepare machine and resources configuration files for dpdispatcher.
+        :params
+            machine_path: The path to save the machine configuration file, which can be in JSON or YAML format.
+            resources_path: The path to save the resources configuration file, which can be in JSON or YAML format.
+        :return: machine, resources, parent
+        1. machine: The machine configuration object.
+        2. resources: The resources configuration object.
+        3. parent: The parent directory prefix based on the context type (SSHContext or LocalContext).
+        """
+        # 读取machine.json和resources.json的参数
+        if machine_path.endswith(".json"):
+            machine = Machine.load_from_json(machine_path)
+        elif machine_path.endswith(".yaml"):
+            machine = Machine.load_from_yaml(machine_path)
+        else:
+            raise KeyError("Unsupported machine file type")
+        if resources_path.endswith(".json"):
+            resources = Resources.load_from_json(resources_path)
+        elif resources_path.endswith(".yaml"):
+            resources = Resources.load_from_yaml(resources_path)
+        else:
+            raise KeyError("Unsupported resources file type")
+        # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
+        machine_inform = machine.serialize()
+        if machine_inform["context_type"] == "SSHContext":
+            # 如果调用远程服务器，则创建二级目录
+            parent = "data/"
+        elif machine_inform["context_type"] == "LocalContext":
+            # 如果在本地运行作业，则只在后续创建一级目录
+            parent = ""
+        return machine, resources, parent
 
     def dpdisp_vasp_optimization_tasks(
         self,
-        machine: str,
-        resources: str,
+        machine_path: str,
+        resources_path: str,
         nodes: int = 1,
     ):
         """
@@ -40,34 +74,19 @@ class VaspProcessing:
             resources: The resources configuration file, which can be in JSON or YAML format.
             nodes: The number of nodes to distribute the optimization tasks across.
         """
-        # 调整工作目录，减少错误发生
-        os.chdir(self.for_vasp_opt_dir)
         # 读取machine.json和resources.json的参数
-        if machine.endswith(".json"):
-            machine = Machine.load_from_json(machine)
-        elif machine.endswith(".yaml"):
-            machine = Machine.load_from_yaml(machine)
-        else:
-            raise KeyError("Not supported machine file type")
-        if resources.endswith(".json"):
-            resources = Resources.load_from_json(resources)
-        elif resources.endswith(".yaml"):
-            resources = Resources.load_from_yaml(resources)
-        else:
-            raise KeyError("Not supported resources file type")
-        # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
-        machine_inform = machine.serialize()
-        if machine_inform["context_type"] == "SSHContext":
-            # 如果调用远程服务器，则创建二级目录
-            parent = "data/"
-        elif machine_inform["context_type"] == "LocalContext":
-            # 如果在本地运行作业，则只在后续创建一级目录
-            parent = ""
+        machine, resources, parent = self._machine_resources_prep(
+            machine_path=machine_path, resources_path=resources_path
+        )
 
-        # 获取dir文件夹中所有以prefix_name开头的文件，在此实例中为POSCAR_
+        # 获取文件夹中所有以prefix_name开头的文件，在此实例中为CONTCAR_
         mlp_contcar_files = [
-            f for f in os.listdir(self.for_vasp_opt_dir) if f.startswith("CONTCAR_")
+            f for f in self.for_vasp_opt_dir.iterdir() if f.name.startswith("CONTCAR_")
         ]
+        if not mlp_contcar_files:
+            raise FileNotFoundError(
+                f"No CONTCAR_ files found in {self.for_vasp_opt_dir}"
+            )
         # 创建一个嵌套列表来存储每个节点的任务并将文件平均依次分配给每个节点
         # 例如：对于10个结构文件任务分发给4个节点的情况，则4个节点领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7]
         node_jobs = [[] for _ in range(nodes)]
@@ -87,21 +106,22 @@ class VaspProcessing:
             ]
             backward_files = ["log", "err"]
             # 将所有参数文件各复制一份到每个 task_dir 目录下
-            task_dir = os.path.join(self.for_vasp_opt_dir, f"{parent}pop{pop}")
-            os.makedirs(task_dir, exist_ok=True)
+            task_dir = self.for_vasp_opt_dir / f"{parent}pop{pop}"
+            task_dir.mkdir(parents=True, exist_ok=True)
             for file in forward_files:
-                shutil.copyfile(self.param_dir.joinpath(file), f"{task_dir}/{file}")
+                src = self.param_dir / file
+                dst = task_dir / file
+                shutil.copyfile(str(src), str(dst))
             for job_i in node_jobs[pop]:
                 # 将分配好的POSCAR文件添加到对应的上传文件中
-                forward_files.append(mlp_contcar_files[job_i])
-                vasp_dir = mlp_contcar_files[job_i].split("CONTCAR_")[1]
+                contcar = mlp_contcar_files[job_i]
+                forward_files.append(contcar.name)
+                vasp_dir_name = contcar.name.split("CONTCAR_")[1]
                 # 每个POSCAR文件在优化后都取回对应的CONTCAR和OUTCAR输出文件
-                backward_files.append(f"{vasp_dir}/fine/*")
-                backward_files.append(f"{vasp_dir}/*")
-                shutil.copyfile(
-                    f"{self.for_vasp_opt_dir}/{mlp_contcar_files[job_i]}",
-                    f"{task_dir}/{mlp_contcar_files[job_i]}",
-                )
+                backward_files.append(f"{vasp_dir_name}/fine/*")
+                backward_files.append(f"{vasp_dir_name}/*")
+                dst = task_dir / contcar.name
+                shutil.copyfile(str(contcar), str(dst))
 
             remote_task_dir = f"{parent}pop{pop}"
             command = "chmod +x sub_ori.sh && ./sub_ori.sh"
@@ -114,7 +134,7 @@ class VaspProcessing:
             task_list.append(task)
 
         submission = Submission(
-            work_base=self.for_vasp_opt_dir,
+            work_base=str(self.for_vasp_opt_dir),
             machine=machine,
             resources=resources,
             task_list=task_list,
@@ -122,36 +142,37 @@ class VaspProcessing:
         submission.run_submission()
 
         # 创建用于存放优化后文件的 4_vasp_optimized 目录
-        os.makedirs(self.vasp_optimized_dir, exist_ok=True)
-        mlp_outcar_files = [
-            f for f in os.listdir(self.for_vasp_opt_dir) if f.startswith("OUTCAR_")
-        ]
-        for mlp_contcar, mlp_outcar in zip(mlp_contcar_files, mlp_outcar_files):
-            shutil.copyfile(
-                f"{self.for_vasp_opt_dir}/{mlp_contcar}",
-                f"{self.vasp_optimized_dir}/{mlp_contcar}",
-            )
-            shutil.copyfile(
-                f"{self.for_vasp_opt_dir}/{mlp_outcar}",
-                f"{self.vasp_optimized_dir}/{mlp_outcar}",
-            )
+        self.vasp_optimized_dir.mkdir(exist_ok=True)
+        for contcar in mlp_contcar_files:
+            vasp_dir_name = contcar.name.split("CONTCAR_")[1]
+            outcar = self.for_vasp_opt_dir / f"OUTCAR_{vasp_dir_name}"
+            if outcar.exists():
+                shutil.copyfile(
+                    str(contcar), str(self.vasp_optimized_dir / contcar.name)
+                )
+                shutil.copyfile(str(outcar), str(self.vasp_optimized_dir / outcar.name))
+
         for pop in range(nodes):
             # 从传回的 pop 文件夹中将结果文件取到 4_vasp_optimized 目录
-            task_dir = os.path.join(self.for_vasp_opt_dir, f"{parent}pop{pop}")
+            task_dir = self.for_vasp_opt_dir / f"{parent}pop{pop}"
             for job_i in node_jobs[pop]:
-                vasp_dir = mlp_contcar_files[job_i].split("CONTCAR_")[1]
-                shutil.copytree(f"{task_dir}/{vasp_dir}", f"{self.vasp_optimized_dir}/{vasp_dir}", dirs_exist_ok=True)
+                contcar = mlp_contcar_files[job_i]
+                vasp_dir_name = contcar.name.split("CONTCAR_")[1]
+                src = task_dir / vasp_dir_name
+                dst = self.vasp_optimized_dir / vasp_dir_name
+                if src.exists():
+                    shutil.copytree(str(src), str(dst), dirs_exist_ok=True)
             # 在成功完成 VASP 分步优化后，删除 3_for_vasp_opt/{parent}/pop{n} 文件夹以节省空间
-            shutil.rmtree(task_dir)
-        if machine_inform["context_type"] == "SSHContext":
+            shutil.rmtree(task_dir, ignore_errors=True)
+        if machine.serialize()["context_type"] == "SSHContext":
             # 如果调用远程服务器，则删除data级目录
-            shutil.rmtree(os.path.join(self.for_vasp_opt_dir, parent))
+            shutil.rmtree(self.for_vasp_opt_dir / "data", ignore_errors=True)
         logging.info("Batch VASP optimization completed!!!")
 
     def dpdisp_vasp_relaxation_tasks(
         self,
-        machine: str,
-        resources: str,
+        machine_path: str,
+        resources_path: str,
         nodes: int = 1,
     ):
         """
@@ -161,35 +182,15 @@ class VaspProcessing:
             resources: The resources configuration file, which can be in JSON or YAML format.
             nodes: The number of nodes to distribute the optimization tasks across.
         """
-        # 调整工作目录，减少错误发生
-        os.chdir(self.vasp_optimized_dir)
         # 读取machine.json和resources.json的参数
-        if machine.endswith(".json"):
-            machine = Machine.load_from_json(machine)
-        elif machine.endswith(".yaml"):
-            machine = Machine.load_from_yaml(machine)
-        else:
-            raise KeyError("Not supported machine file type")
-        if resources.endswith(".json"):
-            resources = Resources.load_from_json(resources)
-        elif resources.endswith(".yaml"):
-            resources = Resources.load_from_yaml(resources)
-        else:
-            raise KeyError("Not supported resources file type")
-        # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
-        machine_inform = machine.serialize()
-        if machine_inform["context_type"] == "SSHContext":
-            # 如果调用远程服务器，则创建二级目录
-            parent = "data/"
-        elif machine_inform["context_type"] == "LocalContext":
-            # 如果在本地运行作业，则只在后续创建一级目录
-            parent = ""
-
+        machine, resources, parent = self._machine_resources_prep(
+            machine_path=machine_path, resources_path=resources_path
+        )
         # 获取dir文件夹中所有以prefix_name开头的文件，在此实例中为POSCAR_
         vasp_optimized_folders = [
             f
-            for f in os.listdir(self.vasp_optimized_dir)
-            if os.path.isdir(f) and f != "data"
+            for f in self.vasp_optimized_dir.iterdir()
+            if f.is_dir() and f.name != "data"
         ]
         # 创建一个嵌套列表来存储每个节点的任务并将文件平均依次分配给每个节点
         # 例如：对于10个结构文件任务分发给4个节点的情况，则4个节点领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7]
@@ -209,27 +210,29 @@ class VaspProcessing:
             ]
             backward_files = ["log", "err"]
             # 将所有参数文件各复制一份到每个 task_dir 目录下
-            task_dir = os.path.join(self.vasp_optimized_dir, f"{parent}pop{pop}")
-            os.makedirs(task_dir, exist_ok=True)
+            task_dir = self.vasp_optimized_dir / f"{parent}pop{pop}"
+            task_dir.mkdir(parents=True, exist_ok=True)
             for file in forward_files:
-                shutil.copyfile(self.param_dir.joinpath(file), f"{task_dir}/{file}")
+                src = self.param_dir / file
+                dst = task_dir / file
+                shutil.copyfile(str(src), str(dst))
             for job_i in node_jobs[pop]:
                 # 将分配好的POSCAR文件添加到对应的上传文件中
-                vasp_dir = vasp_optimized_folders[job_i]
-                fine_optimized_file = f"{vasp_dir}/fine/CONTCAR"
-                if os.path.exists(fine_optimized_file):
-                    forward_files.append(fine_optimized_file)
-                    os.makedirs(
-                        os.path.dirname(f"{task_dir}/{fine_optimized_file}"), exist_ok=True
-                    )
-                    shutil.copyfile(
-                        f"{self.vasp_optimized_dir}/{fine_optimized_file}",
-                        f"{task_dir}/{fine_optimized_file}",
-                    )
+                vasp_dir_name = vasp_optimized_folders[job_i].name
+                fine_optimized_file = f"{vasp_dir_name}/fine/CONTCAR"
+                fine_contcar_path = self.vasp_optimized_dir / fine_optimized_file
+                if fine_contcar_path.exists():
+                    dst = task_dir / fine_optimized_file
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(str(fine_contcar_path), str(dst))
+                else:
+                    logging.error(f"File {fine_contcar_path} does not exist.")
+                    raise
+                forward_files.append(fine_optimized_file)
                 # 每个POSCAR文件在优化后都取回对应的CONTCAR和OUTCAR输出文件
-                backward_files.append(f"{vasp_dir}/*")
-                backward_files.append(f"{vasp_dir}/fine/*")
-                backward_files.append(f"{vasp_dir}/fine/final/*")
+                backward_files.append(f"{vasp_dir_name}/*")
+                backward_files.append(f"{vasp_dir_name}/fine/*")
+                backward_files.append(f"{vasp_dir_name}/fine/final/*")
 
             remote_task_dir = f"{parent}pop{pop}"
             command = "chmod +x sub_supple.sh && ./sub_supple.sh"
@@ -242,7 +245,7 @@ class VaspProcessing:
             task_list.append(task)
 
         submission = Submission(
-            work_base=self.vasp_optimized_dir,
+            work_base=str(self.vasp_optimized_dir),
             machine=machine,
             resources=resources,
             task_list=task_list,
@@ -251,265 +254,277 @@ class VaspProcessing:
 
         for pop in range(nodes):
             # 从传回的 pop 文件夹中将结果文件取到 4_vasp_optimized 目录
-            task_dir = os.path.join(self.vasp_optimized_dir, f"{parent}pop{pop}")
+            task_dir = self.vasp_optimized_dir / f"{parent}pop{pop}"
             for job_i in node_jobs[pop]:
-                vasp_dir = vasp_optimized_folders[job_i]
-                try:
-                    shutil.copytree(
-                        f"{task_dir}/{vasp_dir}/fine/final",
-                        f"{self.vasp_optimized_dir}/{vasp_dir}/fine/final", 
-                        dirs_exist_ok=True,
-                    )
-                except FileNotFoundError:
+                vasp_dir_name = vasp_optimized_folders[job_i].name
+                final_dir = task_dir / vasp_dir_name / "fine" / "final"
+                dst_dir = self.vasp_optimized_dir / vasp_dir_name / "fine" / "final"
+                if final_dir.exists():
+                    dst_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(str(final_dir), str(dst_dir), dirs_exist_ok=True)
+                else:
                     logging.error(
-                        f"No final optimization results found for {vasp_dir} in {task_dir}"
+                        f"No final optimization results found for {vasp_dir_name} in {task_dir}"
                     )
             # 在成功完成 VASP 分步优化后，删除 4_vasp_optimized /{parent}/pop{n} 文件夹以节省空间
-            shutil.rmtree(task_dir)
-        if machine_inform["context_type"] == "SSHContext":
+            shutil.rmtree(task_dir, ignore_errors=True)
+        if machine.serialize()["context_type"] == "SSHContext":
             # 如果调用远程服务器，则删除data级目录
-            shutil.rmtree(os.path.join(self.vasp_optimized_dir, parent))
+            shutil.rmtree(self.vasp_optimized_dir / parent)
         logging.info("Batch VASP optimization completed!!!")
+
+    def _read_mlp_properties(self, contcar_path: Path, outcar_path: Path):
+        """
+        Read a single MLP CONTCAR and OUTCAR file and extract density and energy information.
+        :params
+            contcar_path: The path to the MLP CONTCAR file.
+            outcar_path: The path to the MLP OUTCAR file.
+        :return: density, energy
+        1. density: The calculated density of the structure in g/cm³, rounded to three decimal places. If reading fails, returns None.
+        2. energy: The total energy of the structure in eV, rounded to one decimal place. If reading fails, returns None.
+        """
+        density = None
+        energy = None
+        try:
+            atoms = read_vasp(contcar_path)
+            volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
+            masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
+            # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
+            density = round(1.66054 * masses / volume, 3)
+        except (ParseError, FileNotFoundError) as e:
+            logging.error(f"Error reading CONTCAR file {contcar_path}: {e}")
+            density = None
+        except Exception as e:
+            logging.error(f"Unexpected error reading CONTCAR file {contcar_path}: {e}")
+            density = None
+        try:
+            # 由于机器学习势优化的 OUTCAR 文件并非常规格式，因此需要逐行读取
+            with outcar_path.open("r") as f:
+                for line in f:
+                    if "TOTEN" in line:
+                        values = line.split()
+                        energy = round(float(values[-2]), 1)
+        except (ParseError, FileNotFoundError) as e:
+            logging.error(f"Error reading OUTCAR file {outcar_path}: {e}")
+            energy = None
+        except Exception as e:
+            logging.error(f"Unexpected error reading OUTCAR file {outcar_path}: {e}")
+            energy = None
+        return density, energy
+
+    def _read_vasp_outcar(self, outcar_path: Path):
+        """
+        Read a single VASP OUTCAR file and extract density and energy information.
+        :params
+            outcar_path: The path to the VASP OUTCAR file.
+        :return: density, energy, ions_check
+        1. density: The calculated density of the structure in g/cm³, rounded to three decimal places. If reading fails, returns None.
+        2. energy: The total energy of the structure in eV, rounded to one decimal place. If reading fails, returns None.
+        3. ions_check: A boolean indicating whether the ionic structure is maintained. If identify is False or reading fails, returns False.
+        4. volume: The volume of the structure in cubic angstroms (Å³). If reading fails, returns False.
+        """
+        density = None
+        energy = None
+        ions_check = False
+        volume = None
+        try:
+            atoms = read_vasp_out(str(outcar_path))
+            volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
+            masses = sum(atoms.get_masses())  # 质量单位为原子质量单位(amu)
+            # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
+            density = round(1.66054 * masses / volume, 3)
+            energy = round(atoms.get_total_energy(), 1)
+            return atoms, density, energy, ions_check
+        except (ParseError, FileNotFoundError) as e:
+            logging.error(f"Error reading OUTCAR file {outcar_path}: {e}")
+            return None, None, None, False
+        except Exception as e:
+            logging.error(f"Unexpected error reading OUTCAR file {outcar_path}: {e}")
+            return None, None, None, False
 
     def read_vaspout_save_csv(self, molecules_prior: bool, relaxation: bool = False):
         """
         Read VASP output files in batches and save energy and density to corresponding CSV files in the directory
         """
-        os.chdir(self.base_dir)
-        vasp_opt_dir = self.vasp_optimized_dir
-        numbers, mlp_densities, mlp_energies = [], [], []
-        rough_densities, rough_energies = [], []
-        fine_densities, fine_energies = [], []
-        final_densities, final_energies = [], []
-        ions_checks, packing_coefficients = [], []
-        for folder in os.listdir(vasp_opt_dir):
-            vasp_opt_path = os.path.join(vasp_opt_dir, folder)
-            if os.path.isdir(vasp_opt_path):
-                mlp_density, number = folder.split("_")[0], folder.split("_")[1]
-                numbers.append(number)
-                mlp_densities.append(mlp_density)
-                # 读取一级目录下的 OUTCAR 文件
-                OUTCAR_file_path = os.path.join(vasp_opt_path, "OUTCAR")
-                logging.info(f"CONTCAR_{mlp_density}_{number}")
-                try:
-                    with open(
-                        f"{vasp_opt_dir}/OUTCAR_{mlp_density}_{number}"
-                    ) as mlp_out:
-                        lines = mlp_out.readlines()
-                        for line in lines:
-                            if "TOTEN" in line:
-                                values = line.split()
-                                mlp_energy = round(float(values[-2]), 1)
-                except FileNotFoundError:
-                    logging.error(
-                        f"  No avalible MLP OUTCAR_{mlp_density}_{number} found"
-                    )
-                    mlp_energy = False
+        data_rows = []
 
-                try:
-                    rough_atoms = read_vasp_out(OUTCAR_file_path)
-                    atoms_volume = rough_atoms.get_volume()  # 体积单位为立方埃（Å³）
-                    atoms_masses = sum(
-                        rough_atoms.get_masses()
-                    )  # 质量单位为原子质量单位(amu)
-                    # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
-                    rough_density = round(1.66054 * atoms_masses / atoms_volume, 3)
-                    rough_energy = round(rough_atoms.get_total_energy(), 1)
-                    logging.info(
-                        f"  MLP_Density: {mlp_density}, MLP_Energy: {mlp_energy}"
-                    )
-                    logging.info(
-                        f"  Rough_Density: {rough_density}, Rough_Energy: {rough_energy}"
-                    )
-                except (ParseError, FileNotFoundError):
-                    logging.error(
-                        f"  Unfinished optimization job of CONTCAR_{mlp_density}_{number}"
-                    )
-                    rough_density, rough_energy = False, False
+        config_path = self.base_dir / "config.yaml"
+        if config_path.exists():
+            with open(config_path, "r") as file:
+                config = yaml.safe_load(file)
+        species_json = [
+            os.path.splitext(f)[0] + ".json" for f in config["gen_opt"]["species"]
+        ]
+        ion_numbers = config["gen_opt"]["ion_numbers"]
 
-                # 读取二级目录下的 OUTCAR 文件
-                fine_OUTCAR_file_path = os.path.join(vasp_opt_path, "fine", "OUTCAR")
-                try:
-                    fine_atoms = read_vasp_out(fine_OUTCAR_file_path)
-                    molecules, molecules_flag, initial_information = identify_molecules(
-                        fine_atoms
-                    )
-                    if not initial_information:
-                        raise KeyError("No available initial molecules")
-                    fine_atoms_volume = (
-                        fine_atoms.get_volume()
-                    )  # 体积单位为立方埃（Å³）
-                    fine_atoms_masses = sum(
-                        fine_atoms.get_masses()
-                    )  # 质量单位为原子质量单位(amu)
-                    # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
-                    fine_density = round(
-                        1.66054 * fine_atoms_masses / fine_atoms_volume, 3
-                    )
-                    fine_energy = round(fine_atoms.get_total_energy(), 1)
-                    logging.info(
-                        f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}"
-                    )
-                    molecules_information(
-                        molecules, molecules_flag, initial_information
-                    )
-                except (ParseError, FileNotFoundError):
-                    logging.error(
-                        f"  Unfinished fine optimization job of CONTCAR_{mlp_density}_{number}"
-                    )
-                    fine_density, fine_energy, molecules_flag = False, False, False
-
-                final_density, final_energy = (
-                    False,
-                    False,
+        for folder in self.vasp_optimized_dir.iterdir():
+            if not folder.is_dir():
+                continue
+            if "_" not in folder.name:
+                logging.warning(
+                    f"Skipping folder with unexpected name format: {folder.name}"
                 )
-                if relaxation:
-                    # 读取三级目录下的 OUTCAR 文件
-                    final_OUTCAR_file_path = os.path.join(
-                        vasp_opt_path, "fine", "final", "OUTCAR"
+                continue
+
+            number = folder.name.split("_")[-1]
+            logging.info(f"CONTCAR_{folder.name}")
+            # 读取 4_vasp_optimized 目录下的机器学习势的 CONTCAR 与 OUTCAR 文件
+            mlp_contcar = self.vasp_optimized_dir / f"CONTCAR_{folder.name}"
+            mlp_outcar = self.vasp_optimized_dir / f"OUTCAR_{folder.name}"
+            mlp_density, mlp_energy = self._read_mlp_properties(mlp_contcar, mlp_outcar)
+            logging.info(f"  MLP_Density: {mlp_density}, MLP_Energy: {mlp_energy}")
+            # 读取二级目录下 Rough 优化的 OUTCAR 文件
+            rough_outcar = folder / "OUTCAR"
+            _, rough_density, rough_energy, _ = self._read_vasp_outcar(rough_outcar)
+            logging.info(
+                f"  Rough_Density: {rough_density}, Rough_Energy: {rough_energy}"
+            )
+
+            # 读取三级目录下 Fine 优化的 OUTCAR 文件
+            fine_outcar = folder / "fine/OUTCAR"
+            fine_atoms, fine_density, fine_energy, fine_ions_check = (
+                self._read_vasp_outcar(fine_outcar)
+            )
+            if fine_atoms is None:
+                logging.error(f"Error reading fine/OUTCAR file {fine_outcar}")
+                continue
+            logging.info(
+                f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}, Ions_Check: {fine_ions_check}"
+            )
+            if not relaxation:
+                molecules, ions_check, initial_info = identify_molecules(
+                    fine_atoms, base_dir=self.base_dir
+                )
+                if not initial_info:
+                    raise KeyError("No available initial molecules")
+                molecules_information(molecules, ions_check, initial_info)
+
+            else:
+                # 读取四级目录下 Final 优化的 OUTCAR 文件
+                final_outcar = folder / "fine/final/OUTCAR"
+                final_atoms, final_density, final_energy, final_ions_check = (
+                    self._read_vasp_outcar(final_outcar)
+                )
+                if final_atoms is None:
+                    logging.error(f"Error reading final/OUTCAR file {final_outcar}")
+                    continue
+                logging.info(
+                    f"  Final_Density: {final_density}, Final_Energy: {final_energy}, Ions_Check: {final_ions_check}"
+                )
+                molecules, ions_check, initial_info = identify_molecules(
+                    final_atoms, base_dir=self.base_dir
+                )
+                if not initial_info:
+                    raise KeyError("No available initial molecules")
+                molecules_information(molecules, ions_check, initial_info)
+
+            # 读取根目录下的 config.yaml 信息与对应的 .json 文件
+            try:
+                for json_file, count in zip(species_json, ion_numbers):
+                    molecular_volumes = 0
+
+                    with open(self.base_dir / json_file, "r") as file:
+                        property = json.load(file)
+                    molecular_volume = float(property["volume"])
+                    molecular_volumes += molecular_volume * count
+                    fine_volume = (
+                        fine_atoms.get_volume() if fine_atoms is not None else None
                     )
-                    try:
-                        final_atoms = read_vasp_out(final_OUTCAR_file_path)
-                        molecules, molecules_flag, initial_information = (
-                            identify_molecules(final_atoms)
-                        )
-                        if not initial_information:
-                            raise KeyError("No available initial molecules")
-                        final_atoms_volume = (
-                            final_atoms.get_volume()
-                        )  # 体积单位为立方埃（Å³）
-                        final_atoms_masses = sum(
-                            final_atoms.get_masses()
-                        )  # 质量单位为原子质量单位(amu)
-                        # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
-                        final_density = round(
-                            1.66054 * final_atoms_masses / final_atoms_volume, 3
-                        )
-                        final_energy = round(final_atoms.get_total_energy(), 1)
-                        logging.info(
-                            f"  Final_Density: {final_density}, Final_Energy: {final_energy}"
-                        )
-                        molecules_information(
-                            molecules, molecules_flag, initial_information
-                        )
-                    except (ParseError, FileNotFoundError):
-                        logging.error(
-                            f"  Unfinished final optimization job of CONTCAR_{mlp_density}_{number}"
-                        )
-                        final_density, final_energy, molecules_flag = (
-                            False,
-                            False,
-                            False,
-                        )
+                    fine_PC = round(molecular_volumes / fine_volume, 3)
+                if relaxation:
+                    final_volume = (
+                        final_atoms.get_volume() if final_atoms is not None  else None
+                    )
+                    final_PC = round(molecular_volumes / final_volume, 3)
+            except (FileNotFoundError, UnboundLocalError, TypeError):
+                fine_PC = False
+                final_PC = False
 
-                # 读取根目录下的 config.yaml 信息与对应的 .json 文件
-                config_path = os.path.join(self.base_dir, "config.yaml")
-                with open(config_path, "r") as file:
-                    config = yaml.safe_load(file)
-                try:
-                    species_json = [
-                        os.path.splitext(f)[0] + ".json"
-                        for f in config["gen_opt"]["species"]
-                    ]
-                    ion_numbers = config["gen_opt"]["ion_numbers"]
-                    for json_file, count in zip(species_json, ion_numbers):
-                        molecular_volumes = 0
-                        with open(os.path.join(self.base_dir, json_file), "r") as file:
-                            property = json.load(file)
-                        molecular_volume = float(property["volume"])
-                        molecular_volumes += molecular_volume * count
-                    if relaxation:
-                        packing_coefficient = round(
-                            molecular_volumes / final_atoms_volume, 3
-                        )
-                    else:
-                        packing_coefficient = round(
-                            molecular_volumes / fine_atoms_volume, 3
-                        )
-                except (FileNotFoundError, UnboundLocalError):
-                    packing_coefficient = False
-
-                mlp_energies.append(mlp_energy)
-                rough_densities.append(rough_density)
-                rough_energies.append(rough_energy)
-                fine_densities.append(fine_density)
-                fine_energies.append(fine_energy)
-                final_densities.append(final_density)
-                final_energies.append(final_energy)
-                ions_checks.append(molecules_flag)
-                packing_coefficients.append(packing_coefficient)
-
-        with open(
-            f"{self.base_dir}/vasp_density_energy.csv",
-            "w",
-            newline="",
-            encoding="utf-8",
-        ) as csv_file:
-            writer = csv.writer(csv_file)
-            header = [
-                "Number",
-                "MLP_E",
-                "Rough_E",
-                "Fine_E",
-                "MLP_Density",
-                "Rough_Density",
-                "Fine_Density",
-                "Ions_Check",
-            ]
+            row = {
+                "Number": number,
+                "MLP_Density": mlp_density,
+                "MLP_Energy": mlp_energy,
+                "Rough_Density": rough_density,
+                "Rough_Energy": rough_energy,
+                "Fine_Density": fine_density,
+                "Fine_Energy": fine_energy,
+                "Fine_Ions_Check": fine_ions_check,
+                "Fine_PC": fine_PC,
+            }
             if relaxation:
-                header = [
+                row.update(
+                    {
+                        "Final_Density": final_density,
+                        "Final_Energy": final_energy,
+                        "Final_Ions_Check": final_ions_check,
+                        "Final_PC": final_PC,
+                    }
+                )
+            data_rows.append(row)
+
+        csv_file_path = self.base_dir / "vasp_density_energy.csv"
+        if csv_file_path.exists():
+            csv_file_path.unlink()
+        with csv_file_path.open("w", newline="", encoding="utf-8") as csv_file:
+            header = (
+                [
                     "Number",
-                    "MLP_E",
-                    "Rough_E",
-                    "Fine_E",
-                    "Final_E",
+                    "MLP_Energy",
+                    "Rough_Energy",
+                    "Fine_Energy",
+                    "MLP_Density",
+                    "Rough_Density",
+                    "Fine_Density",
+                    "Fine_Ions_Check",
+                    "Fine_PC",
+                ]
+                if not relaxation
+                else [
+                    "Number",
+                    "MLP_Energy",
+                    "Rough_Energy",
+                    "Fine_Energy",
+                    "Final_Energy",
                     "MLP_Density",
                     "Rough_Density",
                     "Fine_Density",
                     "Final_Density",
-                    "Ions_Check",
+                    "Final_Ions_Check",
+                    "Final_PC",
                 ]
-            if packing_coefficients:
-                header.append("Pack_Coef")
-            datas = list(
-                zip(
-                    numbers,
-                    mlp_energies,
-                    rough_energies,
-                    fine_energies,
-                    mlp_densities,
-                    rough_densities,
-                    fine_densities,
-                    ions_checks,
-                    (*packing_coefficients,) if packing_coefficients else (),
-                )
             )
-            if relaxation:
-                datas = list(
-                    zip(
-                        numbers,
-                        mlp_energies,
-                        rough_energies,
-                        fine_energies,
-                        final_energies,
-                        mlp_densities,
-                        rough_densities,
-                        fine_densities,
-                        final_densities,
-                        ions_checks,
-                        (*packing_coefficients,) if packing_coefficients else (),
-                    )
+
+            def sort_key(row):
+                if not relaxation:
+                    density_val = row["Fine_Density"]
+                    ions_check = row["Fine_Ions_Check"]
+                else:
+                    density_val = row["Final_Density"]
+                    ions_check = row["Final_Ions_Check"]
+                density_val = (
+                    float(density_val) if density_val is not None else float("-inf")
                 )
-            if molecules_prior:
-                # 如果设置了 molecules_prior 参数为 True，则优先第倒数Ions_Check 为 True 的结果，再根据第6列的 Fine_Density 降序排序
-                datas.sort(key=lambda x: (not x[-2], -float(x[-3])))
-            else:
-                # 否则，直接根据第6列（从0列开始）的 Fine_Density 降序排序
-                datas.sort(key=lambda x: -float(x[-3]))
-            writer.writerow(header)
-            for data in datas:
-                writer.writerow(data)
-                
+                if molecules_prior:
+                    return (not bool(ions_check), -density_val)
+                else:
+                    return -density_val
+
+            writer = csv.DictWriter(csv_file, fieldnames=header)
+            data_rows.sort(key=sort_key)
+            writer.writeheader()
+            writer.writerows(data_rows)
+
+        logging.info(f"VASP Density and Energy data saved to {csv_file_path}")
+
+        numbers = [row["Number"] for row in data_rows]
+        mlp_densities = [row["MLP_Density"] for row in data_rows]
+        fine_densities = [row["Fine_Density"] for row in data_rows]
+        final_densities = (
+            [row["Final_Density"] for row in data_rows] if relaxation else []
+        )
+
+        logging.info(fine_densities)
+        logging.info(final_densities)
         logging.info(
             f"Maximum MLP Density: {max(mlp_densities)}, Structure Number: {numbers[mlp_densities.index(max(mlp_densities))]}"
         )
@@ -521,69 +536,88 @@ class VaspProcessing:
                 f"Maximum Final Density: {max(final_densities)}, Structure Number: {numbers[final_densities.index(max(final_densities))]}"
             )
 
-    def export_max_density_structure(self):
+    def export_max_density_structure(self, relaxation: bool = False):
         """
         Read the structure number from the vasp_sensitiy_energy.csv file in the results folder, then search for the corresponding folder based on that sequence number, copy the highest density and highest precision CONTCAR file, and rename it POSCAR
+        :params
+            relaxation: Whether the final relaxation step has been performed. If True, the POSCAR will be copied from the final relaxation step; if False, it will be copied from the fine optimization step
         """
         # 找到 vas_density_energy.csv 文件
-        csv_file_path = os.path.join(self.base_dir, "vasp_density_energy.csv")
-        if os.path.exists(csv_file_path):
-            # 读取 CSV 文件
-            with open(csv_file_path, "r") as csvfile:
-                reader = csv.reader(csvfile)
-                # 跳过表头读取第一行结构序号，即符合结构筛选要求的最大密度结构
-                header = next(reader)
-                if header[0] != "Number":
-                    raise KeyError(
-                        "The first column of the CSV file is not 'Number', please check the file format."
+        csv_file_path = self.base_dir / "vasp_density_energy.csv"
+
+        if not csv_file_path.exists():
+            print(f"CSV file not found in {csv_file_path}")
+            logging.info(f"CSV file not found in {csv_file_path}")
+            return
+
+        # 读取 CSV 文件并找到 Fine_Density 最大的结构
+        max_fine_density = -float("inf")
+        max_final_density = -float("inf")
+        best_number = None
+
+        with csv_file_path.open("r") as csvfile:
+            reader = csv.reader(csvfile)
+            header = next(reader)  # 读取表头
+            # 检查表头格式
+            try:
+                if not relaxation:
+                    target_density_col = header.index("Fine_Density")
+                    target_ions_check_col = header.index("Fine_Ions_Check")
+                else:
+                    target_density_col = header.index("Final_Density")
+                    target_ions_check_col = header.index("Final_Ions_Check")
+            except ValueError as e:
+                raise KeyError(f"Required column not found in CSV file: {e}")
+
+            for row in reader:
+                if len(row) <= max(target_density_col, target_ions_check_col):
+                    continue  # 跳过不完整的行
+                # 检查 Ions_Check 是否为 True
+                ions_check = row[target_ions_check_col].strip().lower()
+                if ions_check != "true":
+                    continue  # 跳过 Ions_Check=False 的行
+                try:
+                    fine_density = float(row[target_density_col])
+                    if fine_density > max_fine_density:
+                        max_fine_density = fine_density
+                        best_number = row[0]  # 第一列是 Number
+                except ValueError:
+                    continue  # 跳过无法转换为数字的值
+
+        if best_number is None:
+            print("No valid structure found in CSV file")
+            logging.info("No valid structure found in CSV file")
+            return
+
+        target_density = max_final_density if relaxation else max_fine_density
+        print(
+            f"Found structure with max Fine_Density: {best_number}, density: {target_density}"
+        )
+        logging.info(
+            f"Found structure with max Fine_Density: {best_number}, density: {target_density}"
+        )
+
+        target_contcar = None
+        # 根据结构序号构建要查找的文件夹路径
+        for folder in self.vasp_optimized_dir.iterdir():
+            if folder.is_dir() and folder.name.endswith(best_number):
+                fine_contcar = folder / "fine" / "CONTCAR"
+                final_contcar = folder / "fine" / "final" / "CONTCAR"
+                # 根据 relaxation 参数决定复制哪个 CONTCAR 文件
+                target_contcar = fine_contcar if not relaxation else final_contcar
+                if target_contcar.exists():
+                    shutil.copy(target_contcar, self.base_dir / "POSCAR")
+                    print(
+                        f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {target_contcar}"
                     )
-                first_row = next(reader)
-                structure_number = str(first_row[0])
-            # 根据结构序号构建要查找的文件夹路径
-            vasp_optimized_dir = os.path.join(self.base_dir, "4_vasp_optimized")
-            for vasp_folder_name in os.listdir(vasp_optimized_dir):
-                vasp_folder_path = os.path.join(vasp_optimized_dir, vasp_folder_name)
-                if os.path.isdir(vasp_folder_path) and vasp_folder_name.endswith(
-                    structure_number
-                ):
-                    # 查找 CONTCAR 文件
-                    # final_contcar_path = os.path.join(
-                    #     vasp_folder_path, "fine", "final", "CONTCAR"
-                    # )
-                    # print(f"Trying to get the final structure from {vasp_folder_path}")
-                    # logging.info(
-                    #     f"Trying to get the final structure from {vasp_folder_path}"
-                    # )
-                    # if os.path.exists(final_contcar_path):
-                    #     # 复制 CONTCAR 文件到 combo_n 文件夹并重命名为 POSCAR
-                    #     shutil.copy(
-                    #         final_contcar_path, os.path.join(self.base_dir, "POSCAR")
-                    #     )
-                    #     print(f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {final_contcar_path}")
-                    #     logging.info(
-                    #         f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {final_contcar_path}"
-                    #     )
-                    fine_contcar_path = os.path.join(
-                        vasp_folder_path, "fine", "CONTCAR"
+                    logging.info(
+                        f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {target_contcar}"
                     )
-                    if os.path.exists(fine_contcar_path):
-                        print(f"CONTCAR not found in {os.path.join(vasp_folder_path, 'fine', 'final')}")
-                        logging.info(
-                            f"CONTCAR not found in {os.path.join(vasp_folder_path, 'fine', 'final')}"
-                        )
-                        # 复制 CONTCAR 文件到 combo_n 文件夹并重命名为 POSCAR
-                        shutil.copy(
-                            fine_contcar_path, os.path.join(self.base_dir, "POSCAR")
-                        )
-                        print(f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {fine_contcar_path}")
-                        logging.info(
-                            f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {fine_contcar_path}"
-                        )
-                    else:
-                        print(f"Eligible CONTCAR not found in {vasp_folder_path}")
-                        logging.info(
-                            f"Eligible CONTCAR not found in {vasp_folder_path}"
-                        )
-        else:
-            print(f"CSV file not found in {self.base_dir}")
-            logging.info(f"CSV file not found in {self.base_dir}")
+                else:
+                    print(f"Eligible CONTCAR not found in {folder}")
+                    logging.info(f"Eligible CONTCAR not found in {folder}")
+                break
+
+        if target_contcar is None:
+            print(f"No folder found for structure number {best_number}")
+            logging.info(f"No folder found for structure number {best_number}")

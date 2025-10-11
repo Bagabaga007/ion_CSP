@@ -1,18 +1,19 @@
-import os
 import logging
+from ase.io import read
+from pathlib import Path
 from typing import Tuple, List, Dict
 from collections import defaultdict, Counter
-from ase.io import read
 from ase.neighborlist import NeighborList, natural_cutoffs
 
 
-def identify_molecules(atoms) -> Tuple[List[Dict[str, int]], bool]:
+def identify_molecules(atoms, base_dir: Path = Path('./')) -> Tuple[List[Dict[str, int]], bool]:
     """
     Identify independent molecules in a given set of atoms.
     This function uses a depth-first search (DFS) approach to find connected components in the atomic structure,
     treating each connected component as a separate molecule.
     params:
         atoms: ASE Atoms object containing the atomic structure.
+        base_dir: The base directory where the initial .gjf files are located for comparison.
     returns:
         A tuple containing:
         - A list of dictionaries, each representing a molecule with element counts.
@@ -55,7 +56,7 @@ def identify_molecules(atoms) -> Tuple[List[Dict[str, int]], bool]:
         merged_molecules[molecule_tuple] += 1  # 计数相同的分子
         identified_set.add(frozenset(molecule.items()))
     # 获取当前目录下所有 .gjf 文件
-    initial_gjf_files = [f for f in os.listdir('./') if f.endswith('.gjf')]
+    initial_gjf_files = [f for f in base_dir.iterdir() if f.name.endswith('.gjf')]
     initial_counts = defaultdict(int)
     for gjf in initial_gjf_files:
         # 提取 .gjf 文件中的元素与原子数量

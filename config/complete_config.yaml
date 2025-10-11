@@ -12,7 +12,7 @@ convert_SMILES:
 empirical_estimate:
   folders: ['charge_-1', 'charge_2']  # 工作目录下存放各离子的文件夹名
   ratios: [2, 1]               # 要用于经验公式预测密度的离子配比
-  sort_by: 'density'           # 对离子组合的排序依据，目前只有密度（density）与氮含量（nitrogen）
+  sort_by: 'density'           # 对离子组合的排序依据，目前只有密度（density）、氮含量（nitrogen）氮碳比（NC_ratio）
   make_combo_dir: True         # 是否根据密度排序生成对应组合文件夹（包含gjf文件）
   target_dir: '../2_density_combos'     # 生成组合文件夹的目标目录
   num_combos: 50              # 要生成文件夹的组合个数
@@ -30,6 +30,7 @@ read_mlp_density:
   n_screen: 2            # 筛选机器学习势优化后密度最大的n个CONTCAR与对应的OUTCAR
   molecules_screen: True  # 是否排除离子改变的晶体结构
   detail_log: False       # 是否额外生成详细的筛选日志文件
+  sort_by: density        # 对筛选出的晶体结构进行排序的依据，目前只有密度（density）、能量（energy）
 
 vasp_processing:
   machine: '/your/cpu/machine/config/path'       # 进行VASP分步优化计算的机器参数

@@ -12,15 +12,17 @@ convert_SMILES:
 empirical_estimate:
   folders: ['charge_2', 'charge_-1']        # 工作目录下存放各离子的文件夹名
   ratios: [1, 2]                            # 要用于经验公式预测密度的离子配比
+  sort_by: 'density'           # 对离子组合的排序依据，目前只有密度（density）、氮含量（nitrogen）氮碳比（NC_ratio）
   make_combo_dir: True                      # 是否根据密度排序生成对应组合文件夹（包含gjf文件）
   num_combos: 20                            # 要生成文件夹的组合个数
-  ion_numbers: [2, 4]                            # 各离子在晶体中的数量
+  ion_numbers: [2, 4]                       # 各离子在晶体中的数量
+  update: True                              # 默认每次运行都会更新组合文件夹
 
 gen_opt:
   num_per_group: 10                             # 每个空间群要生成的晶体结构数量
   space_groups_limit: 15                         # 空间群搜索的限制
-  machine: '/workplace/yz/ion_CSP/server_config/6001_local/6001_local_machine.yaml'       # 进行机器学习势优化计算的机器参数，建议GPU
-  resources: '/workplace/yz/ion_CSP/server_config/6001_local/6001_local_resources.yaml'   # 进行机器学习势优化计算的资源参数
+  machine: '/workplace/yz/server_config/6001_local/6001_local_machine.yaml'       # 进行机器学习势优化计算的机器参数，建议GPU
+  resources: '/workplace/yz/server_config/6001_local/6001_local_resources.yaml'   # 进行机器学习势优化计算的资源参数
   nodes: 1  # 占用GPU节点数
 
 read_mlp_density:
@@ -29,7 +31,7 @@ read_mlp_density:
   detail_log: False       # 是否额外生成详细的筛选日志文件
 
 vasp_processing:
-  machine: '/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_machine.yaml'       # 进行VASP分步优化计算的机器参数
-  resources: '/workplace/yz/ion_CSP/server_config/JLU_184/JLU_184_resources.yaml'   # 进行VASP分步优化计算的资源参数
+  machine: '/workplace/yz/server_config/JLU_184/JLU_184_machine.yaml'       # 进行VASP分步优化计算的机器参数
+  resources: '/workplace/yz/server_config/JLU_184/JLU_184_resources.yaml'   # 进行VASP分步优化计算的资源参数
   nodes: 2                                       # 占用CPU节点数
   molecules_prior: True                          # 是否检查离子晶体结构中所有离子的结构

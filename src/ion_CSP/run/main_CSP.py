@@ -14,6 +14,7 @@ DEFAULT_CONFIG = {
     },
     "read_mlp_density": {
         "n_screen": 10,  # 筛选机器学习势优化后密度最大的n个CONTCAR与对应的OUTCAR
+        "sort_by": "density",  # 按什么属性进行筛选，可选项有 "density"（密度）和 "energy"（能量）
         "molecules_screen": True,  # 是否排除离子改变的晶体结构
         "detail_log": False,  # 是否额外生成详细的筛选日志文件
     },
@@ -80,8 +81,9 @@ def read_mlp_density_task(work_dir, config):
     # 分析处理机器学习势优化得到的CONTCAR文件
     mlp_result = ReadMlpDensity(work_dir=work_dir)
     # 读取密度数据，根据离子是否成键进行筛选，并将前n个最大密度的文件保存到max_density文件夹
-    mlp_result.read_density_and_sort(
+    mlp_result.read_property_and_sort(
         n_screen=config["read_mlp_density"]["n_screen"],
+        sort_by=config["read_mlp_density"]["sort_by"],
         molecules_screen=config["read_mlp_density"]["molecules_screen"],
         detail_log=config["read_mlp_density"]["detail_log"],
     )
@@ -93,11 +95,11 @@ def vasp_optimization_task(work_dir, config):
     # VASP分步固定晶胞角度优化处理
     vasp_result = VaspProcessing(work_dir=work_dir)
     # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
-    vasp_result.dpdisp_vasp_optimization_tasks(
-        machine=config["vasp_processing"]["machine"],
-        resources=config["vasp_processing"]["resources"],
-        nodes=config["vasp_processing"]["nodes"],
-    )
+    # vasp_result.dpdisp_vasp_optimization_tasks(
+    #     machine_path=config["vasp_processing"]["machine"],
+    #     resources_path=config["vasp_processing"]["resources"],
+    #     nodes=config["vasp_processing"]["nodes"],
+    # )
     # 批量读取 VASP 分步优化的输出文件，并将能量和密度等结果保存到目录中的相应CSV文件
     vasp_result.read_vaspout_save_csv(
         molecules_prior=config["vasp_processing"]["molecules_prior"]
@@ -109,8 +111,8 @@ def vasp_relaxation_task(work_dir, config):
     vasp_result = VaspProcessing(work_dir=work_dir)
     # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
     vasp_result.dpdisp_vasp_relaxation_tasks(
-        machine=config["vasp_processing"]["machine"],
-        resources=config["vasp_processing"]["resources"],
+        machine_path=config["vasp_processing"]["machine"],
+        resources_path=config["vasp_processing"]["resources"],
         nodes=config["vasp_processing"]["nodes"],
     )
     # 批量读取 VASP 分步优化的输出文件，并将能量和密度等结果保存到目录中的相应CSV文件

@@ -27,10 +27,9 @@ invalid_smiles,0,REF005,5"""
     with patch("importlib.resources.files") as mock_files:
         mock_files.return_value = param_dir
 
-        # 模拟重定向日志函数
-        with patch("ion_CSP.convert_SMILES.redirect_dpdisp_logging"):
-            yield tmp_path
-
+    # 模拟重定向日志函数
+    with patch("ion_CSP.convert_SMILES.redirect_dpdisp_logging"):
+        yield tmp_path
 
 # 测试初始化
 def test_initialization(setup_workdir):
@@ -47,7 +46,6 @@ def test_initialization(setup_workdir):
     assert len(sp.df) == 5
     assert list(sp.df["Refcode"]) == ["REF001", "REF002", "REF003", "REF004", "REF005"]
     assert len(sp.grouped) == 3  # 三个电荷组: -1, 0, 1
-
 
 # 测试 SMILES 转换
 def test_smiles_conversion(setup_workdir, caplog):
@@ -90,7 +88,6 @@ def test_smiles_conversion(setup_workdir, caplog):
     assert "REF005" in caplog.text
     assert "Invalid SMILES:" in caplog.text
 
-
 # 测试筛选功能
 def test_screening(setup_workdir, caplog):
     tmp_path = setup_workdir
@@ -122,19 +119,18 @@ def test_screening(setup_workdir, caplog):
         in caplog.text
     )
 
-
 # 测试任务分发 (模拟dpdispatcher)
 @patch("dpdispatcher.Submission.run_submission")
 @patch("dpdispatcher.Submission.__init__", return_value=None)
 @patch("dpdispatcher.Task.__init__", return_value=None)
-def test_dpdisp_gaussian_tasks(mock_task, mock_sub, mock_run, setup_workdir, caplog):
+def test_dpdisp_gaussian_tasks(mock_run, mock_sub, mock_task, setup_workdir, caplog):
     tmp_path = setup_workdir
     work_dir = tmp_path
     caplog.set_level(logging.INFO)
 
     # 准备测试数据
     sp = SmilesProcessing(work_dir, "test.csv")
-    gjf_dir = tmp_path / "1_1_SMILES_gjf/test/charge_0"
+    gjf_dir = tmp_path / "1_1_SMILES_gjf/test/charge_1"
     gjf_dir.mkdir(parents=True)
     (gjf_dir / "REF001.gjf").write_text("dummy content")
     (gjf_dir / "REF003.gjf").write_text("dummy content")
@@ -164,7 +160,7 @@ def test_dpdisp_gaussian_tasks(mock_task, mock_sub, mock_run, setup_workdir, cap
     # 调用任务分发
     with patch("shutil.copyfile"), patch("shutil.rmtree"):
         sp.dpdisp_gaussian_tasks(
-            folders=["charge_0"],
+            folders=["charge_1"],
             machine=machine_config,
             resources=resources_config,
             nodes=2,
@@ -174,9 +170,8 @@ def test_dpdisp_gaussian_tasks(mock_task, mock_sub, mock_run, setup_workdir, cap
     assert "Batch Gaussian optimization completed!!!" in caplog.text
 
     # 验证优化目录创建
-    opt_dir = tmp_path / "1_2_Gaussian_optimized/charge_0"
+    opt_dir = tmp_path / "1_2_Gaussian_optimized/charge_1"
     assert opt_dir.exists()
-
 
 # 测试错误处理
 def test_error_handling(setup_workdir, caplog):
