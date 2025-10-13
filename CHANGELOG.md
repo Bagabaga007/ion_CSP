@@ -2,6 +2,12 @@
 
 ## Latest Changes
 
+## V2.2.4
+
+### 5a1bcaf (2025-10-11)
+
+Update version number to 2.2.4, add the function of sorting by energy after MLP optimization and refactor ReadMlpDensity and VaspProcessing class for improved file handling and logging.
+
 ### 7442bf5 (2025-08-04)
 
 Refactoring the SmilesProcessing class to support the Path type, updating initialization methods, fixing error handling for invalid SMILES, and adding unit tests to validate functionality of convert_SMILES module.

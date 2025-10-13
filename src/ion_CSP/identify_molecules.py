@@ -72,33 +72,71 @@ def identify_molecules(atoms, base_dir: Path = Path('./')) -> Tuple[List[Dict[st
     # 返回合并后的分子及其数量, molecules_flag 标志表示离子数与初始的比对结果
     return merged_molecules, molecules_flag, initial_information
 
-def molecules_information(molecules: List[Dict[str, int]], molecules_flag: bool, initial_information: List[Dict[str, int]]):
+def format_molecule_output(molecule_dict, count=1):
     """
-    Set the output format of the molecule. Output simplified element information in the specified order of C, N, O, H, which may include other elements.
+    统一格式化分子输出，按照固定顺序排列元素
+
+    params:
+        molecule_dict: 分子字典，包含元素和计数
+        count: 该分子出现的次数（默认为1）
+    returns:
+        格式化后的字符串元组（分子表示，总原子数）
+    """
+    # 定义固定顺序的元素
+    fixed_order = ["C", "N", "O", "H"]
+
+    # 计算总原子数
+    total_atoms = sum(molecule_dict.values())
+
+    # 构建输出字符串
+    output = []
+    # 先处理固定顺序的元素
+    for element in fixed_order:
+        if element in molecule_dict:
+            output.append(f"{element}{molecule_dict[element]}")
+
+    # 处理其他元素（按字母顺序排序以保证一致性）
+    other_elements = [elem for elem in molecule_dict if elem not in fixed_order]
+    for element in sorted(other_elements):
+        output.append(f"{element}{molecule_dict[element]}")
+
+    formatted_output = "".join(output)
+    return formatted_output, total_atoms
+
+
+def molecules_information(
+    molecules: List[Dict[str, int]],
+    molecules_flag: bool,
+    initial_information: List[Dict[str, int]],
+):
+    """
+    Set the output format of the molecule. Output simplified element information
+    in the specified order of C, N, O, H, which may include other elements.
+
     params:
         molecules: A list of dictionaries representing identified molecules with element counts.
         molecules_flag: A boolean flag indicating whether the identified molecules match the initial set of molecules.
         initial_information: A list of dictionaries representing the initial set of molecules with element counts.
     """
-    # 定义固定顺序的元素
-    fixed_order = ['C', 'N', 'O', 'H']
-    logging.info(f"Initial molecules: {initial_information}")
-    logging.info('Identified independent molecules:')
+    # 使用统一的格式化函数处理初始分子
+    logging.info("Initial molecules:")
+    for idx, molecule in enumerate(initial_information):
+        formatted_output, total_atoms = format_molecule_output(molecule)
+        logging.info(
+            f"  Molecule {idx + 1} (Total Atoms: {total_atoms}): {formatted_output}"
+        )
+
+    # 使用统一的格式化函数处理识别到的分子
+    logging.info("Identified independent molecules:")
     for idx, (molecule, count) in enumerate(molecules.items()):
-        molecule = dict(molecule)
-        total_atoms = sum(molecule.values())  # 计算当前分子的原子总数
-        # 构建输出字符串
-        output = []
-        for element in fixed_order:
-            if element in molecule:
-                output.append(f"{element}{molecule[element]}") 
-        # 如果有其他元素，添加到输出中
-        for element in molecule:
-            if element not in fixed_order:
-                output.append(f"{element}{molecule[element]}")
-        formatted_output = ''.join(output)
-        logging.info(f'  Molecule {idx + 1} (Total Atoms: {total_atoms}, Count: {count}): {formatted_output}')
+        molecule_dict = dict(molecule)
+        formatted_output, total_atoms = format_molecule_output(molecule_dict, count)
+        logging.info(
+            f"  Molecule {idx + 1} (Total Atoms: {total_atoms}, Count: {count}): {formatted_output}"
+        )
+
+    # 输出比较结果
     if molecules_flag:
-        logging.info('Molecular Comparison Successful\n')
+        logging.info("Molecular Comparison Successful\n")
     else:
-        logging.warning('Molecular Comparison Failed\n')
+        logging.warning("Molecular Comparison Failed\n")

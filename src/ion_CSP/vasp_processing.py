@@ -317,16 +317,13 @@ class VaspProcessing:
         Read a single VASP OUTCAR file and extract density and energy information.
         :params
             outcar_path: The path to the VASP OUTCAR file.
-        :return: density, energy, ions_check
-        1. density: The calculated density of the structure in g/cm³, rounded to three decimal places. If reading fails, returns None.
-        2. energy: The total energy of the structure in eV, rounded to one decimal place. If reading fails, returns None.
-        3. ions_check: A boolean indicating whether the ionic structure is maintained. If identify is False or reading fails, returns False.
-        4. volume: The volume of the structure in cubic angstroms (Å³). If reading fails, returns False.
+        :return: atoms, density, energy
+        1. atoms: The ASE Atoms object read from the OUTCAR file. If reading fails, returns None.
+        2. density: The calculated density of the structure in g/cm³, rounded to three decimal places. If reading fails, returns -inf.
+        3. energy: The total energy of the structure in eV, rounded to one decimal place. If reading fails, returns None.
         """
-        density = None
-        energy = None
-        ions_check = False
-        volume = None
+        density = float("-inf")
+        energy = float("inf")
         try:
             atoms = read_vasp_out(str(outcar_path))
             volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
@@ -334,13 +331,12 @@ class VaspProcessing:
             # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
             density = round(1.66054 * masses / volume, 3)
             energy = round(atoms.get_total_energy(), 1)
-            return atoms, density, energy, ions_check
-        except (ParseError, FileNotFoundError) as e:
-            logging.error(f"Error reading OUTCAR file {outcar_path}: {e}")
-            return None, None, None, False
+            return atoms, density, energy
+        except (ParseError, FileNotFoundError):
+            return None, float("-inf"), float("inf")
         except Exception as e:
-            logging.error(f"Unexpected error reading OUTCAR file {outcar_path}: {e}")
-            return None, None, None, False
+            logging.error(f"Unexpected error reading OUTCAR file {outcar_path}: {e}\n")
+            return None, float("-inf"), float("inf")
 
     def read_vaspout_save_csv(self, molecules_prior: bool, relaxation: bool = False):
         """
@@ -375,49 +371,57 @@ class VaspProcessing:
             logging.info(f"  MLP_Density: {mlp_density}, MLP_Energy: {mlp_energy}")
             # 读取二级目录下 Rough 优化的 OUTCAR 文件
             rough_outcar = folder / "OUTCAR"
-            _, rough_density, rough_energy, _ = self._read_vasp_outcar(rough_outcar)
-            logging.info(
-                f"  Rough_Density: {rough_density}, Rough_Energy: {rough_energy}"
-            )
+            rough_atoms, rough_density, rough_energy = self._read_vasp_outcar(rough_outcar)
+            if rough_atoms is None:
+                logging.error(f"Error reading OUTCAR file {rough_outcar}\n")
+            else:
+                logging.info(
+                    f"  Rough_Density: {rough_density}, Rough_Energy: {rough_energy}"
+                )
 
             # 读取三级目录下 Fine 优化的 OUTCAR 文件
             fine_outcar = folder / "fine/OUTCAR"
-            fine_atoms, fine_density, fine_energy, fine_ions_check = (
+            fine_atoms, fine_density, fine_energy = (
                 self._read_vasp_outcar(fine_outcar)
             )
+            fine_ions_check, final_ions_check = False, False
+            final_density, final_energy = float("-inf"), float("inf")
             if fine_atoms is None:
-                logging.error(f"Error reading fine/OUTCAR file {fine_outcar}")
-                continue
-            logging.info(
-                f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}, Ions_Check: {fine_ions_check}"
-            )
-            if not relaxation:
-                molecules, ions_check, initial_info = identify_molecules(
-                    fine_atoms, base_dir=self.base_dir
-                )
-                if not initial_info:
-                    raise KeyError("No available initial molecules")
-                molecules_information(molecules, ions_check, initial_info)
-
+                logging.error(f"Error reading fine/OUTCAR file {fine_outcar}\n")
             else:
-                # 读取四级目录下 Final 优化的 OUTCAR 文件
-                final_outcar = folder / "fine/final/OUTCAR"
-                final_atoms, final_density, final_energy, final_ions_check = (
-                    self._read_vasp_outcar(final_outcar)
-                )
-                if final_atoms is None:
-                    logging.error(f"Error reading final/OUTCAR file {final_outcar}")
-                    continue
-                logging.info(
-                    f"  Final_Density: {final_density}, Final_Energy: {final_energy}, Ions_Check: {final_ions_check}"
-                )
-                molecules, ions_check, initial_info = identify_molecules(
-                    final_atoms, base_dir=self.base_dir
-                )
-                if not initial_info:
-                    raise KeyError("No available initial molecules")
-                molecules_information(molecules, ions_check, initial_info)
-
+                if not relaxation:
+                    molecules, fine_ions_check, initial_info = identify_molecules(
+                        fine_atoms, base_dir=self.base_dir
+                    )
+                    if not initial_info:
+                        raise KeyError("No available initial molecules")
+                    logging.info(
+                        f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}, Ions_Check: {fine_ions_check}"
+                    )
+                    molecules_information(molecules, fine_ions_check, initial_info)
+                else:
+                    logging.info(
+                        f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}"
+                    )
+                    # 读取四级目录下 Final 优化的 OUTCAR 文件
+                    final_outcar = folder / "fine/final/OUTCAR"
+                    final_atoms, final_density, final_energy = (
+                        self._read_vasp_outcar(final_outcar)
+                    )
+                    if final_atoms is None:
+                        logging.error(f"Error reading final/OUTCAR file {final_outcar}\n")
+                    else:
+                        molecules, final_ions_check, initial_info = identify_molecules(
+                            final_atoms, base_dir=self.base_dir
+                        )
+                        if not initial_info:
+                            raise KeyError("No available initial molecules")
+                        logging.info(
+                            f"  Final_Density: {final_density}, Final_Energy: {final_energy}, Ions_Check: {final_ions_check}"
+                        )
+                        molecules_information(molecules, final_ions_check, initial_info)
+            fine_PC = False
+            final_PC = False
             # 读取根目录下的 config.yaml 信息与对应的 .json 文件
             try:
                 for json_file, count in zip(species_json, ion_numbers):
@@ -433,7 +437,7 @@ class VaspProcessing:
                     fine_PC = round(molecular_volumes / fine_volume, 3)
                 if relaxation:
                     final_volume = (
-                        final_atoms.get_volume() if final_atoms is not None  else None
+                        final_atoms.get_volume() if final_atoms is not None else None
                     )
                     final_PC = round(molecular_volumes / final_volume, 3)
             except (FileNotFoundError, UnboundLocalError, TypeError):
@@ -501,39 +505,52 @@ class VaspProcessing:
                 else:
                     density_val = row["Final_Density"]
                     ions_check = row["Final_Ions_Check"]
-                density_val = (
-                    float(density_val) if density_val is not None else float("-inf")
-                )
                 if molecules_prior:
                     return (not bool(ions_check), -density_val)
                 else:
                     return -density_val
 
-            writer = csv.DictWriter(csv_file, fieldnames=header)
+            writer = csv.DictWriter(csv_file, fieldnames=header, extrasaction="ignore")
             data_rows.sort(key=sort_key)
             writer.writeheader()
             writer.writerows(data_rows)
 
         logging.info(f"VASP Density and Energy data saved to {csv_file_path}")
 
-        numbers = [row["Number"] for row in data_rows]
-        mlp_densities = [row["MLP_Density"] for row in data_rows]
-        fine_densities = [row["Fine_Density"] for row in data_rows]
-        final_densities = (
-            [row["Final_Density"] for row in data_rows] if relaxation else []
-        )
+        # 创建以number为键的字典
+        data_dict = {}
+        for row in data_rows:
+            number = row["Number"]
+            data_dict[number] = {
+                "mlp_density": row["MLP_Density"],
+                "fine_density": row["Fine_Density"],
+                "final_density": row["Final_Density"] if relaxation else None
+            }
 
-        logging.info(fine_densities)
-        logging.info(final_densities)
+        # 一行代码获取每种密度的最大值所对应的编号
+        max_mlp_num = max(data_dict, key=lambda k: data_dict[k]['mlp_density'])
+        max_fine_num = max(data_dict, key=lambda k: data_dict[k]['fine_density'])
+        max_final_num = max(data_dict, key=lambda k: data_dict[k]['final_density'])
+
+        # 通过编号获取对应的最大值
+        max_mlp_density = data_dict[max_mlp_num]['mlp_density']
+        max_fine_density = data_dict[max_fine_num]['fine_density']
+        max_final_density = data_dict[max_final_num]['final_density']
+
+        # 打印结果
         logging.info(
-            f"Maximum MLP Density: {max(mlp_densities)}, Structure Number: {numbers[mlp_densities.index(max(mlp_densities))]}"
+            f"Maximum MLP Density: {max_mlp_density} (Structure Number: {max_mlp_num})"
         )
-        logging.info(
-            f"Maximum Fine Density: {max(fine_densities)}, Structure Number: {numbers[fine_densities.index(max(fine_densities))]}"
-        )
-        if relaxation:
+        if not relaxation:
             logging.info(
-                f"Maximum Final Density: {max(final_densities)}, Structure Number: {numbers[final_densities.index(max(final_densities))]}"
+                f"Maximum Fine Density: {max_fine_density} (Structure Number: {max_fine_num})\n"
+            )
+        else:
+            logging.info(
+                f"Maximum Fine Density: {max_fine_density} (Structure Number: {max_fine_num})"
+            )
+            logging.info(
+                f"Maximum Final Density: {max_final_density} (Structure Number: {max_final_num})\n"
             )
 
     def export_max_density_structure(self, relaxation: bool = False):
@@ -542,7 +559,8 @@ class VaspProcessing:
         :params
             relaxation: Whether the final relaxation step has been performed. If True, the POSCAR will be copied from the final relaxation step; if False, it will be copied from the fine optimization step
         """
-        # 找到 vas_density_energy.csv 文件
+        # 找到 vasp_density_energy.csv 文件
+        logging.info("Preparing to export the structure with the highest density...")
         csv_file_path = self.base_dir / "vasp_density_energy.csv"
 
         if not csv_file_path.exists():
@@ -551,11 +569,10 @@ class VaspProcessing:
             return
 
         # 读取 CSV 文件并找到 Fine_Density 最大的结构
-        max_fine_density = -float("inf")
-        max_final_density = -float("inf")
+        max_density = float("-inf")
         best_number = None
 
-        with csv_file_path.open("r") as csvfile:
+        with csv_file_path.open("r", encoding='utf-8') as csvfile:
             reader = csv.reader(csvfile)
             header = next(reader)  # 读取表头
             # 检查表头格式
@@ -563,23 +580,32 @@ class VaspProcessing:
                 if not relaxation:
                     target_density_col = header.index("Fine_Density")
                     target_ions_check_col = header.index("Fine_Ions_Check")
+                    density_type = "Fine"
                 else:
                     target_density_col = header.index("Final_Density")
                     target_ions_check_col = header.index("Final_Ions_Check")
+                    density_type = "Final"
             except ValueError as e:
-                raise KeyError(f"Required column not found in CSV file: {e}")
+                print(f"Required column not found in CSV file: {e}")
+                logging.error(f"Required column not found in CSV file: {e}")
+                return
 
-            for row in reader:
+            #遍历所有行寻找最大密度
+            for row_num, row in enumerate(
+                reader, start=2
+            ):  # row_num从2开始（表头后第一行）
                 if len(row) <= max(target_density_col, target_ions_check_col):
+                    print(f"Warning: Incomplete row {row_num} skipped")
                     continue  # 跳过不完整的行
+
                 # 检查 Ions_Check 是否为 True
                 ions_check = row[target_ions_check_col].strip().lower()
                 if ions_check != "true":
                     continue  # 跳过 Ions_Check=False 的行
                 try:
-                    fine_density = float(row[target_density_col])
-                    if fine_density > max_fine_density:
-                        max_fine_density = fine_density
+                    current_density = float(row[target_density_col])
+                    if current_density > max_density:
+                        max_density = current_density
                         best_number = row[0]  # 第一列是 Number
                 except ValueError:
                     continue  # 跳过无法转换为数字的值
@@ -589,33 +615,38 @@ class VaspProcessing:
             logging.info("No valid structure found in CSV file")
             return
 
-        target_density = max_final_density if relaxation else max_fine_density
-        print(
-            f"Found structure with max Fine_Density: {best_number}, density: {target_density}"
-        )
-        logging.info(
-            f"Found structure with max Fine_Density: {best_number}, density: {target_density}"
-        )
+        logging_info = f"Maximum {density_type} Density: {max_density} (Structure Number: {best_number})"
+        print(logging_info)
+        logging.info(logging_info)
 
         target_contcar = None
         # 根据结构序号构建要查找的文件夹路径
         for folder in self.vasp_optimized_dir.iterdir():
-            if folder.is_dir() and folder.name.endswith(best_number):
-                fine_contcar = folder / "fine" / "CONTCAR"
-                final_contcar = folder / "fine" / "final" / "CONTCAR"
+            if folder.is_dir() and folder.name.endswith(f"_{best_number}"):
+                print(f"Found matching folder: {folder}")
+                logging.info(f"Found matching folder: {folder}")
+
                 # 根据 relaxation 参数决定复制哪个 CONTCAR 文件
-                target_contcar = fine_contcar if not relaxation else final_contcar
-                if target_contcar.exists():
-                    shutil.copy(target_contcar, self.base_dir / "POSCAR")
-                    print(
-                        f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {target_contcar}"
-                    )
-                    logging.info(
-                        f"Renamed CONTCAR to POSCAR in {self.base_dir}, copied from {target_contcar}"
-                    )
+                if not relaxation:
+                    target_contcar = folder / "fine" / "CONTCAR"
                 else:
-                    print(f"Eligible CONTCAR not found in {folder}")
-                    logging.info(f"Eligible CONTCAR not found in {folder}")
+                    target_contcar = folder / "fine" / "final" / "CONTCAR"
+
+                if target_contcar.exists():
+                    # 复制前备份现有的 POSCAR 文件（如果存在）
+                    poscar_path = self.base_dir / "POSCAR"
+                    if poscar_path.exists():
+                        backup_path = self.base_dir / "POSCAR.bak"
+                        shutil.move(poscar_path, backup_path)
+                        print(f"Existing POSCAR backed up to {backup_path}")
+                        logging.info(f"Existing POSCAR backed up to {backup_path}")
+                    # 复制并重命名 CONTCAR 为 POSCAR
+                    shutil.copy(target_contcar, poscar_path)
+                    print(f"Copied CONTCAR from target {target_contcar} to {poscar_path}")
+                    logging.info(f"Copied CONTCAR from target {target_contcar} to {poscar_path}")
+                else:
+                    print(f"Eligible CONTCAR not found at expected location: {target_contcar}")
+                    logging.info(f"Eligible CONTCAR not found at expected location: {target_contcar}")
                 break
 
         if target_contcar is None:
