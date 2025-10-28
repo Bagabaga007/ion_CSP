@@ -72,13 +72,12 @@ def identify_molecules(atoms, base_dir: Path = Path('./')) -> Tuple[List[Dict[st
     # 返回合并后的分子及其数量, molecules_flag 标志表示离子数与初始的比对结果
     return merged_molecules, molecules_flag, initial_information
 
-def format_molecule_output(molecule_dict, count=1):
+def format_molecule_output(molecule_dict):
     """
     统一格式化分子输出，按照固定顺序排列元素
 
     params:
         molecule_dict: 分子字典，包含元素和计数
-        count: 该分子出现的次数（默认为1）
     returns:
         格式化后的字符串元组（分子表示，总原子数）
     """
@@ -107,7 +106,7 @@ def format_molecule_output(molecule_dict, count=1):
 def molecules_information(
     molecules: List[Dict[str, int]],
     molecules_flag: bool,
-    initial_information: List[Dict[str, int]],
+    initial_info: List[Dict[str, int]],
 ):
     """
     Set the output format of the molecule. Output simplified element information
@@ -116,11 +115,11 @@ def molecules_information(
     params:
         molecules: A list of dictionaries representing identified molecules with element counts.
         molecules_flag: A boolean flag indicating whether the identified molecules match the initial set of molecules.
-        initial_information: A list of dictionaries representing the initial set of molecules with element counts.
+        initial_info: A list of dictionaries representing the initial set of molecules with element counts.
     """
     # 使用统一的格式化函数处理初始分子
     logging.info("Initial molecules:")
-    for idx, molecule in enumerate(initial_information):
+    for idx, molecule in enumerate(initial_info):
         formatted_output, total_atoms = format_molecule_output(molecule)
         logging.info(
             f"  Molecule {idx + 1} (Total Atoms: {total_atoms}): {formatted_output}"
@@ -130,7 +129,7 @@ def molecules_information(
     logging.info("Identified independent molecules:")
     for idx, (molecule, count) in enumerate(molecules.items()):
         molecule_dict = dict(molecule)
-        formatted_output, total_atoms = format_molecule_output(molecule_dict, count)
+        formatted_output, total_atoms = format_molecule_output(molecule_dict)
         logging.info(
             f"  Molecule {idx + 1} (Total Atoms: {total_atoms}, Count: {count}): {formatted_output}"
         )

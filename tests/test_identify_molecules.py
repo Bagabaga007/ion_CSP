@@ -2,6 +2,7 @@ import os
 import logging
 import pytest
 from ase import Atoms
+
 from ion_CSP.identify_molecules import (
     identify_molecules,
     molecules_information,
@@ -153,7 +154,9 @@ def test_molecules_information_logging(caplog):
         molecules_information(molecules, molecules_flag, initial_info)
 
     # 验证日志输出
-    assert "Initial molecules: [{'C': 1, 'H': 4}, {'O': 1, 'H': 2}]" in caplog.text
+    assert "Initial molecules:" in caplog.text
+    assert "Molecule 1 (Total Atoms: 5): C1H4" in caplog.text
+    assert "Molecule 2 (Total Atoms: 3): O1H2" in caplog.text
     assert "Molecule 1 (Total Atoms: 5, Count: 1): C1H4" in caplog.text
     assert "Molecule 2 (Total Atoms: 3, Count: 2): O1H2" in caplog.text
     assert "Molecular Comparison Successful" in caplog.text
@@ -172,3 +175,7 @@ def test_molecules_information_failed_logging(caplog):
 
     # 验证日志输出
     assert "Molecular Comparison Failed" in caplog.text
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--cov=ion_CSP.identify_molecules"])

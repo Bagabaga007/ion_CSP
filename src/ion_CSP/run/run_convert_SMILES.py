@@ -13,12 +13,12 @@ DEFAULT_CONFIG = {
     }
 }
 
+
 @log_and_time
 def main(work_dir, config):
     # 给定与脚本同目录的csv文件名
     result = SmilesProcessing(
-        work_dir=work_dir,
-        csv_file=config["convert_SMILES"]["csv_file"]
+        work_dir=work_dir, csv_file=config["convert_SMILES"]["csv_file"]
     )
     # 根据电荷进行分组创建文件夹并将SMILES码转换为对应的结构文件
     result.charge_group()
@@ -33,10 +33,11 @@ def main(work_dir, config):
     result.dpdisp_gaussian_tasks(
         # 注意，此处需要人为指定文件夹以避免浪费计算资源，默认通过empirical_estimate中的folders来确定
         folders=config["empirical_estimate"]["folders"],
-        machine=config["convert_SMILES"]["machine"],
-        resources=config["convert_SMILES"]["resources"],
+        machine_path=config["convert_SMILES"]["machine"],
+        resources_path=config["convert_SMILES"]["resources"],
         nodes=config["convert_SMILES"]["nodes"],
     )
+
 
 if __name__ == "__main__":
     # 获取工作目录和配置

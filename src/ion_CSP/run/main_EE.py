@@ -56,6 +56,7 @@ def main(work_dir, config):
             task_logger.set_failure()
             raise
 
+
 def convertion_task(work_dir, config):
     # 给定与脚本同目录的csv文件名
     convertion = SmilesProcessing(
@@ -75,10 +76,11 @@ def convertion_task(work_dir, config):
     convertion.dpdisp_gaussian_tasks(
         # 注意，此处需要人为指定文件夹以避免浪费计算资源，默认通过empirical_estimate中的folders来确定
         folders=config["empirical_estimate"]["folders"],
-        machine=config["convert_SMILES"]["machine"],
-        resources=config["convert_SMILES"]["resources"],
+        machine_path=config["convert_SMILES"]["machine"],
+        resources_path=config["convert_SMILES"]["resources"],
         nodes=config["convert_SMILES"]["nodes"],
     )
+
 
 def estimation_task(work_dir, config):
     # 在工作目录下准备 Gaussian 优化处理后具有 .gjf、.fchk 和 .log 文件的文件夹, 并提供对应的离子配比
@@ -92,6 +94,7 @@ def estimation_task(work_dir, config):
     estimation.multiwfn_process_fchk_to_json()
     # 由于后续晶体生成不支持 .log 文件，需要将 Gaussian 优化得到的 .log 文件最后一帧转为 .gjf 结构文件
     estimation.gaussian_log_to_optimized_gjf()
+
 
 def combination_task(work_dir, config):
     # 在工作目录下准备 Gaussian 优化处理后具有 .gjf、.fchk 和 .log 文件的文件夹, 并提供对应的离子配比

@@ -5,6 +5,7 @@ import psutil
 import builtins
 from pathlib import Path
 from unittest.mock import patch, MagicMock, Mock
+
 from ion_CSP.task_manager import TaskManager
 
 
@@ -176,3 +177,7 @@ def test_get_related_tasks_filters(monkeypatch, task_manager, tmp_path):
     # 只应返回符合规则的日志对应的任务
     assert any(task["module"] == "CSP" for task in tasks)
     assert all(task["module"] in ("CSP", "EE") for task in tasks)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--cov=ion_CSP.task_manager"])

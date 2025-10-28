@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
+
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 
 import time
+import shutil
+import signal
 import numpy as np
 import multiprocessing
 from ase.io.vasp import read_vasp
@@ -15,7 +18,7 @@ from deepmd.calculator import DP
 
 
 base_dir = os.path.dirname(__file__)
-
+pool = None  # 全局变量：保存 Pool 实例，用于信号处理
 
 def get_mlp_calc(relative_path='./model.pt'):
     """
@@ -59,7 +62,8 @@ def write_CONTCAR(element, ele, lat, pos, index, output_dir=None):
         lat: lattice vectors
         pos: atomic positions in direct coordinates
         index: index for the output file
-        output_dir: directory where the CONTCAR file will be saved""" 
+        output_dir: directory where the CONTCAR file will be saved
+    """ 
     if output_dir is None:
         output_dir = base_dir
     f = open(os.path.join(output_dir, f"CONTCAR_{index}"), "w")
@@ -163,8 +167,8 @@ def run_opt(index: int, output_dir=None):
         output_dir = base_dir
     # 修改文件读写路径
     if os.path.isfile(os.path.join(output_dir, "OUTCAR")):
-        os.system(
-            f"mv {os.path.join(output_dir, 'OUTCAR')} {os.path.join(output_dir, 'OUTCAR-last')}"
+        shutil.move(
+            os.path.join(output_dir, "OUTCAR"), os.path.join(output_dir, "OUTCAR-last")
         )
     fmax, pstress = 0.03, 0
 
@@ -172,24 +176,23 @@ def run_opt(index: int, output_dir=None):
         
     Opt_Step = 2000
     start = time.time() 
-    # pstress kbar
-    # kBar to eV/A^3
-    # 1 eV/A^3 = 160.21766028 GPa
-    # 1 / 160.21766028 ~ 0.006242
-    aim_stress = 1.0 * pstress * 0.01 * 0.6242 / 10.0 
+    # pstress 的单位为 kbar，kbar 与 GPa 的转换关系为 1 kbar = 0.1 GPa
+    # GPa 与 eV/A^3 的转换关系为 160.2177 GPa = 1 eV/A^3 
+    # 因此 kbar 与 eV/A^3 的转换关系为 1 kbar = 0.1 / 160.2177 = 6.2415*10e-4 eV/A^3
+    aim_stress = pstress / 10.0 / 160.2177
     atoms = read_vasp('POSCAR_'+str(index)) 
     atoms.calc = get_mlp_calc()
     ucf = UnitCellFilter(atoms, scalar_pressure=aim_stress)
-    # optimization
-    opt = LBFGS(ucf) 
-    opt.run(fmax=fmax,steps=Opt_Step) 
-    # atoms will be optimized and updated during the opt.run process
+    # 选择LBFGS优化器进行结构优化
+    opt = LBFGS(ucf)
+    opt.run(fmax=fmax,steps=Opt_Step)
+    # 在 opt.run 期间，atoms 会被持续优化和更新
     atoms_lat = atoms.cell 
     atoms_pos = atoms.positions
     atoms_force = atoms.get_forces() 
     atoms_stress = atoms.get_stress() 
-    # eV/A^3 to GPa
-    atoms_stress = atoms_stress/(0.01*0.6242)
+    # eV/A^3 转换回 kbar 用于输出，负号表示该压力由内向外
+    atoms_stress = (-atoms_stress) * 10.0 * 160.2177
     atoms_symbols = atoms.get_chemical_symbols() 
     atoms_ene = atoms.get_potential_energy() 
     atoms_masses = sum(atoms.get_masses())
@@ -197,12 +200,29 @@ def run_opt(index: int, output_dir=None):
     element, ele = get_element_num(atoms_symbols) 
 
     write_CONTCAR(element, ele, atoms_lat, atoms_pos, index, output_dir)
-    write_OUTCAR(element, ele, atoms_masses, atoms_vol, atoms_lat, atoms_pos, atoms_ene, atoms_force, -10.0 * atoms_stress, pstress, index, output_dir)
+    write_OUTCAR(element, ele, atoms_masses, atoms_vol, atoms_lat, atoms_pos, atoms_ene, atoms_force, atoms_stress, pstress, index, output_dir)
 
     stop = time.time()
-    _cwd = os.getcwd()
-    _cwd = os.path.basename(_cwd)
+    _cwd = os.path.basename(os.getcwd())
     print(f'{_cwd} is done, time: {stop-start}')
+
+
+def stop_handler(signum, frame):
+    """
+    Signal processing function: gracefully close process pool on receiving termination signals.
+    :params
+        signum: signal number
+        frame: current stack frame
+    """
+    print(
+        f"\nReceived signal {signum} (Ctrl+C or SIGTERM), shutting down gracefully..."
+    )
+    if pool is not None:
+        print("Terminating multiprocessing pool...")
+        pool.terminate()  # 强制终止所有子进程
+        pool.join()  # 等待子进程完全退出
+    print("All child processes terminated. Exiting.")
+    exit(0)
 
 
 def main():
@@ -210,12 +230,35 @@ def main():
     Main function to run the optimization in parallel.
     It initializes a multiprocessing pool and maps the run_opt function to the indexes of POSCAR files.
     """
+    total_start = time.time()
+    global pool  # 声明为全局变量，供信号处理函数访问
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, stop_handler)  # Ctrl+C
+    signal.signal(signal.SIGTERM, stop_handler)  # kill 命令
+
+    # 使用 spawn 上下文（推荐用于 Linux/Windows）
     ctx=multiprocessing.get_context("spawn")
     pool=ctx.Pool(8)
-    indexes = get_indexes()
-    pool.map(func=run_opt, iterable=indexes)
-    pool.close()
-    pool.join()
+    try:
+        indexes = get_indexes()
+        if not indexes:
+            print("No POSCAR_*.vasp files found. Nothing to optimize.")
+            return
+
+        print(f"Starting optimization for {len(indexes)} structures...")
+        pool.map(func=run_opt, iterable=indexes)
+        print("All optimizations completed successfully.")
+
+    except KeyboardInterrupt:
+        # 防止未注册信号时的意外中断
+        stop_handler(signal.SIGINT, None)
+    finally:
+        if pool is not None:
+            pool.close()
+            pool.join()           
+    total_stop = time.time()
+    print(f"Total optimization time: {total_stop - total_start:.2f}s")
+
 
 if __name__=='__main__':
     main()

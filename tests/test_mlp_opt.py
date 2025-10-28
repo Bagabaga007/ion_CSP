@@ -152,28 +152,4 @@ def test_run_opt(
     assert os.path.exists(os.path.join(setup_test_environment, "OUTCAR_1"))
 
 
-# 确保不会在真实目录创建文件
-@pytest.fixture(autouse=True, scope="session")
-def prevent_file_creation_in_real_dir():
-    # 在测试开始时备份真实目录中的文件列表
-    real_dir = os.path.dirname(os.path.abspath(__file__))
-    original_files = set(os.listdir(real_dir))
 
-    yield
-
-    # 在测试结束后检查是否有新文件创建
-    current_files = set(os.listdir(real_dir))
-    new_files = current_files - original_files
-
-    # 删除测试期间创建的文件
-    for filename in new_files:
-        if filename.startswith(("CONTCAR_", "OUTCAR_", "POSCAR_")):
-            try:
-                os.remove(os.path.join(real_dir, filename))
-                print(f"Deleted test file: {filename}")
-            except Exception as e:
-                print(f"Error deleting {filename}: {e}")
-
-
-if __name__ == "__main__":
-    pytest.main()

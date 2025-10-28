@@ -1,4 +1,3 @@
-import os
 import csv
 import shutil
 import logging
@@ -21,11 +20,11 @@ class ReadMlpDensity:
         self.base_dir = work_dir.resolve()
         # 寻找同一目录下的2_mlp_optimized文件夹
         self.folder_dir = self.base_dir / folder
+        if not self.folder_dir.exists():
+            raise FileNotFoundError(f"The directory {self.folder_dir} does not exist.")
         self.max_density_dir = self.folder_dir / "max_density"
         self.min_energy_dir = self.folder_dir / "min_energy"
-        self.sort_value_dir = None
-        self.primitive_cell_dir = self.folder_dir / "primitive_cell"
-        print(f"Processing MLP CONTCARs in {self.folder_dir}")
+        self.primitive_cell_dir, self.sort_value_dir, self.phonopy_dir = None, None, None
         logging.info(f"Processing MLP CONTCARs in {self.folder_dir}")
 
     def _sequentially_read_files(self, directory: Path, prefix_name: str = "POSCAR_"):
@@ -60,7 +59,7 @@ class ReadMlpDensity:
             n_screen: The number of CONTCAR files with the highest density to be saved.
             sort_by: The property to sort by. Options: 'density' (default) or 'energy'.
             molecules_screen: If True, only consider ionic crystals with original ions.
-            detail_log: If True, print detailed information about the molecules identified in the CONTCAR files.
+            detail_log: If True, log detailed information about the molecules identified in the CONTCAR files.
         """
         if sort_by not in ["density", "energy"]:
             raise ValueError("sort_by parameter must be either 'density' or 'energy'.")
@@ -68,6 +67,13 @@ class ReadMlpDensity:
         CONTCAR_file_index_pairs = self._sequentially_read_files(
             self.folder_dir, prefix_name="CONTCAR_"
         )
+        if not CONTCAR_file_index_pairs:
+            logging.error(
+                f"No CONTCAR files found in {self.folder_dir}. Please check the directory."
+            )                                                                               
+            raise FileNotFoundError(
+                f"No CONTCAR files found in {self.folder_dir}. Please check the directory."
+            )
         # 存储密度、能量和文件名的列表
         property_index_list = []
         # 逐个处理文件
@@ -76,9 +82,6 @@ class ReadMlpDensity:
             molecules, molecules_flag, initial_information = identify_molecules(
                 atoms, base_dir=self.base_dir
             )
-            logging.info(molecules)
-            logging.info(molecules_flag)
-            logging.info(initial_information)
             if detail_log:
                 molecules_information(molecules, molecules_flag, initial_information)
             # 跳过不符合条件的结构
@@ -116,7 +119,6 @@ class ReadMlpDensity:
                     "energy": energy,
                 }
             )
-        logging.info(property_index_list)
         # 根据排序属性进行排序
         if sort_by == "density":
             sorted_list = sorted(
@@ -129,21 +131,16 @@ class ReadMlpDensity:
         elif sort_by == "energy":
             sorted_list = sorted(
                 property_index_list,
-                key=lambda x: x["energy"] if x["energy"] is not None else float("inf"),
+                key=lambda x: x["energy"] 
+                if x["energy"] is not None 
+                else float("inf"),
             )
-        else:
-            raise ValueError("sort_by parameter must be either 'density' or 'energy'.")
-
         # 筛选出有效的结构（有对应的排序属性值）
         valid_sorted_list = [item for item in sorted_list if item[sort_by] is not None]
         # 输出筛选结果
         if molecules_screen:
-            print(f"Total optimized ionic crystals: {len(CONTCAR_file_index_pairs)}")
             logging.info(
                 f"Total optimized ionic crystals: {len(CONTCAR_file_index_pairs)}"
-            )
-            print(
-                f"Screened ionic crystals with original ions: {len(valid_sorted_list)}"
             )
             logging.info(
                 f"Screened ionic crystals with original ions: {len(valid_sorted_list)}"
@@ -160,16 +157,14 @@ class ReadMlpDensity:
             self.sort_value_dir = self.max_density_dir
         elif sort_by == "energy":
             self.sort_value_dir = self.min_energy_dir
-        else:
-            raise ValueError("sort_by parameter must be either 'density' or 'energy'.")
         # 将前n个最大密度的CONTCAR文件进行重命名并保存到max_density文件夹
         if self.sort_value_dir.exists():
             backup_dir = self.folder_dir / "backup" / self.sort_value_dir.name
             backup_dir.mkdir(parents=True, exist_ok=True)
             for item in self.sort_value_dir.iterdir():
-                shutil.move(str(item), str(backup_dir / item))
+                shutil.move(str(item), str(backup_dir / item.name))
         else:
-            os.makedirs(self.sort_value_dir, exist_ok=True)
+            self.sort_value_dir.mkdir(exist_ok=True)
 
         # 保存前n个结构
         numbers, mlp_densities, mlp_energies = [], [], []
@@ -200,17 +195,8 @@ class ReadMlpDensity:
             new_OUTCAR_path = self.sort_value_dir / new_OUTCAR_filename
             if src_CONTCAR_path.exists():
                 shutil.copy(str(src_CONTCAR_path), str(new_CONTCAR_path))
-            else:
-                logging.error(f"  {src_CONTCAR_path} does not exist.")
-                raise FileNotFoundError(f"  {src_CONTCAR_path} does not exist.")
             if src_OUTCAR_path.exists():
                 shutil.copy(str(src_OUTCAR_path), str(new_OUTCAR_path))
-            else:
-                logging.error(f"  {src_OUTCAR_path} does not exist.")
-                raise FileNotFoundError(f"  {src_OUTCAR_path} does not exist.")
-            print(
-                f"New CONTCAR and OUTCAR of {sort_value}_{number} are renamed and saved"
-            )
             logging.info(
                 f"New CONTCAR and OUTCAR of {sort_value}_{number} are renamed and saved"
             )
@@ -233,20 +219,27 @@ class ReadMlpDensity:
         """
         if specific_directory:
             self.phonopy_dir = Path(specific_directory).resolve()
-            self.primitive_cell_dir = self.phonopy_dir.parent / "primitive_cell"
+            if not self.phonopy_dir.exists():
+                raise FileNotFoundError(
+                    f"The specified directory {self.phonopy_dir} does not exist."
+                )
         else:
             if self.sort_value_dir is None:
                 raise ValueError(
                     "Please run read_property_and_sort method first to set the sort_value_dir."
                 )
             self.phonopy_dir = self.sort_value_dir
-
+            
+        self.primitive_cell_dir = self.phonopy_dir.parent / "primitive_cell"
         if self.primitive_cell_dir.exists():
             backup_dir = self.folder_dir / "backup" / "primitive_cell"
             backup_dir.mkdir(parents=True, exist_ok=True)
             for item in self.primitive_cell_dir.iterdir():
-                shutil.move(str(self.primitive_cell_dir / item), str(backup_dir / item))
-        self.primitive_cell_dir.mkdir(exist_ok=True)
+                # 备份旧文件，item 为文件完整路径
+                shutil.move(str(item), str(backup_dir / item.name))
+        else:
+            self.primitive_cell_dir.mkdir(parents=True, exist_ok=True)
+
         CONTCAR_files = [
             f for f in self.phonopy_dir.iterdir() if f.name.startswith("CONTCAR_")
         ]
@@ -277,21 +270,29 @@ class ReadMlpDensity:
                     log.write(
                         f"Finished processing file: {new_CONTCAR_file.name} with return code: {result.returncode}\n"
                     )
-                except subprocess.CalledProcessError as e:
+                except (subprocess.CalledProcessError, FileNotFoundError) as e:
                     log.write(
-                        f"Error processing file: {new_CONTCAR_file.name}. Error message: {e}\n"
+                        f"Phonopy processing failed for file: {new_CONTCAR_file.name} with return code: {e.returncode}. Check phonopy.log for details.\n"
                     )
                     logging.error(
-                        f"Error processing file: {new_CONTCAR_file.name}. Check phonopy.log for details."
+                        f"Phonopy processing failed for file: {new_CONTCAR_file.name} with return code: {e.returncode}. Check phonopy.log for details.\n"
                     )
                     continue
+                except Exception as e:
+                    log.write(
+                        f"Processing file: {new_CONTCAR_file.name} with unexpected error: {e}\n"
+                    )
+                    logging.error(
+                        f"Processing file: {new_CONTCAR_file.name} with unexpected error: {e}\n"
+                    )
+                    continue 
 
             # 将phonopy生成的PPOSCAR（对称化原胞）放到对应的文件夹中，并将文件名改回CONTCAR_index
             pposcar = self.phonopy_dir / "PPOSCAR"
             if pposcar.exists():
                 shutil.move(str(pposcar), str(self.primitive_cell_dir / new_CONTCAR_file.name))
             else:
-                logging.warning(f"PPOSCAR not generated for {new_CONTCAR_file.name}.")
+                logging.error(f"PPOSCAR not generated for {new_CONTCAR_file.name}.")
             # 复制对应的OUTCAR文件到primitive_cell目录下
             sort_value_and_number = new_CONTCAR_file.name.split("CONTCAR_")[1]
             new_OUTCAR_filename = f"OUTCAR_{sort_value_and_number}"
@@ -301,26 +302,27 @@ class ReadMlpDensity:
                     str(self.primitive_cell_dir / new_OUTCAR_filename),
                 )
             else:
-                logging.warning(
+                logging.error(
                     f"{new_OUTCAR_filename} not found for {new_CONTCAR_file.name}."
                 )
-            # 复制csv文件到primitive_cell目录下
-            if (self.phonopy_dir / "mlp_density_energy.csv").exists():
-                shutil.copy(
-                    str(self.phonopy_dir / "mlp_density_energy.csv"),
-                    str(self.primitive_cell_dir / "mlp_density_energy.csv"),
-                )
-            else:
-                logging.warning(
-                    f"mlp_density_energy.csv not found in {self.phonopy_dir}."
-                )
-            # 删除临时文件
-            (self.phonopy_dir / "POSCAR").unlink(missing_ok=True)
-            (self.phonopy_dir / "BPOSCAR").unlink(missing_ok=True)
-            for_vasp_opt_dir = self.base_dir / "3_for_vasp_opt"
-            if for_vasp_opt_dir.exists():
-                shutil.rmtree(for_vasp_opt_dir)
-            shutil.copytree(self.primitive_cell_dir, for_vasp_opt_dir)
-            logging.info(
-                "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder.\nThe output content of phonopy has been saved to the phonopy.log file in the same directory."
+
+        # 复制csv文件到primitive_cell目录下
+        if (self.phonopy_dir / "mlp_density_energy.csv").exists():
+            shutil.copy(
+                str(self.phonopy_dir / "mlp_density_energy.csv"),
+                str(self.primitive_cell_dir / "mlp_density_energy.csv"),
             )
+        else:
+            logging.error(
+                f"mlp_density_energy.csv not found in {self.phonopy_dir}."
+            )
+        # 删除临时文件
+        (self.phonopy_dir / "POSCAR").unlink(missing_ok=True)
+        (self.phonopy_dir / "BPOSCAR").unlink(missing_ok=True)
+        for_vasp_opt_dir = self.base_dir / "3_for_vasp_opt"
+        if for_vasp_opt_dir.exists():
+            shutil.rmtree(for_vasp_opt_dir)
+        shutil.copytree(self.primitive_cell_dir, for_vasp_opt_dir)
+        logging.info(
+            "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder.\nThe output content of phonopy has been saved to the phonopy.log file in the same directory."
+        )

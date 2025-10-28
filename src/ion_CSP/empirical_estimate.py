@@ -72,7 +72,13 @@ class EmpiricalEstimation:
             sort_by: A string indicating the sorting criterion, either 'density' or 'nitrogen'.
         """
         self.base_dir = work_dir.resolve()
-        self.gaussian_result_dir = self.base_dir / optimized_dir
+        self.gaussian_dir = self.base_dir / optimized_dir
+        self.gaussian_result_dir = self.gaussian_dir / "Optimized"
+        # 自动创建所有必要目录
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.gaussian_dir.mkdir(parents=True, exist_ok=True)
+        self.gaussian_result_dir.mkdir(parents=True, exist_ok=True)
+        (self.gaussian_dir / "Bad").mkdir(exist_ok=True)
         # 确保所取的文件夹数与配比数是对应的
         if len(folders) != len(ratios):
             raise ValueError("The number of folders must match the number of ratios.")
@@ -83,9 +89,9 @@ class EmpiricalEstimation:
             raise ValueError(
                 f"The sort_by parameter must be either 'density' 'nitrogen' or 'NC_ratio', but got '{sort_by}'"
             )
-        self.density_csv = "sorted_density.csv"
-        self.nitrogen_csv = "sorted_nitrogen.csv"
-        self.NC_ratio_csv = "specific_NC_ratio.csv"
+        self.density_csv = self.gaussian_dir / "sorted_density.csv"
+        self.nitrogen_csv = self.gaussian_dir / "sorted_nitrogen.csv"
+        self.NC_ratio_csv = self.gaussian_dir / "specific_NC_ratio.csv"
         # 检查Multiwfn可执行文件是否存在
         self.multiwfn_path = self._check_multiwfn_executable()
 
@@ -102,13 +108,11 @@ class EmpiricalEstimation:
                 "1. Has Multiwfn been installed correctly?\n"
                 "2. Has Multiwfn been added to the system PATH environment variable"
             )
-            print(error_msg)
             logging.error(error_msg)
             raise FileNotFoundError(
                 "No detected Multiwfn executable file (Multiwfn or Multiwfn_GUI)"
             )
         else:
-            print(f"Multiwfn executable found at: {multiwfn_path}")
             logging.info(f"Multiwfn executable found at: {multiwfn_path}")
         return multiwfn_path
 
@@ -123,7 +127,7 @@ class EmpiricalEstimation:
             output_file: The name of the output file to redirect Multiwfn output. If None, output will not be redirected.
         """
         # 创建 input.txt 用于存储 Multiwfn 命令内容
-        input_path = self.gaussian_result_dir / "input.txt"
+        input_path = self.gaussian_dir / "input.txt"
         input_path.write_text(input_content, encoding="utf-8")
         try:
             if output_path:
@@ -163,7 +167,7 @@ class EmpiricalEstimation:
             self._multiwfn_process_fchk_to_json(specific_directory)
         else:
             for folder in self.folders:
-                (self.gaussian_result_dir / "Optimized" / folder).mkdir(
+                (self.gaussian_result_dir / folder).mkdir(
                     parents=True, exist_ok=True
                 )
                 self._multiwfn_process_fchk_to_json(folder)
@@ -177,7 +181,7 @@ class EmpiricalEstimation:
             folder: The folder containing the .fchk files to be processed.
         """
         # 在每个文件夹中获取 .fchk 文件并根据文件名排序, 再用 Multiwfn 进行静电势分析, 最后将分析结果保存到同名 .json 文件中
-        folder_path = Path(folder)
+        folder_path = self.gaussian_dir / folder
         fchk_files = list(folder_path.glob("*.fchk"))
         if not fchk_files:
             raise FileNotFoundError("No availible Gaussian .fchk file to process")
@@ -187,9 +191,10 @@ class EmpiricalEstimation:
             base_name = fchk_file.stem
             json_file = folder_path / f"{base_name}.json"
             optimized_json_path = (
-                self.gaussian_result_dir / "Optimized" / folder / f"{base_name}.json"
+                self.gaussian_result_dir / folder / f"{base_name}.json"
             )
             if json_file.exists():
+                optimized_json_path.parent.mkdir(parents=True, exist_ok=True)
                 if optimized_json_path.exists():
                     logging.info(
                         f"{optimized_json_path} already exists, skipping copy to Optimized directory."
@@ -203,7 +208,7 @@ class EmpiricalEstimation:
         # 如果有错误的 .fchk 文件, 则将其移动到 Bad 的对应的文件夹中
         if bad_files:
             logging.error(f"Bad Gaussian results for {bad_files}")
-            bad_dir = self.gaussian_result_dir / "Bad" / folder
+            bad_dir = self.gaussian_dir / "Bad" / folder
             bad_dir.mkdir(parents=True, exist_ok=True)
             # 文件扩展名列表
             for file_stem in bad_files:
@@ -226,14 +231,12 @@ class EmpiricalEstimation:
 
         :return: True if the processing is successful, False if the FCHK file is invalid.
         """
-        print(f"Multiwfn processing {fchk_filename}")
         logging.info(f"Multiwfn processing {fchk_filename}")
-        output_path = self.gaussian_result_dir / "output.txt"
+        output_path = self.gaussian_dir / "output.txt"
         self._multiwfn_cmd_build(
             input_content=f"{fchk_filename}\n12\n0\n-1\n-1\nq\n",
             output_path=output_path,
         )
-        print(f"Finished processing {fchk_filename}")
 
         try:
             output_content = output_path.read_text()
@@ -329,7 +332,6 @@ class EmpiricalEstimation:
             # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度 g/cm³
             molecular_mass = round(float(volume) * float(density) / 1.66054, 5)
         except TypeError as e:
-            print(f"Bad .fchk file: {fchk_filename}: {e}")
             logging.error(f"Bad .fchk file: {fchk_filename}: {e}")
             return False
 
@@ -352,7 +354,7 @@ class EmpiricalEstimation:
         json_path = folder / f"{refcode}.json"
         json_path.write_text(json.dumps(result, indent=4))
         optimized_path = (
-            self.gaussian_result_dir / "Optimized" / folder.name / f"{refcode}.json"
+            self.gaussian_dir / "Optimized" / folder.name / f"{refcode}.json"
         )
         shutil.copyfile(src=json_path, dst=optimized_path)
         logging.info(f"Finished processing {fchk_filename}")
@@ -371,7 +373,7 @@ class EmpiricalEstimation:
             self._gaussian_log_to_optimized_gjf(specific_directory)
         else:
             for folder in self.folders:
-                (self.gaussian_result_dir / "Optimized" / folder).mkdir(
+                (self.gaussian_dir / "Optimized" / folder).mkdir(
                     parents=True, exist_ok=True
                 )
                 self._gaussian_log_to_optimized_gjf(folder)
@@ -385,25 +387,27 @@ class EmpiricalEstimation:
             folder: The folder containing the Gaussian LOG files to be processed.
         """
         # 在每个文件夹中获取 .log 文件并根据文件名排序, 再用Multiwfn载入优化最后一帧转换为 gjf 文件
-        folder_path = Path(folder)
+        folder_path = self.gaussian_dir / folder
         log_files = list(folder_path.glob("*.log"))
         if not log_files:
             raise FileNotFoundError(
                 f"No availible Gaussian .log file to process in {folder}"
             )
         log_files.sort()
+        bad_files = []
         for log_file in log_files:
             base_name = log_file.stem
             gjf_file = folder_path / f"{base_name}.gjf"
             optimized_gjf_path = (
-                self.gaussian_result_dir / "Optimized" / folder / f"{base_name}.gjf"
+                self.gaussian_dir / "Optimized" / folder / f"{base_name}.gjf"
             )
             if optimized_gjf_path.exists():
                 logging.info(
                     f"{gjf_file} already exists, skipping multiwfn log_to_gjf processing."
                 )
                 continue
-            self._single_multiwfn_log_to_gjf(folder, log_file)
+            if not self._single_multiwfn_log_to_gjf(folder, log_file):
+                bad_files.append(base_name)
         logging.info(
             f"\nThe .log to .gjf conversion by Multiwfn for {folder} folder has completed, and the optimized .gjf structures have been stored in the optimized directory.\n"
         )
@@ -416,27 +420,27 @@ class EmpiricalEstimation:
         :params
             folder: The folder containing the Gaussian LOG file to be processed.
             log_filename: The full path of the LOG file to be processed.
+        :return: True if the processing is successful, False if there is an error.
         """
         # 获取目录以及 .fchk 文件的无后缀文件名, 即 refcode
         refcode = log_filename.stem
-
+        logging.info(f"Multiwfn converting {log_filename} to gjf")
         try:
             # Multiwfn首先载入优化任务的out/log文件, 然后输入gi, 再输入要保存的gjf文件名, 此时里面的结构就是优化最后一帧的, 还避免了使用完全图形界面
             self._multiwfn_cmd_build(
-                input_content=f"{log_filename}\ngi\nOptimized/{folder}/{refcode}.gjf\nq\n"
+                input_content=f"{log_filename}\ngi\n{self.gaussian_result_dir}/{folder}/{refcode}.gjf\nq\n"
             )
             gjf_path = (
-                self.gaussian_result_dir / "Optimized" / folder / f"{refcode}.gjf"
+                self.gaussian_dir / "Optimized" / folder / f"{refcode}.gjf"
             )
             if gjf_path.exists():
-                print(f"Finished converting {log_filename} to {gjf_path}")
                 logging.info(f"Finished converting {log_filename} to {gjf_path}")
             else:
-                print(f"Error converting {log_filename} to {gjf_path}")
                 logging.error(f"Error converting {log_filename} to {gjf_path}")
+            return True
         except Exception as e:
-            print(f"Error with processing {log_filename}: {e}")
             logging.error(f"Error with processing {log_filename}: {e}")
+            return False
 
     def _read_gjf_elements(self, gjf_file: Path):
         """
@@ -490,10 +494,9 @@ class EmpiricalEstimation:
         # 获取所有符合后缀名条件的文件
         all_files = []
         for folder in self.folders:
-            folder_path = self.gaussian_result_dir / "Optimized" / folder
+            folder_path = self.gaussian_dir / "Optimized" / folder
             suffix_files = list(folder_path.glob(f"*{suffix}"))
             suffix_files.sort()
-            print(f"Valid {suffix} file number in {folder}: {len(suffix_files)}")
             logging.info(f"Valid {suffix} file number in {folder}: {len(suffix_files)}")
             if not suffix_files:
                 raise FileNotFoundError(
@@ -509,7 +512,6 @@ class EmpiricalEstimation:
             for folder_index, count in enumerate(self.ratios):
                 ratio_combination.update({folder_files[folder_index]: count})
             combinations.append(ratio_combination)
-        print(f"Valid combination number: {len(combinations)}")
         logging.info(f"Valid combination number: {len(combinations)}")
         return combinations
 
@@ -552,7 +554,7 @@ class EmpiricalEstimation:
         data.sort(key=lambda x: float(x[-1]), reverse=True)
 
         # 写入排序后的 .csv 文件
-        with open(self.nitrogen_csv, "w", newline="", encoding="utf-8") as csv_file:
+        with self.nitrogen_csv.open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.writer(csv_file)
             # 动态生成表头
             num_components = len(combinations[0]) if combinations else 0
@@ -605,7 +607,7 @@ class EmpiricalEstimation:
         filtered_data.sort(key=lambda x: (-x[1], -x[2]))
 
         # 写入排序后的 .csv 文件
-        with open(self.NC_ratio_csv, "w", newline="", encoding="utf-8") as csv_file:
+        with self.NC_ratio_csv.open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.writer(csv_file)
             # 动态生成表头
             num_components = len(combinations[0]) if combinations else 0
@@ -711,7 +713,7 @@ class EmpiricalEstimation:
         data.sort(key=lambda x: float(x[-1]), reverse=True)
 
         # 写入排序后的 .csv 文件
-        with open(self.density_csv, "w", newline="", encoding="utf-8") as csv_file:
+        with self.density_csv.open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.writer(csv_file)
             # 动态生成表头
             num_components = len(combinations[0]) if combinations else 0
@@ -741,13 +743,12 @@ class EmpiricalEstimation:
         # 使用 pathlib 构建路径
         source_path = (
             self.gaussian_result_dir
-            / "Optimized"
             / folder_name
             / f"{file_base}{file_type}"
         )
         if not source_path.exists():
             logging.error(f"Source file {source_path} does not exist.")
-            return
+            raise FileNotFoundError(f"Source file {source_path} does not exist.")
         target_path = Path(combo_path) / f"{file_base}{file_type}"
         if target_path.exists():
             logging.info(
@@ -774,8 +775,7 @@ class EmpiricalEstimation:
             "nitrogen": self.nitrogen_csv,
             "NC_ratio": self.NC_ratio_csv,
         }.get(self.sort_by, self.density_csv)
-        csv_path = self.gaussian_result_dir / csv_file
-        if not csv_path.exists():
+        if not csv_file.exists():
             raise FileNotFoundError(
                 f"CSV file {csv_file} does not exist in the Gaussian optimized directory."
             )
@@ -784,7 +784,7 @@ class EmpiricalEstimation:
         )
         target_path.mkdir(parents=True, exist_ok=True)
 
-        with csv_path.open(mode="r", newline="") as file:
+        with csv_file.open(mode="r", newline="") as file:
             reader = csv.DictReader(file)
             # 初始化已处理的文件夹计数
             for index, row in enumerate(reader):
@@ -818,9 +818,9 @@ class EmpiricalEstimation:
                         f"No available config.yaml file in parent directory: {self.base_dir} \n"
                     )
                     logging.info(
-                        f"Trying to load config.yaml file from optimized directory: {self.gaussian_result_dir}"
+                        f"Trying to load config.yaml file from optimized directory: {self.gaussian_dir}"
                     )
-                    config_path = self.gaussian_result_dir / "config.yaml"
+                    config_path = self.gaussian_dir / "config.yaml"
                 if config_path.exists():
                     try:
                         config = yaml.safe_load(config_path.read_text())
@@ -828,10 +828,10 @@ class EmpiricalEstimation:
                         logging.error(f"YAML configuration file parsing failed: {e}")
                 else:
                     logging.error(
-                        f"No available config.yaml file either in parent directory: {self.base_dir} and optimized directory {self.gaussian_result_dir} \n"
+                        f"No available config.yaml file either in parent directory: {self.base_dir} and optimized directory {self.gaussian_dir} \n"
                     )
                     raise FileNotFoundError(
-                        f"No available config.yaml file in either parent directory: {self.base_dir} or optimized directory {self.gaussian_result_dir}"
+                        f"No available config.yaml file in either parent directory: {self.base_dir} or optimized directory {self.gaussian_dir}"
                     )
 
                 try:

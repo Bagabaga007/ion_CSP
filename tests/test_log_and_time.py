@@ -1,8 +1,8 @@
-import os
 import yaml
 import pytest
 import logging
 from unittest.mock import patch
+
 from ion_CSP.log_and_time import (
     log_and_time,
     merge_config,
@@ -113,7 +113,7 @@ def test_status_logger_initialization(tmp_path):
     assert logger.task_name == "TestTask"
     assert logger.current_status == "INITIAL"
     assert logger.run_count == 0
-    assert os.path.exists(tmp_path / "workflow_status.log")
+    assert (tmp_path / "workflow_status.log").exists()
 
     # 检查 YAML 文件是否创建
     yaml_file = tmp_path / "workflow_status.yaml"

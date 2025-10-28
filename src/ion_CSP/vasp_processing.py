@@ -6,7 +6,10 @@ import shutil
 import logging
 from pathlib import Path
 import importlib.resources
+from datetime import datetime
+from ase.atoms import Atoms
 from ase.io import ParseError
+from typing import Optional, Tuple
 from ase.io.vasp import read_vasp, read_vasp_out
 from dpdispatcher import Machine, Resources, Task, Submission
 from ion_CSP.log_and_time import redirect_dpdisp_logging
@@ -25,6 +28,8 @@ class VaspProcessing:
         redirect_dpdisp_logging(work_dir / "dpdispatcher.log")
         self.for_vasp_opt_dir = self.base_dir / "3_for_vasp_opt"
         self.vasp_optimized_dir = self.base_dir / "4_vasp_optimized"
+        self.for_vasp_opt_dir.mkdir(parents=True, exist_ok=True)
+        self.vasp_optimized_dir.mkdir(parents=True, exist_ok=True)
         self.param_dir = importlib.resources.files("ion_CSP.param")
 
     def _machine_resources_prep(self, machine_path: str, resources_path: str):
@@ -312,7 +317,7 @@ class VaspProcessing:
             energy = None
         return density, energy
 
-    def _read_vasp_outcar(self, outcar_path: Path):
+    def _read_vasp_outcar(self, outcar_path: Path) -> Tuple[Optional[Atoms], Optional[float], Optional[float]]:
         """
         Read a single VASP OUTCAR file and extract density and energy information.
         :params
@@ -527,15 +532,17 @@ class VaspProcessing:
                 "final_density": row["Final_Density"] if relaxation else None
             }
 
-        # 一行代码获取每种密度的最大值所对应的编号
+        # 获取每种密度的最大值所对应的编号
         max_mlp_num = max(data_dict, key=lambda k: data_dict[k]['mlp_density'])
         max_fine_num = max(data_dict, key=lambda k: data_dict[k]['fine_density'])
-        max_final_num = max(data_dict, key=lambda k: data_dict[k]['final_density'])
 
         # 通过编号获取对应的最大值
         max_mlp_density = data_dict[max_mlp_num]['mlp_density']
         max_fine_density = data_dict[max_fine_num]['fine_density']
-        max_final_density = data_dict[max_final_num]['final_density']
+
+        if relaxation:
+            max_final_num = max(data_dict, key=lambda k: data_dict[k]['final_density'])
+            max_final_density = data_dict[max_final_num]['final_density']
 
         # 打印结果
         logging.info(
@@ -564,7 +571,6 @@ class VaspProcessing:
         csv_file_path = self.base_dir / "vasp_density_energy.csv"
 
         if not csv_file_path.exists():
-            print(f"CSV file not found in {csv_file_path}")
             logging.info(f"CSV file not found in {csv_file_path}")
             return
 
@@ -586,7 +592,6 @@ class VaspProcessing:
                     target_ions_check_col = header.index("Final_Ions_Check")
                     density_type = "Final"
             except ValueError as e:
-                print(f"Required column not found in CSV file: {e}")
                 logging.error(f"Required column not found in CSV file: {e}")
                 return
 
@@ -595,7 +600,7 @@ class VaspProcessing:
                 reader, start=2
             ):  # row_num从2开始（表头后第一行）
                 if len(row) <= max(target_density_col, target_ions_check_col):
-                    print(f"Warning: Incomplete row {row_num} skipped")
+                    logging.warning(f"Warning: Incomplete row {row_num} skipped")
                     continue  # 跳过不完整的行
 
                 # 检查 Ions_Check 是否为 True
@@ -611,19 +616,16 @@ class VaspProcessing:
                     continue  # 跳过无法转换为数字的值
 
         if best_number is None:
-            print("No valid structure found in CSV file")
             logging.info("No valid structure found in CSV file")
             return
 
         logging_info = f"Maximum {density_type} Density: {max_density} (Structure Number: {best_number})"
-        print(logging_info)
         logging.info(logging_info)
 
         target_contcar = None
         # 根据结构序号构建要查找的文件夹路径
         for folder in self.vasp_optimized_dir.iterdir():
             if folder.is_dir() and folder.name.endswith(f"_{best_number}"):
-                print(f"Found matching folder: {folder}")
                 logging.info(f"Found matching folder: {folder}")
 
                 # 根据 relaxation 参数决定复制哪个 CONTCAR 文件
@@ -636,19 +638,15 @@ class VaspProcessing:
                     # 复制前备份现有的 POSCAR 文件（如果存在）
                     poscar_path = self.base_dir / "POSCAR"
                     if poscar_path.exists():
-                        backup_path = self.base_dir / "POSCAR.bak"
+                        backup_path = self.base_dir / f"POSCAR.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                         shutil.move(poscar_path, backup_path)
-                        print(f"Existing POSCAR backed up to {backup_path}")
                         logging.info(f"Existing POSCAR backed up to {backup_path}")
                     # 复制并重命名 CONTCAR 为 POSCAR
                     shutil.copy(target_contcar, poscar_path)
-                    print(f"Copied CONTCAR from target {target_contcar} to {poscar_path}")
                     logging.info(f"Copied CONTCAR from target {target_contcar} to {poscar_path}")
                 else:
-                    print(f"Eligible CONTCAR not found at expected location: {target_contcar}")
                     logging.info(f"Eligible CONTCAR not found at expected location: {target_contcar}")
                 break
 
         if target_contcar is None:
-            print(f"No folder found for structure number {best_number}")
             logging.info(f"No folder found for structure number {best_number}")

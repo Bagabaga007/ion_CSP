@@ -1,6 +1,8 @@
 import os
 import csv
 import time
+import signal
+import psutil
 import shutil
 import logging
 import subprocess
@@ -14,6 +16,7 @@ from ion_CSP.log_and_time import redirect_dpdisp_logging
 
 
 class CrystalGenerator:
+
     def __init__(self, work_dir: str, ion_numbers: List[int], species: List[str]):
         """
         Initialize the class based on the provided ionic crystal composition structure files and corresponding composition numbers.
@@ -53,6 +56,7 @@ class CrystalGenerator:
         self.POSCAR_dir = os.path.join(self.base_dir, "1_generated", "POSCAR_Files")
         self.primitive_cell_dir = os.path.join(self.base_dir, "1_generated", "primitive_cell")
 
+
     def _sequentially_read_files(self, directory: str, prefix_name: str):
         """
         Private method:
@@ -72,6 +76,7 @@ class CrystalGenerator:
                 file_index_pairs.append((index, filename))
         file_index_pairs.sort(key=lambda pair: pair[0])
         return file_index_pairs
+
 
     def generate_structures(
         self, num_per_group: int = 100, space_groups_limit: int = 230
@@ -142,6 +147,7 @@ class CrystalGenerator:
             f"Using pyxtal.from_random, {total_count} ion crystal structures were randomly generated based on crystal space groups."
         )
 
+
     def _single_phonopy_processing(self, filename):
         """
         Private method: 
@@ -194,6 +200,7 @@ class CrystalGenerator:
             # 删除原子数不匹配的POSCAR
             os.remove(f"{self.primitive_cell_dir}/{filename}")
 
+
     def _find_space_group(self, poscar_index: int) -> int:
         """
         Private method:
@@ -211,6 +218,7 @@ class CrystalGenerator:
             cumulative += count
         raise ValueError(f"POSCAR {poscar_index} not found in any space group")
     
+
     def phonopy_processing(self):
         """
         Use phonopy to check and generate symmetric primitive cells, reducing the complexity of subsequent optimization calculations, and preventing pyxtal.from_random from generating double proportioned supercells.
