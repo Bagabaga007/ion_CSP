@@ -72,6 +72,7 @@ def identify_molecules(atoms, base_dir: Path = Path('./')) -> Tuple[List[Dict[st
     # 返回合并后的分子及其数量, molecules_flag 标志表示离子数与初始的比对结果
     return merged_molecules, molecules_flag, initial_information
 
+
 def format_molecule_output(molecule_dict):
     """
     统一格式化分子输出，按照固定顺序排列元素
@@ -139,3 +140,4 @@ def molecules_information(
         logging.info("Molecular Comparison Successful\n")
     else:
         logging.warning("Molecular Comparison Failed\n")
+        

@@ -2,6 +2,12 @@
 
 ## Latest Changes
 
+### 57fbdb5 (2025-10-28)
+
+Refactor tests and add new test cases for MLP density reading and VASP processing
+
+## V2.2.5
+
 ### 63c92f7 (2025-10-13)
 
 Update version number to 2.2.5, refactoring the molecular output formatting function, unifying the element output order, and optimizing log recording;  Update VASP processing class to improve energy and density reading logic, and fix exception handling.

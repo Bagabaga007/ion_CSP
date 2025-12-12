@@ -5,6 +5,7 @@ from ase import Atoms
 
 from ion_CSP.identify_molecules import (
     identify_molecules,
+    format_molecule_output,
     molecules_information,
 )
 
@@ -32,7 +33,8 @@ def setup_test_environment(tmp_path):
     return tmp_path
 
 
-def test_single_water_molecule(setup_test_environment):
+# ==================== 测试 identify_molecules 函数正确识别 ====================
+def test_identify_molecules_single_water_molecule(setup_test_environment):
     """测试单个水分子"""
     # 创建初始GJF文件
     water = Atoms("OH2", positions=[[0, 0, 0], [1, 0, 0], [0, 1, 0]])
@@ -50,7 +52,7 @@ def test_single_water_molecule(setup_test_environment):
     assert initial_info == [{"O": 1, "H": 2}]
 
 
-def test_two_isolated_water_molecules(setup_test_environment):
+def test_identify_molecules_two_isolated_water_molecules(setup_test_environment):
     """测试两个独立的水分子"""
     # 创建两个初始GJF文件
     water1 = Atoms("OH2", positions=[[0, 0, 0], [1, 0, 0], [0, 1, 0]])
@@ -72,7 +74,7 @@ def test_two_isolated_water_molecules(setup_test_environment):
     assert molecules_flag is True
 
 
-def test_water_and_methane_molecules(setup_test_environment):
+def test_identify_molecules_water_and_methane_molecules(setup_test_environment):
     """测试水分子和甲烷分子"""
     # 创建初始GJF文件
     water = Atoms("OH2", positions=[[0, 0, 0], [1, 0, 0], [0, 1, 0]])
@@ -103,7 +105,8 @@ def test_water_and_methane_molecules(setup_test_environment):
     )
 
 
-def test_mismatched_molecules(setup_test_environment):
+# ==================== 测试 identify_molecules 函数异常处理 ====================
+def test_identify_molecules_mismatched_molecules(setup_test_environment):
     """测试分子不匹配的情况"""
     # 只创建一个初始GJF文件
     water = Atoms("OH2", positions=[[0, 0, 0], [1, 0, 0], [0, 1, 0]])
@@ -126,7 +129,7 @@ def test_mismatched_molecules(setup_test_environment):
     assert initial_info == [{"O": 1, "H": 2}]
 
 
-def test_no_gjf_files(setup_test_environment):
+def test_identify_molecules_no_gjf_files(setup_test_environment):
     """测试没有GJF文件的情况"""
     water = Atoms("OH2", positions=[[0, 0, 0], [1, 0, 0], [0, 1, 0]])
 
@@ -142,6 +145,22 @@ def test_no_gjf_files(setup_test_environment):
     assert initial_info == []
 
 
+def test_identify_molecules_empty_atoms(tmp_path):
+    atoms = Atoms()
+    merged_molecules, molecules_flag, initial_info = identify_molecules(atoms, tmp_path)
+    assert len(merged_molecules) == 0
+
+
+# ==================== 测试 format_molecule_output 函数 ====================
+def test_format_molecule_output_with_other_elements():
+    """测试当分子包含非标准元素时，按字母顺序排序并正确格式化"""
+    molecule_dict = {"C": 2, "H": 6, "O": 1, "S": 1, "Cl": 2}
+    formatted_output, total_atoms = format_molecule_output(molecule_dict)
+    assert formatted_output == "C2O1H6Cl2S1"
+    assert total_atoms == 12
+
+
+# ==================== 测试 molecules_information 函数 ====================
 def test_molecules_information_logging(caplog):
     """测试分子信息日志输出"""
     # 准备测试数据

@@ -1,23 +1,26 @@
 import os
+import sys
 import csv
 import time
+import uuid
 import signal
-import psutil
 import shutil
+import psutil
 import logging
 import subprocess
-import importlib.resources
 from typing import List
 from ase.io import read
-from dpdispatcher import Machine, Resources
+from pathlib import Path
 from pyxtal import pyxtal
+import importlib.resources
 from pyxtal.msg import Comp_CompatibilityError, Symm_CompatibilityError
-from ion_CSP.log_and_time import redirect_dpdisp_logging
+
+from ion_CSP.log_and_time import redirect_dpdisp_logging, machine_resources_prep
 
 
 class CrystalGenerator:
 
-    def __init__(self, work_dir: str, ion_numbers: List[int], species: List[str]):
+    def __init__(self, work_dir: Path, ion_numbers: List[int], species: List[str]):
         """
         Initialize the class based on the provided ionic crystal composition structure files and corresponding composition numbers.
 
@@ -26,19 +29,26 @@ class CrystalGenerator:
             ion_numbers: A list of integers representing the number of each ion in the ionic crystal.
             species: A list of strings representing the species of ions in the ionic crystal.
         """
-        redirect_dpdisp_logging(os.path.join(work_dir, "dpdispatcher.log"))
+        self.base_dir = work_dir.resolve()
+        # 设置dpdispatcher日志文件存放路径
+        dpdisp_log_path = self.base_dir / "dpdispatcher.log"
+        redirect_dpdisp_logging(dpdisp_log_path)
+        # 获取mlp_opt.py和model.pt文件的路径
         self.mlp_opt_file = importlib.resources.files("ion_CSP").joinpath("mlp_opt.py")
-        self.model_file = importlib.resources.files("ion_CSP.model").joinpath("model.pt")
-        # 获取当前脚本的路径以及同路径下离子晶体组分的结构文件, 并将这一路径作为工作路径来避免可能的错误
-        self.base_dir = work_dir
-        os.chdir(self.base_dir)
+        self.model_file = importlib.resources.files("ion_CSP.model").joinpath(
+            "model.pt"
+        )
+        # 记录离子晶体的组成信息
         self.ion_numbers = ion_numbers
         self.species = species
-        self.species_paths = []
+        self.species_paths: List[Path] = []
         ion_atomss, species_atoms = [], []
+        logging.info(
+            f"The components of ions {self.species} in the ionic crystal are {self.ion_numbers}"
+        )
         # 读取离子晶体各组分的原子数，并在日志文件中记录
         for ion, number in zip(self.species, self.ion_numbers):
-            species_path = os.path.join(self.base_dir, ion)
+            species_path = self.base_dir / ion
             self.species_paths.append(species_path)
             species_atom = len(read(species_path))
             species_atoms.append(species_atom)
@@ -46,35 +56,34 @@ class CrystalGenerator:
             ion_atomss.append(ion_atoms)
         self.cell_atoms = sum(ion_atomss)
         logging.info(
-            f"The components of ions {self.species} in the ionic crystal are {self.ion_numbers}"
-        )
-        logging.info(
             f"The number of atoms for each ion is: {species_atoms}, and the total number of atoms is {self.cell_atoms}"
         )
-        self.generation_dir = os.path.join(self.base_dir, "1_generated")
-        os.makedirs(self.generation_dir, exist_ok=True)
-        self.POSCAR_dir = os.path.join(self.base_dir, "1_generated", "POSCAR_Files")
-        self.primitive_cell_dir = os.path.join(self.base_dir, "1_generated", "primitive_cell")
+        # 创建用于存放生成结构文件的目录
+        self.generation_dir = self.base_dir / "1_generated"
+        self.POSCAR_dir = self.base_dir / "1_generated/POSCAR_Files"
+        self.primitive_cell_dir = self.base_dir / "1_generated/primitive_cell"
+        self.generation_dir.mkdir(exist_ok=True)
 
 
-    def _sequentially_read_files(self, directory: str, prefix_name: str):
+    def _sequentially_read_files(self, directory: Path, prefix_name: str = "POSCAR_"):
         """
         Private method:
         Extract numbers from file names, convert them to integers, sort them by sequence, and return a list containing both indexes and file names
-
-        :params
-            directory: The directory where the files are located.
-            prefix_name: The prefix of the file names to be processed, e.g., 'POSCAR_'.
         """
         # 获取dir文件夹中所有以prefix_name开头的文件，在此实例中为POSCAR_
-        files = [f for f in os.listdir(directory) if f.startswith(prefix_name)]
+        files = [f for f in directory.iterdir() if f.name.startswith(prefix_name)]
         file_index_pairs = []
-        for filename in files:
-            index_part = filename[len(prefix_name) :]  # 选取去除前缀'POSCAR_'的数字
+        for file in files:
+            index_part = file.name[len(prefix_name) :]  # 选取去除前缀'POSCAR_'的数字
             if index_part.isdigit():  # 确保剩余部分全是数字
                 index = int(index_part)
-                file_index_pairs.append((index, filename))
+                file_index_pairs.append((index, file.name))
         file_index_pairs.sort(key=lambda pair: pair[0])
+        if not file_index_pairs:
+            logging.error(f"No files found with prefix '{prefix_name}' in {directory}")
+            raise FileNotFoundError(
+                f"No files found with prefix '{prefix_name}' in {directory}"
+            )
         return file_index_pairs
 
 
@@ -87,17 +96,15 @@ class CrystalGenerator:
             num_per_group: The number of POSCAR files to be generated for each space group, default is 100.
             space_groups_limit: The maximum number of space groups to be searched, default is 230, which is the total number of space groups.
         """
-        # 如果目录不存在，则创建POSCAR_Files文件夹
-        os.makedirs(self.POSCAR_dir, exist_ok=True)
-        total_count = 0  # 用于给生成的POSCAR文件计数
-        assert 1 <= space_groups_limit <= 230, "Space group number out of range!"
-        if space_groups_limit:  
-            # 限制空间群搜索范围，以节约测试时间
-            space_groups = space_groups_limit
-        else:  
-            # 否则搜索所有的230个空间群
-            space_groups = 230
+        # 限制空间群搜索范围以节约测试时间，否则搜索所有的230个空间群
+        assert 1 <= space_groups_limit <= 230 and isinstance(space_groups_limit, int), (
+            "Space group number should be an integer between 1 and 230."
+        )
+        space_groups = space_groups_limit if space_groups_limit else 230
+
+        self.POSCAR_dir.mkdir(exist_ok=True)
         group_counts, group_exceptions = [], []
+        total_count = 0  # 用于给生成的POSCAR文件计数
         for space_group in range(1, space_groups + 1):
             logging.info(f"Space group: {space_group}")
             group_count, exception_message = 0, "None"
@@ -110,28 +117,32 @@ class CrystalGenerator:
                     pyxtal_structure.from_random(
                         dim=3,
                         group=space_group,
-                        species=self.species_paths,
+                        species=[str(p) for p in self.species_paths],
                         numIons=self.ion_numbers,
                         conventional=False,
                     )
                     # 生成POSCAR_n文件
-                    POSCAR_path = os.path.join(
-                        self.POSCAR_dir, f"POSCAR_{total_count}"
-                    )
+                    POSCAR_path = self.POSCAR_dir / f"POSCAR_{total_count}"
                     pyxtal_structure.to_file(POSCAR_path, fmt="poscar")
                     total_count += 1
                     group_count += 1
                 # 捕获对于某一空间群生成结构的运行时间过长、组成兼容性错误、对称性兼容性错误等异常，使结构生成能够完全进行而不中断
-                except (RuntimeError, Comp_CompatibilityError, Symm_CompatibilityError) as e:
+                except (
+                    RuntimeError,
+                    Comp_CompatibilityError,
+                    Symm_CompatibilityError,
+                ) as e:
                     # 记录异常类型并跳出当前空间群的生成循环
                     exception_message = type(e).__name__
                     break
             group_counts.append(group_count)
             group_exceptions.append(exception_message)
             logging.info(f" {group_count} POSCAR generated.")
-        generation_csv_file = os.path.join(self.generation_dir, 'generation.csv')
         # 写入排序后的 .csv 文件
-        with open(generation_csv_file, "w", newline="", encoding="utf-8") as csv_file:
+        self.generation_csv_file = self.generation_dir / "generation.csv"
+        with self.generation_csv_file.open(
+            "w", newline="", encoding="utf-8"
+        ) as csv_file:
             writer = csv.writer(csv_file)
             # 动态生成表头
             header = ["Space_group", "POSCAR_num", "Bad_num", "Exception"]
@@ -146,59 +157,6 @@ class CrystalGenerator:
         logging.info(
             f"Using pyxtal.from_random, {total_count} ion crystal structures were randomly generated based on crystal space groups."
         )
-
-
-    def _single_phonopy_processing(self, filename):
-        """
-        Private method: 
-        Process a single POSCAR file using phonopy to generate symmetric primitive cells and conventional cells.
-
-        :params
-            filename: The name of the POSCAR file to be processed.
-        """
-        # 按顺序处理POSCAR文件，首先复制一份无数字后缀的POSCAR文件
-        shutil.copy(f"{self.POSCAR_dir}/{filename}", f"{self.POSCAR_dir}/POSCAR")
-        try:
-            subprocess.run(
-                ["nohup", "phonopy", "--symmetry", "POSCAR"],
-                check=True,
-                stdout=subprocess.DEVNULL
-            )
-        except subprocess.CalledProcessError as e:
-            # 新增：捕获phonopy执行错误
-            logging.error(f"Phonopy execution failed for {filename}: {str(e)}")
-            raise
-
-        # 将phonopy生成的PPOSCAR（对称化原胞）和BPOSCAR（对称化常规胞）放到对应的文件夹中，并将文件名改回POSCAR_index
-        shutil.move(
-            f"{self.POSCAR_dir}/PPOSCAR", f"{self.primitive_cell_dir}/{filename}"
-        )
-        cell_atoms = len(read(f"{self.primitive_cell_dir}/{filename}"))
-        
-        # 检查生成的POSCAR中的原子数，如果不匹配则删除该POSCAR并在日志中记录
-        if cell_atoms != self.cell_atoms:
-            # 新增：回溯空间群归属
-            poscar_index = int(filename.split('_')[1])  # 提取POSCAR编号
-            space_group = self._find_space_group(poscar_index)
-            
-            # 更新CSV文件
-            csv_path = os.path.join(self.generation_dir, 'generation.csv')
-            with open(csv_path, 'r') as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-            
-            # 更新对应空间群的Bad_num和Exception
-            for row in rows[1:]:  # 跳过表头
-                if int(row[0]) == space_group:
-                    row[2] = str(int(row[2]) + 1)
-                    row[3] = "AtomNumberError"
-                    break
-            # 将更新的信息写入 .csv 文件
-            with open(csv_path, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerows(rows)
-            # 删除原子数不匹配的POSCAR
-            os.remove(f"{self.primitive_cell_dir}/{filename}")
 
 
     def _find_space_group(self, poscar_index: int) -> int:
@@ -217,38 +175,86 @@ class CrystalGenerator:
                 return idx
             cumulative += count
         raise ValueError(f"POSCAR {poscar_index} not found in any space group")
-    
+
+
+    def _single_phonopy_processing(self, filename: str):
+        """
+        Private method:
+        Process a single POSCAR file using phonopy to generate symmetric primitive cells and conventional cells.
+
+        :params
+            filename: The name of the POSCAR file to be processed.
+        """
+        try:
+            # 按顺序将生成的 POSCAR_n 文件复制为无数字后缀的 POSCAR 文件以供 phonopy 使用
+            src_path = self.POSCAR_dir / filename
+            poscar_temp = self.POSCAR_dir / "POSCAR"
+            shutil.copyfile(str(src_path), str(poscar_temp))
+            subprocess.run(
+                ["phonopy", "--symmetry", str(poscar_temp)],
+                cwd=str(self.POSCAR_dir),
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+            )
+            # 读取生成的 PPOSCAR，并将文件名改回 POSCAR_index
+            pposcar_path = self.POSCAR_dir / "PPOSCAR"
+            dst_path = self.primitive_cell_dir / filename
+            shutil.move(str(pposcar_path), str(dst_path))
+
+            # 检查生成的 POSCAR 中的原子数，如果不匹配则删除该 POSCAR 并在日志中记录
+            cell_atoms = len(read(dst_path))
+            if cell_atoms != self.cell_atoms:
+                # 回溯空间群归属
+                poscar_index = int(filename.split("_")[1])  # 提取POSCAR编号
+                space_group = self._find_space_group(poscar_index)
+                # 更新 .csv 文件
+                with self.generation_csv_file.open("r", encoding="utf-8") as f:
+                    reader = csv.reader(f)
+                    rows = list(reader)
+                # 更新对应空间群的 Bad_num 和 Exception
+                for row in rows[1:]:  # 跳过表头
+                    if int(row[0]) == space_group:
+                        row[2] = str(int(row[2]) + 1)
+                        row[3] = "AtomNumberError"
+                        break
+                # 将更新的信息写入 .csv 文件
+                with self.generation_csv_file.open(
+                    "w", newline="", encoding="utf-8"
+                ) as f:
+                    writer = csv.writer(f)
+                    writer.writerows(rows)
+                # 删除原子数不匹配的POSCAR
+                dst_path.unlink()
+                logging.warning(f"Deleted {filename} due to atom number mismatch")
+
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            # 新增：捕获phonopy执行错误
+            logging.error(f"Phonopy execution failed for {filename}: {str(e)}")
+            raise
+
 
     def phonopy_processing(self):
         """
         Use phonopy to check and generate symmetric primitive cells, reducing the complexity of subsequent optimization calculations, and preventing pyxtal.from_random from generating double proportioned supercells.
         """
-        os.makedirs(self.primitive_cell_dir, exist_ok=True)
+        self.primitive_cell_dir.mkdir(exist_ok=True)
         logging.info("The necessary files are fully prepared.")
         POSCAR_file_index_pairs = self._sequentially_read_files(
             self.POSCAR_dir, prefix_name="POSCAR_"
         )
-        # 改变工作目录为POSCAR_Files，便于运行shell命令进行phonopy对称性检查和原胞与常规胞的生成
-        os.chdir(self.POSCAR_dir)
-        try:
-            logging.info("Start running phonopy processing ...")
-            for _, filename in POSCAR_file_index_pairs:
-                self._single_phonopy_processing(filename=filename)
-            # 在 phonopy 成功进行对称化处理后，删除 1_generated/POSCAR_Files 文件夹以节省空间
-            logging.info(
-                "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder."
-            )
-            shutil.rmtree(self.POSCAR_dir)
-        except FileNotFoundError:
-            logging.error(
-                "There are no POSCAR structure files after generating.\nPlease check the error during generation"
-            )
-            raise FileNotFoundError(
-                "There are no POSCAR structure files after generating.\nPlease check the error during generation"
-            )
-        
+        # 开始对每个 POSCAR 文件进行 phonopy 处理
+        logging.info("Start running phonopy processing ...")
+        for _, filename in POSCAR_file_index_pairs:
+            self._single_phonopy_processing(filename=filename)
+        # 在 phonopy 成功进行对称化处理后，删除 1_generated/POSCAR_Files 文件夹以节省空间
+        logging.info(
+            "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder."
+        )
+        shutil.rmtree(self.POSCAR_dir)
 
-    def dpdisp_mlp_tasks(self, machine: str, resources: str, nodes: int = 1):
+
+    def dpdisp_mlp_tasks(self, machine_path: str, resources_path: str, nodes: int = 1):
         """
         Based on the dpdispatcher module, prepare and submit files for optimization on remote server or local machine.
 
@@ -257,47 +263,31 @@ class CrystalGenerator:
             resources: The resources configuration file for dpdispatcher, can be in JSON or YAML format.
             nodes: The number of nodes to be used for optimization, default is 1.
         """
-        # 调整工作目录，减少错误发生
-        os.chdir(self.primitive_cell_dir)
-        # 准备dpdispatcher运行所需的文件，将其复制到primitive_cell文件夹中
-        self.required_files = [self.mlp_opt_file, self.model_file]
-        for file in self.required_files:
-            shutil.copy(file, self.primitive_cell_dir)
+        # 生成唯一任务ID（防止多用户冲突）
+        self._job_id = str(uuid.uuid4())  # 例如：a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8
+
         # 读取machine和resources的参数
-        if machine.endswith(".json"):
-            machine = Machine.load_from_json(machine)
-        elif machine.endswith(".yaml"):
-            machine = Machine.load_from_yaml(machine)
-        else:
-            raise KeyError("Not supported machine file type")
-        if resources.endswith(".json"):
-            resources = Resources.load_from_json(resources)
-        elif resources.endswith(".yaml"):
-            resources = Resources.load_from_yaml(resources)
-        else:
-            raise KeyError("Not supported resources file type")
-        # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
-        machine_inform = machine.serialize()
-        resources_inform = resources.serialize()
-        if machine_inform["context_type"] == "SSHContext":
-            # 如果调用远程服务器，则创建二级目录
-            parent = "data/"
-        elif machine_inform["context_type"] == "LocalContext":
-            # 如果在本地运行作业，则只在后续创建一级目录
-            parent = ""
-            if (
-                machine_inform["batch_type"] == "Shell"
-                and resources_inform["gpu_per_node"] != 0
-            ):
-                # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
-                selected_gpu = _wait_for_gpu(memory_percent_threshold=40, wait_time=600)
-                os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
+        machine, resources, parent = machine_resources_prep(
+            machine_path=machine_path, resources_path=resources_path
+        )
+        if (
+            machine.serialize()["batch_type"] == "Shell"
+            and resources.serialize()["gpu_per_node"] != 0
+        ):
+            # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
+            selected_gpu = _wait_for_gpu(memory_percent_threshold=40, wait_time=600)
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
 
         from dpdispatcher import Task, Submission
 
+        # 准备dpdispatcher运行所需的文件，将其复制到primitive_cell文件夹中
+        dpdisp_base = self.primitive_cell_dir
+        self.required_files = [self.mlp_opt_file, self.model_file]
+        for file in self.required_files:
+            shutil.copy(str(file), str(dpdisp_base))
         # 依次读取primitive_cell文件夹中的所有POSCAR文件和对应的序号
         primitive_cell_file_index_pairs = self._sequentially_read_files(
-            self.primitive_cell_dir, prefix_name="POSCAR_"
+            dpdisp_base, prefix_name="POSCAR_"
         )
         total_files = len(primitive_cell_file_index_pairs)
         logging.info(f"The total number of POSCAR files to be optimized: {total_files}")
@@ -307,76 +297,184 @@ class CrystalGenerator:
         for index, _ in primitive_cell_file_index_pairs:
             node_index = index % nodes
             node_jobs[node_index].append(index)
+        # 为每个GPU创建一个Task对象，并将对应的文件添加到forward_files和backward_files
         task_list = []
         for pop in range(nodes):
             remote_task_dir = f"{parent}pop{pop}"
-            command = "python mlp_opt.py"
             forward_files = ["mlp_opt.py", "model.pt"]
             backward_files = ["log", "err"]
+
             # 将mlp_opt.py和model.pt复制一份到task_dir下
-            task_dir = os.path.join(self.primitive_cell_dir, f"{parent}pop{pop}")
-            os.makedirs(task_dir, exist_ok=True)
+            task_dir = dpdisp_base / f"{parent}pop{pop}"
+            task_dir.mkdir(exist_ok=True, parents=True)
             for file in forward_files:
-                shutil.copyfile(
-                    f"{self.primitive_cell_dir}/{file}", f"{task_dir}/{file}"
-                )
+                src_path = dpdisp_base / file
+                dst_path = task_dir / file
+                shutil.copyfile(str(src_path), str(dst_path))
             for job_i in node_jobs[pop]:
                 # 将分配好的POSCAR文件添加到对应的上传文件中
-                forward_files.append(f"POSCAR_{job_i}")
+                poscar_name = f"POSCAR_{job_i}"
+                forward_files.append(poscar_name)
                 # 每个POSCAR文件在优化后都取回对应的CONTCAR和OUTCAR输出文件
                 backward_files.append(f"CONTCAR_{job_i}")
                 backward_files.append(f"OUTCAR_{job_i}")
                 shutil.copyfile(
-                    f"{self.primitive_cell_dir}/POSCAR_{job_i}",
-                    f"{task_dir}/POSCAR_{job_i}",
+                    str(dpdisp_base / poscar_name), str(task_dir / poscar_name)
                 )
                 shutil.copyfile(
-                    f"{self.primitive_cell_dir}/POSCAR_{job_i}",
-                    f"{task_dir}/ori_POSCAR_{job_i}",
+                    str(dpdisp_base / f"POSCAR_{job_i}"),
+                    str(task_dir / f"ori_{poscar_name}"),
                 )
 
             task = Task(
-                command=command,
+                command="python mlp_opt.py",
                 task_work_path=remote_task_dir,
                 forward_files=forward_files,
                 backward_files=backward_files,
             )
             task_list.append(task)
 
-        submission = Submission(
-            work_base=self.primitive_cell_dir,
+        # 创建 submission 实例并保存为实例变量（用于后续终止）
+        self._submission = Submission(
+            work_base=str(dpdisp_base),
             machine=machine,
             resources=resources,
             task_list=task_list,
         )
-        submission.run_submission()
 
-        # 创建用于存放优化后文件的 mlp_optimized 目录
-        optimized_dir = os.path.join(self.base_dir, "2_mlp_optimized")
-        os.makedirs(optimized_dir, exist_ok=True)
-        for pop in range(nodes):
-            # 从传回 primitive_cell 目录下的 pop 文件夹中将结果文件取到 mlp_optimized 目录
-            task_dir = os.path.join(self.primitive_cell_dir, f"{parent}pop{pop}")
-            # 按照给定的 POSCAR 结构文件按顺序读取 CONTCAR 和 OUTCAR 文件并复制
-            task_file_index_pairs = self._sequentially_read_files(
-                task_dir, prefix_name="POSCAR_"
-            )
-            for index, _ in task_file_index_pairs:
-                shutil.copyfile(
-                    f"{task_dir}/CONTCAR_{index}", f"{optimized_dir}/CONTCAR_{index}"
+        # 注册信号处理器
+        signal.signal(signal.SIGINT, self._signal_handler)  # Ctrl+C
+        signal.signal(signal.SIGTERM, self._signal_handler)  # kill
+
+        # 执行提交（阻塞直到任务完成）
+        try:
+            logging.info("Submitting tasks to dpdispatcher...")
+            self._submission.run_submission()
+        except Exception as e:
+            logging.error(f"Submission failed with error: {e}")
+            self._terminate_tasks()
+            raise
+        finally:
+            # 创建用于存放优化后文件的 mlp_optimized 目录
+            optimized_dir = self.base_dir / "2_mlp_optimized"
+            optimized_dir.mkdir(exist_ok=True)
+            for pop in range(nodes):
+                # 从传回 primitive_cell 目录下的 pop 文件夹中将结果文件取到 mlp_optimized 目录
+                task_dir = dpdisp_base / f"{parent}pop{pop}"
+                # 按照给定的 POSCAR 结构文件按顺序读取 CONTCAR 和 OUTCAR 文件并复制
+                task_file_index_pairs = self._sequentially_read_files(
+                    task_dir, prefix_name="POSCAR_"
                 )
-                shutil.copyfile(
-                    f"{task_dir}/OUTCAR_{index}", f"{optimized_dir}/OUTCAR_{index}"
-                )
-            # 在成功完成机器学习势优化后，删除 1_generated/primitive_cell/{parent}/pop{n} 文件夹以节省空间
-            shutil.rmtree(task_dir)
-        if machine_inform["context_type"] == "SSHContext":
-            # 如果调用远程服务器，则删除data级目录
-            shutil.rmtree(os.path.join(self.primitive_cell_dir, parent))
+                for index, _ in task_file_index_pairs:
+                    try:
+                        shutil.copyfile(
+                            str(task_dir / f"CONTCAR_{index}"),
+                            str(optimized_dir / f"CONTCAR_{index}"),
+                        )
+                        shutil.copyfile(
+                            str(task_dir / f"OUTCAR_{index}"),
+                            str(optimized_dir / f"OUTCAR_{index}"),
+                        )
+                    except FileNotFoundError as e:
+                        logging.error(
+                            f"Missing output files for POSCAR_{index} in {task_dir}: {e}"
+                        )
+                        continue
+                # 在成功完成机器学习势优化后，删除 1_generated/primitive_cell/{parent}/pop{n} 文件夹以节省空间
+                shutil.rmtree(task_dir)
+            if machine.serialize()["context_type"] == "SSHContext":
+                # 如果调用远程服务器，则删除data级目录
+                shutil.rmtree(dpdisp_base / parent, ignore_errors=True)
         # 完成后删除不必要的运行文件以节省空间，并记录优化完成的信息
         for file in ["mlp_opt.py", "model.pt"]:
-            os.remove(f"{self.primitive_cell_dir}/{file}")
+            (dpdisp_base / file).unlink(missing_ok=True)
         logging.info("Batch optimization completed!!!")
+        # 清理内部引用
+        self._submission = None
+
+
+    def _signal_handler(self, signum, frame):
+        """
+        独立的信号处理器方法，优雅终止所有任务
+        """
+        logging.info(
+            f"Received signal {signum} (Ctrl+C or kill), stopping all submitted tasks..."
+        )
+        if hasattr(self, "_submission") and self._submission is not None:
+            try:
+                self._terminate_tasks()
+                logging.info("All tasks stopped gracefully.")
+            except Exception as e:
+                logging.error(f"Failed to stop submission: {e}")
+        else:
+            logging.warning("No active submission to stop.")
+        sys.exit(0)
+
+
+    def _terminate_tasks(self):
+        """精准终止当前任务，不误杀他人的任务"""
+        if not hasattr(self, "_job_id") or not self._job_id:
+            return
+        if not hasattr(self, "_submission") or self._submission is None:
+            return
+
+        try:
+            machine_info = self._submission.machine.serialize()
+        except AttributeError:
+            logging.error("Cannot retrieve machine information for termination.")
+            return
+        context_type = machine_info.get("context_type", "LocalContext")
+
+        if context_type == "LocalContext":
+            # 本地：只杀带 DPDISPATCHER_JOB_ID 的进程
+            logging.info(f"Terminating local tasks with JOB_ID={self._job_id}...")
+            for proc in psutil.process_iter(["pid", "name", "environ"]):
+                try:
+                    env = proc.info["environ"]
+                    if env and env.get("DPDISPATCHER_JOB_ID") == self._job_id:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except psutil.TimeoutExpired:
+                            proc.kill()
+                        logging.info(
+                            f"Killing local process {proc.pid} (JOB_ID={self._job_id})"
+                        )
+                except (
+                    psutil.NoSuchProcess,
+                    psutil.AccessDenied,
+                    psutil.ZombieProcess,
+                ):
+                    pass
+
+        elif context_type == "SSHContext":
+            # 远程：只杀带 DPDISPATCHER_JOB_ID 的进程
+            remote_profile = machine_info.get("remote_profile", {})
+            hostname = remote_profile.get("hostname")
+            username = remote_profile.get("username")
+            if not hostname or not username:
+                logging.warning("Cannot terminate remote tasks: missing remote_profile")
+                return
+
+            # 使用 pkill -f 匹配环境变量，而非命令行
+            cmd = f'ssh {username}@{hostname} "pkill -f \\"DPDISPATCHER_JOB_ID={self._job_id}\\""'
+            logging.info(
+                f"Terminating remote tasks on {hostname} with JOB_ID={self._job_id}..."
+            )
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                if result.returncode == 0:
+                    logging.info(
+                        f"Remote termination command executed successfully on {hostname}"
+                    )
+                else:
+                    logging.warning(f"Remote termination failed: {result.stderr}")
+            except Exception as e:
+                logging.error(f"Failed to execute remote termination: {e}")
+        else:
+            logging.warning(
+                f"Unknown context_type: {context_type}, cannot terminate tasks"
+            )
 
 
 def _get_available_gpus(memory_percent_threshold=40):
@@ -433,4 +531,4 @@ def _wait_for_gpu(memory_percent_threshold=40, wait_time=300):
             return selected_gpu
         else:
             logging.info(f"No available GPUs found. Waiting for {wait_time} second ...")
-            time.sleep(wait_time)  # 等待 5 分钟
+            time.sleep(wait_time)  # 等待指定时间后重试

@@ -9,6 +9,7 @@ import argparse
 import functools
 from pathlib import Path
 from dpdispatcher.dlog import dlog
+from dpdispatcher import Machine, Resources
 
 
 def log_and_time(func):
@@ -91,12 +92,14 @@ class StatusLogger:
     _name = "WorkflowLogger"
     _instance = None
 
+
     def __new__(cls, *args, **kwargs):
         """Ensure that only one instance of StatusLogger is created (Singleton Pattern)"""
         if not cls._instance:
             cls._instance = super(StatusLogger, cls).__new__(cls)
             cls._instance.__init__(*args, **kwargs)
         return cls._instance
+
 
     def __init__(self, work_dir: Path, task_name: str):
         """
@@ -135,6 +138,7 @@ class StatusLogger:
         self.initialized = True
         self._init_yaml()
 
+
     def set_running(self):
         """
         Set the current task status to RUNNING and log the event.
@@ -145,21 +149,25 @@ class StatusLogger:
         self.run_count += 1
         self._update_yaml()
 
+
     def set_success(self):
         """Set the current task status to SUCCESS and log the event"""
         self.current_status = "SUCCESS"
         self.logger.info(f"{self.task_name} Status: {self.current_status}\n")
         self._update_yaml()
 
+
     def is_successful(self):
         """Check if the current task status is SUCCESS"""
         return self.current_status == "SUCCESS"
+
 
     def set_failure(self):
         """Set the current task status to FAILURE and log the event"""
         self.current_status = "FAILURE"
         self.logger.error(f"{self.task_name} Status: {self.current_status}\n")
         self._update_yaml()
+
 
     def _signal_handler(self, signum, _):
         """
@@ -181,11 +189,13 @@ class StatusLogger:
         self._set_killed()
         sys.exit(0)
 
+
     def _set_killed(self):
         """Set the current task status to KILLED and log the event"""
         self.current_status = "KILLED"
         self.logger.warning(f"{self.task_name} Status: {self.current_status}\n")
         self._update_yaml()
+
 
     def _init_yaml(self):
         """Initialize the workflow_status.yaml file"""
@@ -209,6 +219,7 @@ class StatusLogger:
         # 写回更新后的内容
         self._write_yaml(status_info=status_info)
 
+
     def _update_yaml(self):
         """Update the workflow_status.yaml file"""
         with open(self.yaml_file, "r") as yaml_file:
@@ -217,6 +228,7 @@ class StatusLogger:
         status_info[self.task_name]["current_status"] = self.current_status
         # 写回更新后的内容
         self._write_yaml(status_info=status_info)
+
 
     def _write_yaml(self, status_info):
         """Write the status_info into the workflow_status.yaml file"""
@@ -233,9 +245,13 @@ def redirect_dpdisp_logging(custom_log_path):
     new_handler = logging.FileHandler(custom_log_path)
     # 复制原始处理器的格式
     for h in dlog.handlers:
-        if isinstance(h, logging.StreamHandler):
+        if type(h) is logging.StreamHandler:
             new_handler.setFormatter(h.formatter)
             break
+    else:
+        # 如果没有找到 StreamHandler，设置默认格式
+        default_formatter = logging.Formatter("%(message)s")
+        new_handler.setFormatter(default_formatter)
     # 添加新处理器
     dlog.addHandler(new_handler)
     dlog.info(f"LOG INIT:dpdispatcher log direct to {custom_log_path}")
@@ -276,17 +292,58 @@ def get_work_dir_and_config():
 
     # 配置文件读取逻辑
     config_path = os.path.join(args.work_dir, "config.yaml")
+    user_config = {}
     try:
         with open(config_path, "r") as file:
-            user_config = yaml.safe_load(file)
+            content = file.read()
+            user_config = yaml.safe_load(content) or {}
     except FileNotFoundError:
-        print(f"Error: config.yaml not found in {args.work_dir}")
+        print(f"Error: config.yaml not found in {args.work_dir}", file=sys.stderr)
         sys.exit(1)
     except yaml.YAMLError as e:
-        print("Error parsing YAML file:")
-        print(f"  Line {e.problem_mark.line + 1}, Column {e.problem_mark.column + 1}")
-        print(f"  Details: {str(e)}")
+        print("Error parsing YAML file:", file=sys.stderr)
+        print(
+            f"  Line {e.problem_mark.line + 1}, Column {e.problem_mark.column + 1}",
+            file=sys.stderr,
+        )
+        print(f"  Details: {str(e)}", file=sys.stderr)
         sys.exit(1)
 
     return args.work_dir, user_config
 
+
+def machine_resources_prep(machine_path: str, resources_path: str):
+    """
+    Prepare machine and resources configuration files for dpdispatcher.
+    :params
+        machine_path: The path to save the machine configuration file, which can be in JSON or YAML format.
+        resources_path: The path to save the resources configuration file, which can be in JSON or YAML format.
+    :return: machine, resources, parent
+    1. machine: The machine configuration object.
+    2. resources: The resources configuration object.
+    3. parent: The parent directory prefix based on the context type (SSHContext or LocalContext).
+    """
+    # 读取machine.json和resources.json的参数
+    if machine_path.endswith(".json"):
+        machine = Machine.load_from_json(machine_path)
+    elif machine_path.endswith(".yaml"):
+        machine = Machine.load_from_yaml(machine_path)
+    else:
+        raise KeyError("Unsupported machine file type")
+    if resources_path.endswith(".json"):
+        resources = Resources.load_from_json(resources_path)
+    elif resources_path.endswith(".yaml"):
+        resources = Resources.load_from_yaml(resources_path)
+    else:
+        raise KeyError("Unsupported resources file type")
+    # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
+    machine_inform = machine.serialize()
+    if machine_inform["context_type"] == "SSHContext":
+        # 如果调用远程服务器，则创建二级目录
+        parent = "data/"
+    elif machine_inform["context_type"] == "LocalContext":
+        # 如果在本地运行作业，则只在后续创建一级目录
+        parent = ""
+    else:
+        raise KeyError("Unsupported context type in machine configuration")
+    return machine, resources, parent

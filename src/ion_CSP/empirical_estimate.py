@@ -1,4 +1,3 @@
-import os
 import re
 import csv
 import json
@@ -54,6 +53,7 @@ x.fchk //指定计算文件
 
 
 class EmpiricalEstimation:
+
     def __init__(
         self,
         work_dir: Path,
@@ -95,6 +95,7 @@ class EmpiricalEstimation:
         # 检查Multiwfn可执行文件是否存在
         self.multiwfn_path = self._check_multiwfn_executable()
 
+
     def _check_multiwfn_executable(self):
         """
         Private method:
@@ -116,7 +117,8 @@ class EmpiricalEstimation:
             logging.info(f"Multiwfn executable found at: {multiwfn_path}")
         return multiwfn_path
 
-    def _multiwfn_cmd_build(self, input_content, output_path : Path = None):
+
+    def _multiwfn_cmd_build(self, input_content, output_path: Path = None):
         """
         Private method:
         Build the Multiwfn command to be executed based on the input content.
@@ -127,6 +129,7 @@ class EmpiricalEstimation:
             output_file: The name of the output file to redirect Multiwfn output. If None, output will not be redirected.
         """
         # 创建 input.txt 用于存储 Multiwfn 命令内容
+        result_flag = True
         input_path = self.gaussian_dir / "input.txt"
         input_path.write_text(input_content, encoding="utf-8")
         try:
@@ -145,16 +148,18 @@ class EmpiricalEstimation:
                 )
 
         except subprocess.CalledProcessError as e:
+            result_flag = False
             logging.error(
                 f"Error executing Multiwfn command with input {input_content}: {e}"
             )
-            raise
         except Exception as e:
+            result_flag = False
             logging.error(f"Unexpected error: {e}")
-            raise
         finally:
             # 清理临时文件
-            input_path.unlink(missing_ok=True)  # 删除 input.txt
+            input_path.unlink(missing_ok=True)
+        return result_flag
+
 
     def multiwfn_process_fchk_to_json(self, specific_directory: str = None):
         """
@@ -167,10 +172,9 @@ class EmpiricalEstimation:
             self._multiwfn_process_fchk_to_json(specific_directory)
         else:
             for folder in self.folders:
-                (self.gaussian_result_dir / folder).mkdir(
-                    parents=True, exist_ok=True
-                )
+                (self.gaussian_result_dir / folder).mkdir(parents=True, exist_ok=True)
                 self._multiwfn_process_fchk_to_json(folder)
+
 
     def _multiwfn_process_fchk_to_json(self, folder: str):
         """
@@ -200,7 +204,8 @@ class EmpiricalEstimation:
                         f"{optimized_json_path} already exists, skipping copy to Optimized directory."
                     )
                 else:
-                    shutil.copy(src=json_file, dst=optimized_json_path)
+                    shutil.copy(str(json_file), str(optimized_json_path))
+                continue
             # 进行 fchk_to_json 的处理，并根据返回值记录处理失败的结果
             if not self._single_multiwfn_fchk_to_json(fchk_file):
                 bad_files.append(base_name)
@@ -216,10 +221,11 @@ class EmpiricalEstimation:
                     file_path = folder_path / f"{file_stem}.{suffix}"
                     bad_file_path = bad_dir / f"{file_stem}.{suffix}"
                     if file_path.exists():
-                        shutil.move(src=str(file_path), dst=str(bad_file_path))
+                        shutil.move(str(file_path), str(bad_file_path))
         logging.info(
             f"\nElectrostatic potential analysis by Multiwfn for {folder} folder has completed, and the results have been stored in the corresponding json files.\n"
         )
+
 
     def _single_multiwfn_fchk_to_json(self, fchk_filename: Path):
         """
@@ -233,11 +239,13 @@ class EmpiricalEstimation:
         """
         logging.info(f"Multiwfn processing {fchk_filename}")
         output_path = self.gaussian_dir / "output.txt"
-        self._multiwfn_cmd_build(
+        result_flag = self._multiwfn_cmd_build(
             input_content=f"{fchk_filename}\n12\n0\n-1\n-1\nq\n",
             output_path=output_path,
         )
-
+        if result_flag is False:
+            logging.error(f"Error with processing {fchk_filename}")
+            return False
         try:
             output_content = output_path.read_text()
         except Exception as e:
@@ -353,13 +361,12 @@ class EmpiricalEstimation:
         # 保存 JSON文件到当前目录
         json_path = folder / f"{refcode}.json"
         json_path.write_text(json.dumps(result, indent=4))
-        optimized_path = (
-            self.gaussian_dir / "Optimized" / folder.name / f"{refcode}.json"
-        )
-        shutil.copyfile(src=json_path, dst=optimized_path)
+        optimized_path = self.gaussian_result_dir / folder.name / f"{refcode}.json"
+        shutil.copyfile(str(json_path), str(optimized_path))
         logging.info(f"Finished processing {fchk_filename}")
         output_path.unlink(missing_ok=True)  # 删除临时输出文件
         return True
+
 
     def gaussian_log_to_optimized_gjf(self, specific_directory: str = None):
         """
@@ -373,10 +380,9 @@ class EmpiricalEstimation:
             self._gaussian_log_to_optimized_gjf(specific_directory)
         else:
             for folder in self.folders:
-                (self.gaussian_dir / "Optimized" / folder).mkdir(
-                    parents=True, exist_ok=True
-                )
+                (self.gaussian_result_dir / folder).mkdir(parents=True, exist_ok=True)
                 self._gaussian_log_to_optimized_gjf(folder)
+
 
     def _gaussian_log_to_optimized_gjf(self, folder: str):
         """
@@ -397,20 +403,21 @@ class EmpiricalEstimation:
         bad_files = []
         for log_file in log_files:
             base_name = log_file.stem
-            gjf_file = folder_path / f"{base_name}.gjf"
-            optimized_gjf_path = (
-                self.gaussian_dir / "Optimized" / folder / f"{base_name}.gjf"
-            )
+            optimized_gjf_path = self.gaussian_result_dir / folder / f"{base_name}.gjf"
             if optimized_gjf_path.exists():
                 logging.info(
-                    f"{gjf_file} already exists, skipping multiwfn log_to_gjf processing."
+                    f"{optimized_gjf_path} already exists, skipping multiwfn log_to_gjf processing."
                 )
                 continue
             if not self._single_multiwfn_log_to_gjf(folder, log_file):
                 bad_files.append(base_name)
+
+        if bad_files:
+            logging.error(f"Failed to convert the following .log files: {bad_files}")
         logging.info(
             f"\nThe .log to .gjf conversion by Multiwfn for {folder} folder has completed, and the optimized .gjf structures have been stored in the optimized directory.\n"
         )
+
 
     def _single_multiwfn_log_to_gjf(self, folder: str, log_filename: Path):
         """
@@ -425,22 +432,22 @@ class EmpiricalEstimation:
         # 获取目录以及 .fchk 文件的无后缀文件名, 即 refcode
         refcode = log_filename.stem
         logging.info(f"Multiwfn converting {log_filename} to gjf")
-        try:
-            # Multiwfn首先载入优化任务的out/log文件, 然后输入gi, 再输入要保存的gjf文件名, 此时里面的结构就是优化最后一帧的, 还避免了使用完全图形界面
-            self._multiwfn_cmd_build(
-                input_content=f"{log_filename}\ngi\n{self.gaussian_result_dir}/{folder}/{refcode}.gjf\nq\n"
-            )
-            gjf_path = (
-                self.gaussian_dir / "Optimized" / folder / f"{refcode}.gjf"
-            )
-            if gjf_path.exists():
-                logging.info(f"Finished converting {log_filename} to {gjf_path}")
-            else:
-                logging.error(f"Error converting {log_filename} to {gjf_path}")
-            return True
-        except Exception as e:
-            logging.error(f"Error with processing {log_filename}: {e}")
+
+        # Multiwfn首先载入优化任务的out/log文件, 然后输入gi, 再输入要保存的gjf文件名, 此时里面的结构就是优化最后一帧的, 还避免了使用完全图形界面
+        result_flag = self._multiwfn_cmd_build(
+            input_content=f"{log_filename}\ngi\n{self.gaussian_result_dir}/{folder}/{refcode}.gjf\nq\n"
+        )
+        if result_flag is False:
+            logging.error(f"Error with processing {log_filename}")
             return False
+        gjf_path = self.gaussian_result_dir / folder / f"{refcode}.gjf"
+        if not gjf_path.exists():
+            logging.error(f"Error converting {log_filename} to {gjf_path}")
+            return False
+        else:
+            logging.info(f"Finished converting {log_filename} to {gjf_path}")
+            return True
+
 
     def _read_gjf_elements(self, gjf_file: Path):
         """
@@ -460,26 +467,30 @@ class EmpiricalEstimation:
         start_reading = False
         for line in lines:
             line = line.strip()
-            # 跳过注释和空行
+            # 跳过所有注释和空行
             if line.startswith("%") or line.startswith("#") or not line:
                 continue
-            # 检测只包含两个数字的行
+            # 检测只包含两个数字的行(电荷和自旋多重度行)
             parts = line.split()
             if (
                 len(parts) == 2
-                and parts[0].lstrip("-").isdigit()
-                and parts[1].isdigit()
+                and parts[0].lstrip("-").isdigit()  # 电荷，可正可负
+                and parts[1].isdigit()  # 多重复，只能为正整数
             ):
                 start_reading = True
                 continue
-            if start_reading:
+            # 读取原子行，格式通常为: 元素符号 x y z
+            if start_reading and len(parts) == 4:
                 element = parts[0]  # 第一个部分是元素符号
                 # 更新元素计数
                 if element in atomic_counts:
                     atomic_counts[element] += 1
                 else:
                     atomic_counts[element] = 1
+            else:
+                logging.warning(f"Unexpected line format in gjf file: {line}")
         return atomic_counts
+
 
     def _generate_combinations(self, suffix: str):
         """
@@ -494,7 +505,7 @@ class EmpiricalEstimation:
         # 获取所有符合后缀名条件的文件
         all_files = []
         for folder in self.folders:
-            folder_path = self.gaussian_dir / "Optimized" / folder
+            folder_path = self.gaussian_result_dir / folder
             suffix_files = list(folder_path.glob(f"*{suffix}"))
             suffix_files.sort()
             logging.info(f"Valid {suffix} file number in {folder}: {len(suffix_files)}")
@@ -514,6 +525,7 @@ class EmpiricalEstimation:
             combinations.append(ratio_combination)
         logging.info(f"Valid combination number: {len(combinations)}")
         return combinations
+
 
     def nitrogen_content_estimate(self):
         """
@@ -536,7 +548,9 @@ class EmpiricalEstimation:
                                 atomic_masses[element] * atom_count * ion_count
                             )
                     else:
-                        raise "Contains element information not included, unable to calculate nitrogen content"
+                        raise ValueError(
+                            f"Contains element '{element}' not included in atomic_masses. Unable to calculate nitrogen content."
+                        )
             nitrogen_content = (
                 round((nitrogen_masses / total_masses), 4) if total_masses > 0 else 0
             )
@@ -563,6 +577,7 @@ class EmpiricalEstimation:
             ]
             writer.writerow(header)  # 写入表头
             writer.writerows(data)  # 写入排序后的数
+
 
     def carbon_nitrogen_ratio_estimate(self):
         """
@@ -593,7 +608,7 @@ class EmpiricalEstimation:
                             oxygen_atoms += atom_count * ion_count
                     else:
                         raise ValueError(
-                            "Contains element information not included, unable to calculate ratios"
+                            f"Contains element '{element}' not included, unable to calculate ratios"
                         )
 
             # 计算 C:N 比率
@@ -626,6 +641,7 @@ class EmpiricalEstimation:
                 writer.writerow(
                     cleaned_combo + [nitrogen_carbon_ratio, oxygen_content]
                 )  # 写入每一行
+
 
     def empirical_estimate(self):
         """
@@ -723,6 +739,7 @@ class EmpiricalEstimation:
             writer.writerow(header)  # 写入表头
             writer.writerows(data)  # 写入排序后的数
 
+
     def _copy_combo_file(self, combo_path: Path, folder_basename: str, file_type: str):
         """
         Private method:
@@ -734,31 +751,23 @@ class EmpiricalEstimation:
             file_type: The type of file to be copied (e.g., '.gjf', '.json').
         """
         parts = folder_basename.split("/")
-        if len(parts) < 2:
-            logging.error(
-                f"Invalid folder_basename format: {folder_basename}. Expected format: 'charge_2/ABCDEF'."
-            )
-            return
         folder_name, file_base = parts
         # 使用 pathlib 构建路径
-        source_path = (
-            self.gaussian_result_dir
-            / folder_name
-            / f"{file_base}{file_type}"
-        )
+        source_path = self.gaussian_result_dir / folder_name / f"{file_base}{file_type}"
         if not source_path.exists():
             logging.error(f"Source file {source_path} does not exist.")
             raise FileNotFoundError(f"Source file {source_path} does not exist.")
         target_path = Path(combo_path) / f"{file_base}{file_type}"
         if target_path.exists():
             logging.info(
-                f"{file_base}{file_type} of {os.path.basename(combo_path)} already exists in {os.path.abspath(combo_path)}. Skipping copy."
+                f"{file_base}{file_type} of {combo_path.name} already exists in {combo_path.resolve()}. Skipping copy."
             )
             return
 
         # 复制指定后缀名文件到对应的 combo_n 文件夹
-        shutil.copy(source_path, target_path)
+        shutil.copy(str(source_path), str(target_path))
         logging.info(f"Copied {source_path.name} to {combo_path}")
+
 
     def make_combo_dir(self, target_dir: Path, num_combos: int, ion_numbers: List[int]):
         """
@@ -802,6 +811,11 @@ class EmpiricalEstimation:
                             f"Missing value in CSV file {csv_file} at row {index + 1}, column {key}."
                         )
                     folder_basename = row[key]
+                    parts = folder_basename.split("/")
+                    if len(parts) < 2:
+                        raise ValueError(
+                            f"Invalid folder_basename format: {folder_basename}. Expected format: 'charge_2/ABCDEF'."
+                        )
                     self._copy_combo_file(
                         combo_folder, folder_basename, file_type=".gjf"
                     )
@@ -824,8 +838,9 @@ class EmpiricalEstimation:
                 if config_path.exists():
                     try:
                         config = yaml.safe_load(config_path.read_text())
-                    except yaml.YAMLError as e:
+                    except Exception as e:
                         logging.error(f"YAML configuration file parsing failed: {e}")
+                        raise
                 else:
                     logging.error(
                         f"No available config.yaml file either in parent directory: {self.base_dir} and optimized directory {self.gaussian_dir} \n"

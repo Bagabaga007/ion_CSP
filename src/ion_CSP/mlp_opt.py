@@ -4,21 +4,25 @@ import os
 
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "3"
+# os.environ["DP_INTRA_OP_PARALLELISM_THREADS"] = "3"
+# os.environ["DP_INTER_OP_PARALLELISM_THREADS"] = "2"
 
+import sys
 import time
 import shutil
 import signal
 import numpy as np
 import multiprocessing
-from ase.io.vasp import read_vasp
 from ase.optimize import LBFGS
+from ase.io.vasp import read_vasp
 from ase.constraints import UnitCellFilter
 from deepmd.calculator import DP
 
 
 base_dir = os.path.dirname(__file__)
-pool = None  # 全局变量：保存 Pool 实例，用于信号处理
+pool = None  # 用于信号处理中终止进程池
+
 
 def get_mlp_calc(relative_path='./model.pt'):
     """
@@ -52,6 +56,7 @@ def get_element_num(elements):
         ele[x] = elements.count(x)
     return element, ele 
         
+        
 def write_CONTCAR(element, ele, lat, pos, index, output_dir=None):
     """
     Write CONTCAR file in VASP format
@@ -63,9 +68,9 @@ def write_CONTCAR(element, ele, lat, pos, index, output_dir=None):
         pos: atomic positions in direct coordinates
         index: index for the output file
         output_dir: directory where the CONTCAR file will be saved
-    """ 
-    if output_dir is None:
-        output_dir = base_dir
+    """
+
+    output_dir = base_dir if not output_dir else output_dir
     f = open(os.path.join(output_dir, f"CONTCAR_{index}"), "w")
     f.write('ASE-MLP-Optimization\n')
     f.write('1.0\n') 
@@ -82,7 +87,8 @@ def write_CONTCAR(element, ele, lat, pos, index, output_dir=None):
     dpos = np.dot(pos,np.linalg.inv(lat))
     for i in range(na): 
         f.write('%15.10f %15.10f %15.10f\n' % tuple(dpos[i]))
-        
+
+
 def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pstress, index, output_dir=None):
     """
     Write OUTCAR file in VASP format
@@ -100,8 +106,7 @@ def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pst
         index: index for the output file
         output_dir: directory where the OUTCAR file will be saved
     """
-    if output_dir is None:
-        output_dir = base_dir
+    output_dir = base_dir if not output_dir else output_dir
     f = open(os.path.join(output_dir, f"OUTCAR_{index}"), "w")
     for x in element: 
         f.write('VRHFIN =' + str(x) + '\n')
@@ -137,6 +142,7 @@ def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pst
     enthalpy = ene + pstress * volume / 1602.17733      
     f.write('enthalpy TOTEN    = %20.6f %20.6f\n' % (enthalpy, enthalpy/na)) 
         
+
 def get_indexes():
     """
     Get the indexes of POSCAR files in the current directory.
@@ -145,16 +151,16 @@ def get_indexes():
     :returns
         A sorted list of indexes extracted from the POSCAR files.
     """
-    base_dir = os.path.dirname(__file__)
     POSCAR_files = [f for f in os.listdir(base_dir) if f.startswith('POSCAR_')]
     indexes = []
     for filename in POSCAR_files:
         index_part = filename[len('POSCAR_'):]
-        if index_part.isdigit():
+        if index_part.isdigit() and not os.path.exists(os.path.join(base_dir, f'CONTCAR_{index_part}')):
             index = int(index_part)
             indexes.append(index)       
     indexes.sort(key=lambda indexes: indexes)
     return indexes
+
 
 def run_opt(index: int, output_dir=None): 
     """
@@ -163,8 +169,7 @@ def run_opt(index: int, output_dir=None):
         index: index of the POSCAR file to be optimized
         output_dir: directory where the output files will be saved
     """
-    if output_dir is None:
-        output_dir = base_dir
+    output_dir = base_dir if not output_dir else output_dir
     # 修改文件读写路径
     if os.path.isfile(os.path.join(output_dir, "OUTCAR")):
         shutil.move(
@@ -222,7 +227,7 @@ def stop_handler(signum, frame):
         pool.terminate()  # 强制终止所有子进程
         pool.join()  # 等待子进程完全退出
     print("All child processes terminated. Exiting.")
-    exit(0)
+    sys.exit(0)
 
 
 def main():
@@ -231,24 +236,23 @@ def main():
     It initializes a multiprocessing pool and maps the run_opt function to the indexes of POSCAR files.
     """
     total_start = time.time()
-    global pool  # 声明为全局变量，供信号处理函数访问
     # 注册信号处理器
-    signal.signal(signal.SIGINT, stop_handler)  # Ctrl+C
-    signal.signal(signal.SIGTERM, stop_handler)  # kill 命令
-
-    # 使用 spawn 上下文（推荐用于 Linux/Windows）
-    ctx=multiprocessing.get_context("spawn")
-    pool=ctx.Pool(8)
+    signal.signal(signal.SIGINT, stop_handler)
+    signal.signal(signal.SIGTERM, stop_handler)
+    # 获取需要优化的结构索引
+    indexes = get_indexes()
+    if not indexes:
+        print("No POSCAR_*.vasp files found. Nothing to optimize.")
+        return
+    
+    # 初始化进程池
+    ctx = multiprocessing.get_context("spawn")
+    pool = ctx.Pool(8)
+    # 映射优化任务到进程池
     try:
-        indexes = get_indexes()
-        if not indexes:
-            print("No POSCAR_*.vasp files found. Nothing to optimize.")
-            return
-
         print(f"Starting optimization for {len(indexes)} structures...")
         pool.map(func=run_opt, iterable=indexes)
         print("All optimizations completed successfully.")
-
     except KeyboardInterrupt:
         # 防止未注册信号时的意外中断
         stop_handler(signal.SIGINT, None)

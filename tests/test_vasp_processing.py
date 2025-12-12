@@ -1,7 +1,7 @@
 import pytest
 import logging
 from pathlib import Path
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from ion_CSP.vasp_processing import VaspProcessing  # 替换为你的模块名
 
@@ -48,109 +48,6 @@ gen_opt:
     assert len(list(vp.vasp_optimized_dir.rglob("*"))) == 0
 
     yield vp
-
-
-# ==================== 测试 _machine_resources_prep ====================
-def test_machine_resources_prep_success(vasp_processor: VaspProcessing, tmp_path: Path):
-    machine_path1 = tmp_path / "machine.json"
-    resources_path1 = tmp_path / "resources.json"
-
-    machine_path1.write_text(
-        '{"context_type": "LocalContext", "local_root": "./", "remote_root": "/your/remote/workplace", "batch_type": "Shell"}',
-        encoding="utf-8",
-    )
-    resources_path1.write_text(
-        '{"number_node": 1, "cpu_per_node": 4, "gpu_per_node": 1, "group_size": 1}',
-        encoding="utf-8",
-    )
-
-    machine1, resources1, parent1 = vasp_processor._machine_resources_prep(str(machine_path1), str(resources_path1))
-
-    assert machine1.serialize()["context_type"] == "LocalContext"
-    assert parent1 == ""
-
-    machine_path2 = tmp_path / "machine.yaml"
-    resources_path2 = tmp_path / "resources.yaml"
-
-    machine_path2.write_text("""
-context_type: LocalContext
-local_root: ./ 
-remote_root: /your/remote/workplace
-batch_type: Shell
-""", encoding="utf-8")
-
-    resources_path2.write_text("""
-number_node: 2
-cpu_per_node: 8
-gpu_per_node: 0
-group_size: 1
-""", encoding="utf-8")
-
-    machine2, resources2, parent2 = vasp_processor._machine_resources_prep(str(machine_path2), str(resources_path2))
-
-    assert machine2.serialize()["context_type"] == "LocalContext"
-    assert parent2 == ""
-
-
-def test_machine_resources_prep_yaml_ssh_parse_only(
-    vasp_processor: VaspProcessing, tmp_path: Path
-):
-    machine_path = tmp_path / "machine.yaml"
-    resources_path = tmp_path / "resources.yaml"
-
-    machine_path.write_text(
-        """
-context_type: SSHContext
-local_root: ./
-remote_root: /your/remote/workplace
-batch_type: Shell
-remote_profile:
-  hostname: "sshhost"
-  username: "testuser"
-  password: "testpass"
-""",
-        encoding="utf-8",
-    )
-
-    resources_path.write_text(
-        """
-number_node: 2
-cpu_per_node: 8
-gpu_per_node: 0
-group_size: 1
-""",
-        encoding="utf-8",
-    )
-
-    # 模拟 SSHSession._setup_ssh() 为空操作，避免连接
-    with (
-        patch("dpdispatcher.contexts.ssh_context.SSHSession._setup_ssh"),
-        patch("dpdispatcher.contexts.ssh_context.SSHSession.ensure_alive"),
-        patch(
-            "dpdispatcher.contexts.ssh_context.SSHSession.sftp", new_callable=Mock
-        ) as mock_sftp,
-    ):
-        # 让 sftp 属性返回一个空的 Mock 对象，避免访问 _sftp
-        mock_sftp.return_value = Mock()  # 返回一个什么都不做的 SFTP 对象
-
-        machine, resources, parent = vasp_processor._machine_resources_prep(
-            str(machine_path), str(resources_path)
-        )
-
-    assert machine.serialize()["context_type"] == "SSHContext"
-    assert parent == "data/"
-    assert resources.serialize()["number_node"] == 2
-    assert resources.serialize()["cpu_per_node"] == 8
-
-
-def test_machine_resources_prep_invalid_type(vasp_processor: VaspProcessing, tmp_path: Path):
-    machine_path = tmp_path / "machine.txt"
-    resources_path = tmp_path / "resources.json"
-
-    machine_path.write_text("dummy", encoding="utf-8")
-
-    with pytest.raises(KeyError, match="Unsupported machine file type"):
-        vasp_processor._machine_resources_prep(str(machine_path), str(resources_path))
 
 
 # ==================== 测试 dpdisp_vasp_optimization_tasks ====================
@@ -384,3 +281,4 @@ Direct
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--cov=ion_CSP.vasp_processing"])
+    

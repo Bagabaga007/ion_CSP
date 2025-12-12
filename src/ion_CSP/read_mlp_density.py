@@ -8,6 +8,7 @@ from ion_CSP.identify_molecules import identify_molecules, molecules_information
 
 
 class ReadMlpDensity:
+
     def __init__(self, work_dir: Path, folder: str = "2_mlp_optimized"):
         """
         This class is designed to read and process MLP optimized files, specifically CONTCAR files, to calculate and sort their densities.
@@ -27,6 +28,7 @@ class ReadMlpDensity:
         self.primitive_cell_dir, self.sort_value_dir, self.phonopy_dir = None, None, None
         logging.info(f"Processing MLP CONTCARs in {self.folder_dir}")
 
+
     def _sequentially_read_files(self, directory: Path, prefix_name: str = "POSCAR_"):
         """
         Private method:
@@ -35,15 +37,16 @@ class ReadMlpDensity:
         # 获取dir文件夹中所有以prefix_name开头的文件，在此实例中为POSCAR_
         files = [f for f in directory.iterdir() if f.name.startswith(prefix_name)]
         file_index_pairs = []
-        for filename in files:
-            index_part = filename.name[
+        for file in files:
+            index_part = file.name[
                 len(prefix_name) :
             ]  # 选取去除前缀'POSCAR_'的数字
             if index_part.isdigit():  # 确保剩余部分全是数字
                 index = int(index_part)
-                file_index_pairs.append((index, filename.name))
+                file_index_pairs.append((index, file.name))
         file_index_pairs.sort(key=lambda pair: pair[0])
         return file_index_pairs
+
 
     def read_property_and_sort(
         self,
@@ -209,6 +212,7 @@ class ReadMlpDensity:
             for number, energy, density in zip(numbers, mlp_energies, mlp_densities):
                 writer.writerow([number, energy, density])
 
+
     def phonopy_processing_max_density(self, specific_directory: str = None):
         """
         Use phonopy to check and generate symmetric primitive cells, reducing the complexity of subsequent optimization calculations, and preventing pyxtal.from_random from generating double proportioned supercells.
@@ -322,7 +326,7 @@ class ReadMlpDensity:
         for_vasp_opt_dir = self.base_dir / "3_for_vasp_opt"
         if for_vasp_opt_dir.exists():
             shutil.rmtree(for_vasp_opt_dir)
-        shutil.copytree(self.primitive_cell_dir, for_vasp_opt_dir)
+        shutil.copytree(str(self.primitive_cell_dir), str(for_vasp_opt_dir))
         logging.info(
             "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder.\nThe output content of phonopy has been saved to the phonopy.log file in the same directory."
         )

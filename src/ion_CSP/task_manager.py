@@ -23,8 +23,10 @@ class TaskManager:
         self._detect_env()
         self._setup_logging()
 
+
     def __repr__(self):
         return f"Taskmanager(version={self.version}, env={self.env}, project_root={self.project_root}, workspace={self.workspace}, log_base={self.log_base}, log_dir={self.log_dir})"
+
 
     def _get_version(self):
         """版本获取"""
@@ -49,6 +51,7 @@ class TaskManager:
         self.envs = f"{self.env} ({env_msg})"
         self.workspace.mkdir(exist_ok=True)
 
+
     def _setup_logging(self):
         """配置日志系统 - Configure logging system"""
         self.log_dir = self.workspace / self.log_base
@@ -62,6 +65,7 @@ class TaskManager:
             ],
         )
 
+
     def _cleanup_task_files(self, module: str, pid: int):
         """清理任务相关文件"""
         log_file = self.log_dir / f"{module}_{pid}.log"
@@ -69,6 +73,7 @@ class TaskManager:
             log_file.unlink()
             print(f"Cleaned up orphaned log: {log_file.name}")
             
+
     def _safe_kill(self, module: str, pid: int):
         """安全终止进程并清理残留资源 - Safely kill process and cleanup orphan resources"""
         try:
@@ -101,6 +106,7 @@ class TaskManager:
             input("\nPress Enter to continue...")
             return -3  # 其他错误标记
 
+
     def _is_pid_running(self, pid: int):
         """检查进程是否仍在运行 - Check the process status according to PID"""
         try:
@@ -108,6 +114,7 @@ class TaskManager:
             return proc.status() in (psutil.STATUS_RUNNING, psutil.STATUS_SLEEPING)
         except psutil.NoSuchProcess:
             return False
+
 
     def _is_valid_task_pid(self, pid: int):
         """验证PID是否属于当前程序的任务进程 - Valid the task PID according to log file"""
@@ -121,6 +128,7 @@ class TaskManager:
             )
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
+
 
     def _display_tasks(self, tasks, total, current_page, total_pages, function):
         """标准化任务显示 - Standardized tasks display"""
@@ -147,6 +155,7 @@ class TaskManager:
             print("n) Next page | p) Previous page | f) Filter | k) Kill | q) Quit")
         else:
             raise ValueError("Unexpected function parameter")
+
 
     def _paginate_tasks(self, tasks, function, page_size=10):
         """通用分页函数 - Universal tasks pagination"""
@@ -216,6 +225,7 @@ class TaskManager:
                 print("Invalid command")
                 input("\nPress Enter to continue...")
 
+
     def task_runner(self, module: str, work_dir: str):
         """任务执行器 - Task execution handler"""
         work_dir = Path(work_dir)
@@ -269,6 +279,7 @@ class TaskManager:
         print(f"Task started (PID: {process.pid})")
         print(f"Normalized log file: {std_log}")
 
+
     def view_logs(self, page_size: int = 10):
         """查看日志 - View task logs"""
         log_tasks = []
@@ -295,6 +306,7 @@ class TaskManager:
                 continue
         self._paginate_tasks(log_tasks, function="view", page_size=page_size)
 
+
     def safe_terminate(self):
         """安全终止任务 - Safe task termination"""
         tasks = self.get_related_tasks()
@@ -313,6 +325,7 @@ class TaskManager:
                 self._paginate_tasks(tasks, function="kill")
                 break
 
+
     def view_filtered_tasks(self, module_filter: str, function: str):
         """带分页的过滤任务显示"""
         all_tasks = self.get_related_tasks()
@@ -323,6 +336,7 @@ class TaskManager:
             return
         print(f"\033cFiltered Tasks ({len(filtered)}):")
         self._paginate_tasks(filtered, function)  # 复用通用分页逻辑
+
 
     def get_related_tasks(self):
         """获取实时任务列表并验证状态 - Get relatd tasks list and validate the status"""
@@ -361,6 +375,7 @@ class TaskManager:
         # 按修改时间降序排列（最新在前）
         tasks.sort(key=lambda t: t["mtime"], reverse=True)
         return tasks
+
 
     def main_menu(self):
         """主菜单循环 - Main menu loop"""

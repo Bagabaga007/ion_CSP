@@ -6,17 +6,18 @@ import shutil
 import logging
 from pathlib import Path
 import importlib.resources
-from datetime import datetime
 from ase.atoms import Atoms
 from ase.io import ParseError
+from datetime import datetime
 from typing import Optional, Tuple
+from dpdispatcher import Task, Submission
 from ase.io.vasp import read_vasp, read_vasp_out
-from dpdispatcher import Machine, Resources, Task, Submission
-from ion_CSP.log_and_time import redirect_dpdisp_logging
+from ion_CSP.log_and_time import redirect_dpdisp_logging, machine_resources_prep
 from ion_CSP.identify_molecules import identify_molecules, molecules_information
 
 
 class VaspProcessing:
+
     def __init__(self, work_dir: Path):
         """
         This directory is used to store all the files related to VASP optimizations.
@@ -32,39 +33,6 @@ class VaspProcessing:
         self.vasp_optimized_dir.mkdir(parents=True, exist_ok=True)
         self.param_dir = importlib.resources.files("ion_CSP.param")
 
-    def _machine_resources_prep(self, machine_path: str, resources_path: str):
-        """
-        Prepare machine and resources configuration files for dpdispatcher.
-        :params
-            machine_path: The path to save the machine configuration file, which can be in JSON or YAML format.
-            resources_path: The path to save the resources configuration file, which can be in JSON or YAML format.
-        :return: machine, resources, parent
-        1. machine: The machine configuration object.
-        2. resources: The resources configuration object.
-        3. parent: The parent directory prefix based on the context type (SSHContext or LocalContext).
-        """
-        # 读取machine.json和resources.json的参数
-        if machine_path.endswith(".json"):
-            machine = Machine.load_from_json(machine_path)
-        elif machine_path.endswith(".yaml"):
-            machine = Machine.load_from_yaml(machine_path)
-        else:
-            raise KeyError("Unsupported machine file type")
-        if resources_path.endswith(".json"):
-            resources = Resources.load_from_json(resources_path)
-        elif resources_path.endswith(".yaml"):
-            resources = Resources.load_from_yaml(resources_path)
-        else:
-            raise KeyError("Unsupported resources file type")
-        # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
-        machine_inform = machine.serialize()
-        if machine_inform["context_type"] == "SSHContext":
-            # 如果调用远程服务器，则创建二级目录
-            parent = "data/"
-        elif machine_inform["context_type"] == "LocalContext":
-            # 如果在本地运行作业，则只在后续创建一级目录
-            parent = ""
-        return machine, resources, parent
 
     def dpdisp_vasp_optimization_tasks(
         self,
@@ -80,7 +48,7 @@ class VaspProcessing:
             nodes: The number of nodes to distribute the optimization tasks across.
         """
         # 读取machine.json和resources.json的参数
-        machine, resources, parent = self._machine_resources_prep(
+        machine, resources, parent = machine_resources_prep(
             machine_path=machine_path, resources_path=resources_path
         )
 
@@ -174,6 +142,7 @@ class VaspProcessing:
             shutil.rmtree(self.for_vasp_opt_dir / "data", ignore_errors=True)
         logging.info("Batch VASP optimization completed!!!")
 
+
     def dpdisp_vasp_relaxation_tasks(
         self,
         machine_path: str,
@@ -188,7 +157,7 @@ class VaspProcessing:
             nodes: The number of nodes to distribute the optimization tasks across.
         """
         # 读取machine.json和resources.json的参数
-        machine, resources, parent = self._machine_resources_prep(
+        machine, resources, parent = machine_resources_prep(
             machine_path=machine_path, resources_path=resources_path
         )
         # 获取dir文件夹中所有以prefix_name开头的文件，在此实例中为POSCAR_
@@ -278,6 +247,7 @@ class VaspProcessing:
             shutil.rmtree(self.vasp_optimized_dir / parent)
         logging.info("Batch VASP optimization completed!!!")
 
+
     def _read_mlp_properties(self, contcar_path: Path, outcar_path: Path):
         """
         Read a single MLP CONTCAR and OUTCAR file and extract density and energy information.
@@ -317,6 +287,7 @@ class VaspProcessing:
             energy = None
         return density, energy
 
+
     def _read_vasp_outcar(self, outcar_path: Path) -> Tuple[Optional[Atoms], Optional[float], Optional[float]]:
         """
         Read a single VASP OUTCAR file and extract density and energy information.
@@ -342,6 +313,7 @@ class VaspProcessing:
         except Exception as e:
             logging.error(f"Unexpected error reading OUTCAR file {outcar_path}: {e}\n")
             return None, float("-inf"), float("inf")
+
 
     def read_vaspout_save_csv(self, molecules_prior: bool, relaxation: bool = False):
         """
@@ -560,6 +532,7 @@ class VaspProcessing:
                 f"Maximum Final Density: {max_final_density} (Structure Number: {max_final_num})\n"
             )
 
+
     def export_max_density_structure(self, relaxation: bool = False):
         """
         Read the structure number from the vasp_sensitiy_energy.csv file in the results folder, then search for the corresponding folder based on that sequence number, copy the highest density and highest precision CONTCAR file, and rename it POSCAR
@@ -639,10 +612,10 @@ class VaspProcessing:
                     poscar_path = self.base_dir / "POSCAR"
                     if poscar_path.exists():
                         backup_path = self.base_dir / f"POSCAR.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                        shutil.move(poscar_path, backup_path)
+                        shutil.move(str(poscar_path), str(backup_path))
                         logging.info(f"Existing POSCAR backed up to {backup_path}")
                     # 复制并重命名 CONTCAR 为 POSCAR
-                    shutil.copy(target_contcar, poscar_path)
+                    shutil.copy(str(target_contcar), str(poscar_path))
                     logging.info(f"Copied CONTCAR from target {target_contcar} to {poscar_path}")
                 else:
                     logging.info(f"Eligible CONTCAR not found at expected location: {target_contcar}")

@@ -38,3 +38,15 @@ src = "src"
 
 [project.scripts]
 ion-csp = "ion_CSP.task_manager:main"
+
+[tool.pytest.ini_options]
+addopts = [
+    "--tb=short",
+    "-v",
+    "--cov=ion_CSP",
+    "--cov-report=html",
+    "--cov-branch",
+]
+filterwarnings = [
+    "ignore::pytest.PytestAssertRewriteWarning",
+]

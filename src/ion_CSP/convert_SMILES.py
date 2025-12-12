@@ -6,11 +6,12 @@ from typing import List
 from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from dpdispatcher import Machine, Resources, Task, Submission
-from ion_CSP.log_and_time import redirect_dpdisp_logging
+from dpdispatcher import Task, Submission
+from ion_CSP.log_and_time import redirect_dpdisp_logging, machine_resources_prep
 
 
 class SmilesProcessing:
+
     def __init__(
         self,
         work_dir: Path,
@@ -66,6 +67,7 @@ class SmilesProcessing:
         self.df = df
         self.grouped = grouped
 
+
     def _validate_csv_format(self, csv_path: Path):
         """
         Validate that the CSV file has the required columns and correct structure.
@@ -73,7 +75,7 @@ class SmilesProcessing:
         Raises Exception with clear message if validation fails.
         """
         try:
-            df = pd.read_csv(csv_path, nrows=1)  # 只读一行，高效
+            df = pd.read_csv(csv_path, nrows=1)
         except pd.errors.EmptyDataError:
             raise Exception(f"CSV file is empty: {csv_path}")
         except pd.errors.ParserError as e:
@@ -96,15 +98,12 @@ class SmilesProcessing:
                 f"Found: {list(df.columns)}"
             )
 
-        # 检查 SMILES 是否为字符串类型（可选，但推荐）
-        if df["SMILES"].dtype != "object":
-            logging.warning(f"Column 'SMILES' is not of type 'object' (string). Got: {df['SMILES'].dtype}. This may cause issues with RDKit.")
-
         # 检查 Charge 是否为数值类型
         if not pd.api.types.is_numeric_dtype(df["Charge"]):
             raise Exception(f"Column 'Charge' must be numeric. Got: {df['Charge'].dtype}")
 
         logging.info(f"CSV format validated successfully: {csv_path}")
+
 
     def _convert_SMILES(self, dir_path: str, smiles: str, basename: str, charge: int):
         """
@@ -121,17 +120,19 @@ class SmilesProcessing:
             result_code: Result code 0 or -1, representing success and failure respectively.
             basename: The corresponding basename.
         """
+        dir_path = Path(dir_path)
+        dir_path.mkdir(parents=True, exist_ok=True)
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             logging.error(f"Invalid SMILES: {smiles} for {basename}")
-            return 1, basename
+            return False, basename
         try:
             mol = Chem.AddHs(mol)
         except Exception as e:
             logging.error(
                 f"Error occurred while adding hydrogens to molecule {basename} with charge {charge}: {e}"
             )
-            return 1, basename
+            return False, basename
         try:
             # 生成3D坐标
             AllChem.EmbedMolecule(mol)
@@ -160,14 +161,15 @@ class SmilesProcessing:
             # 写入gjf文件
             gjf_path.write_text(f"{gjf_content}\n\n")
             # gjf文件末尾需要空行，否则Gaussian会报End of file in ZSymb错误(l101.exe)
-            result_code = 0
+            result_flag = True
         except Exception as e:  # 捕获运行过程中的错误
             logging.error(
                 f"Error occurred while optimizing molecule of {basename} with charge {charge}: {e}"
             )
-            result_code = 1
-        # 第一项返回值为结果码0或1, 分别代表成功和失败; 第二项返回值为对应的refcode或序号
-        return result_code, basename
+            result_flag = False
+        # 第一项返回值为结果码True或False, 分别代表成功和失败; 第二项返回值为对应的refcode或序号
+        return result_flag, basename
+
 
     def charge_group(self):
         """
@@ -178,23 +180,23 @@ class SmilesProcessing:
         for charge, group in self.grouped:
             # 根据文件类型与电荷分组创建对应的文件夹
             charge_dir = self.converted_dir / f"charge_{charge}"
-            charge_dir.mkdir(parents=True, exist_ok=True)
             # 通过_convert_SMILES函数依次处理SMILES码
             for _, row in group.iterrows():
-                result_code, basename = self._convert_SMILES(
+                result_flag, basename = self._convert_SMILES(
                     dir_path=charge_dir,
                     smiles=row["SMILES"],
                     basename=row[self.base_name],
                     charge=row["Charge"],
                 )
                 # 根据私有方法_convert_SMILES的返回值记录refcode对应的分子是否能够成功生成结构文件
-                if result_code == 0:
+                if result_flag:
                     success.append(basename)
-                elif result_code == 1:
+                else:
                     fail.append(basename)
         # 将统计信息输出并记录到log文件中
         generation_message = f"\nDuring the .gjf file generation process\n Successfully generated .gjf files: {len(success)}\n Errors encounted: {len(fail)}\n Error {self.base_name}: {fail}"
         logging.info(generation_message)
+
 
     def screen(
         self,
@@ -223,56 +225,27 @@ class SmilesProcessing:
                 screened = screened[
                     screened["SMILES"].str.contains(group_screen, regex=False)
                 ]
-        if charge_screen:
-            screened = screened[screened["Charge"] == charge_screen]
-        screened_message = f"\nNumber of ions with charge of [{charge_screen}] and {group_name} group: {len(screened)}\n"
-        logging.info(screened_message)
-
+        screened = screened[screened["Charge"] == charge_screen]
+        
         # 另外创建文件夹, 并依次处理SMILES码
         screened_dir = self.converted_dir / f"{group_name}_{charge_screen}"
-        screened_dir.mkdir(parents=True, exist_ok=True)
 
+        # 记录成功转换的分子数量
+        success_count = 0
         for _, row in screened.iterrows():
-            self._convert_SMILES(
+            result_flag, _ = self._convert_SMILES(
                 dir_path=screened_dir,
                 smiles=row["SMILES"],
                 basename=row[self.base_name],
                 charge=row["Charge"],
             )
+            if result_flag is True:
+                success_count += 1
+        
+        # 将统计信息输出并记录到log文件中
+        screened_message = f"\nNumber of ions with charge of [{charge_screen}] and {group_name} group: {success_count}\n"
+        logging.info(screened_message)
 
-    def _machine_resources_prep(self, machine_path: str, resources_path: str):
-        """
-        Prepare machine and resources configuration files for dpdispatcher.
-        :params
-            machine_path: The path to save the machine configuration file, which can be in JSON or YAML format.
-            resources_path: The path to save the resources configuration file, which can be in JSON or YAML format.
-        :return: machine, resources, parent
-        1. machine: The machine configuration object.
-        2. resources: The resources configuration object.
-        3. parent: The parent directory prefix based on the context type (SSHContext or LocalContext).
-        """
-        # 读取machine.json和resources.json的参数
-        if machine_path.endswith(".json"):
-            machine = Machine.load_from_json(machine_path)
-        elif machine_path.endswith(".yaml"):
-            machine = Machine.load_from_yaml(machine_path)
-        else:
-            raise KeyError("Unsupported machine file type")
-        if resources_path.endswith(".json"):
-            resources = Resources.load_from_json(resources_path)
-        elif resources_path.endswith(".yaml"):
-            resources = Resources.load_from_yaml(resources_path)
-        else:
-            raise KeyError("Unsupported resources file type")
-        # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
-        machine_inform = machine.serialize()
-        if machine_inform["context_type"] == "SSHContext":
-            # 如果调用远程服务器，则创建二级目录
-            parent = "data/"
-        elif machine_inform["context_type"] == "LocalContext":
-            # 如果在本地运行作业，则只在后续创建一级目录
-            parent = ""
-        return machine, resources, parent
 
     def dpdisp_gaussian_tasks(
         self,
@@ -296,7 +269,7 @@ class SmilesProcessing:
             )
             return
         # 读取machine和resources的参数
-        machine, resources, parent = self._machine_resources_prep(
+        machine, resources, parent = machine_resources_prep(
             machine_path=machine_path, resources_path=resources_path
         )
 
@@ -380,7 +353,7 @@ class SmilesProcessing:
                         src = task_dir / f"{base_name}.{ext}"
                         dst = optimized_folder_dir / f"{base_name}.{ext}"
                         if src.exists():
-                            shutil.copyfile(src, dst)
+                            shutil.copyfile(str(src), str(dst))
                         else:
                             logging.error(f"File not found during copying: {src}")
                 # 在成功完成Gaussian优化后，删除 1_1_SMILES_gjf/{csv}/{parent}/pop{n} 临时目录
