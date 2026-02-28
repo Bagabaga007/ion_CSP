@@ -1,6 +1,7 @@
 import csv
 import shutil
 import pytest
+import logging
 import tempfile
 from pathlib import Path
 from subprocess import CalledProcessError
@@ -277,6 +278,41 @@ def test_read_property_and_sort_missing_outcar(
 
 @patch("ion_CSP.read_mlp_density.identify_molecules")
 @patch("ion_CSP.read_mlp_density.read_vasp")
+def test_read_property_and_sort_no_toten_in_outcar(
+    mock_read_vasp, mock_identify, sample_contcar_files
+):
+    """测试：OUTCAR 中没有 TOTEN 行，energy 应为 False"""
+    work_dir, mlp_dir = sample_contcar_files
+    # 模拟原子对象
+    mock_atoms = MagicMock()
+    mock_atoms.get_volume.return_value = 10.0
+    mock_atoms.get_masses.return_value = [1.0, 1.0, 1.0]
+    mock_read_vasp.return_value = mock_atoms
+    mock_identify.return_value = ({}, True, {})
+
+    # 修改 OUTCAR 文件：删除所有 TOTEN 行
+    for i in range(1, 11):
+        outcar_path = mlp_dir / f"OUTCAR_{i}"
+        # 写入一个没有 TOTEN 的内容
+        outcar_path.write_text(
+            "some initial lines\ndummy lines\nfinal line\n"
+        )
+
+    reader = ReadMlpDensity(work_dir)
+    reader.read_property_and_sort(n_screen=5, sort_by="density", molecules_screen=True)
+
+    # 验证：CSV 中 energy 为 "N/A"
+    csv_path = reader.max_density_dir / "mlp_density_energy.csv"
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader_csv = csv.reader(f)
+        rows = list(reader_csv)
+        # 跳过标题
+        for row in rows[1:]:  # 第一行是标题
+            assert row[1] == "N/A", f"Expected 'N/A' for energy, got {row[1]}"
+
+
+@patch("ion_CSP.read_mlp_density.identify_molecules")
+@patch("ion_CSP.read_mlp_density.read_vasp")
 def test_read_property_and_sort_contcar_not_found(
     mock_read_vasp, mock_identify, setup_temp_dirs
 ):
@@ -322,6 +358,60 @@ def test_read_property_and_sort_backup_mechanism(
     # 验证备份目录存在
     backup_dir = mlp_dir / "backup" / "max_density"
     assert backup_dir.exists()
+
+
+
+@patch("ion_CSP.read_mlp_density.identify_molecules")
+@patch("ion_CSP.read_mlp_density.read_vasp")
+def test_read_property_and_sort_outcar_not_exists_but_contcar_exists(
+    mock_read_vasp, mock_identify, sample_contcar_files, caplog
+):
+    """
+    测试：OUTCAR文件不存在，但CONTCAR文件存在的情况
+    验证：复制CONTCAR，但不复制OUTCAR，记录相关日志
+    """
+    work_dir, mlp_dir = sample_contcar_files
+
+    # 模拟ASE原子对象
+    mock_atoms = MagicMock()
+    mock_atoms.get_volume.return_value = 10.0
+    mock_atoms.get_masses.return_value = [1.0, 1.0, 1.0]
+    mock_read_vasp.return_value = mock_atoms
+    mock_identify.return_value = ({}, True, {})
+
+    reader = ReadMlpDensity(work_dir)
+
+    # 删除一个OUTCAR文件模拟缺失，但保留对应的CONTCAR
+    outcar_to_delete = mlp_dir / "OUTCAR_1"
+    contcar_path = mlp_dir / "CONTCAR_1"
+    outcar_to_delete.unlink(missing_ok=True)
+    assert not outcar_to_delete.exists(), "OUTCAR_1 应该被删除"
+    assert contcar_path.exists(), "CONTCAR_1 应该存在"
+
+    caplog.set_level(logging.INFO)
+
+    # 执行排序
+    reader.read_property_and_sort(n_screen=1, sort_by="density", molecules_screen=True)
+
+    # 验证max_density目录被创建
+    assert reader.max_density_dir.exists()
+
+    # 检查复制的文件
+    contcar_files = list(reader.max_density_dir.glob("CONTCAR_*"))
+    outcar_files = list(reader.max_density_dir.glob("OUTCAR_*"))
+
+    # CONTCAR_1 存在，应该被复制
+    assert len(contcar_files) == 1, f"预期1个CONTCAR被复制，但找到: {contcar_files}"
+
+    # OUTCAR_1 不存在，所以不应该被复制
+    assert len(outcar_files) == 0, f"预期没有OUTCAR被复制，但找到: {outcar_files}"
+
+    # 验证日志
+    assert "New CONTCAR and OUTCAR" in caplog.text
+
+    # 验证CSV文件
+    csv_file = reader.max_density_dir / "mlp_density_energy.csv"
+    assert csv_file.exists()
 
 
 @pytest.mark.parametrize(

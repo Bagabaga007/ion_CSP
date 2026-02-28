@@ -244,22 +244,31 @@ def main():
     if not indexes:
         print("No POSCAR_*.vasp files found. Nothing to optimize.")
         return
-    
-    # 初始化进程池
-    ctx = multiprocessing.get_context("spawn")
-    pool = ctx.Pool(8)
-    # 映射优化任务到进程池
-    try:
+
+    try:    
+        # 初始化进程池
+        ctx = multiprocessing.get_context("spawn")
+        global pool
+        pool = ctx.Pool(8)
+        # 映射优化任务到进程池
         print(f"Starting optimization for {len(indexes)} structures...")
         pool.map(func=run_opt, iterable=indexes)
         print("All optimizations completed successfully.")
-    except KeyboardInterrupt:
-        # 防止未注册信号时的意外中断
-        stop_handler(signal.SIGINT, None)
+    except (MemoryError, OSError, PermissionError) as e:
+        print("Falling back to serial execution due to resource constraints:", e)
+        for index in indexes:
+            run_opt(index)
+        print("All optimizations completed successfully in serial mode.")
+    except Exception as e:
+        print("Unexpected error during multiprocessing pool initialization:", e)
+        print("Aborting execution.")
     finally:
         if pool is not None:
             pool.close()
-            pool.join()           
+            pool.join()
+            print("Process pool cleaned up successfully.")
+        else:
+            print("No process pool to clean up.")
     total_stop = time.time()
     print(f"Total optimization time: {total_stop - total_start:.2f}s")
 

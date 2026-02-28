@@ -2,9 +2,17 @@
 
 ## Latest Changes
 
+### f05f61c (2025-12-12)
+
+Update version number to 2.2.6. Refactoring and testing various functional scripts, and increasing the statement coverage and branch coverage of some tests to 100%.
+
 ### 57fbdb5 (2025-10-28)
 
 Refactor tests and add new test cases for MLP density reading and VASP processing
+
+### 209b092 (2025-10-13)
+
+Update test_identify_molecules.py
 
 ## V2.2.5
 

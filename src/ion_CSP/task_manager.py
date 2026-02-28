@@ -4,6 +4,7 @@ import sys
 import time
 import psutil
 import logging
+import tempfile
 import subprocess
 import importlib.util
 from pathlib import Path
@@ -15,17 +16,28 @@ class TaskManager:
     def __init__(self):
         """初始化任务管理器 - Initialize task manager"""
         self.env = "LOCAL"
-        self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.project_root = Path(__file__).parent.parent.parent
         self.workspace = Path.cwd()
-        self.log_base = "logs"
-        self.log_dir = self.workspace / self.log_base
+        self.log_dir = self.workspace / "logs"
         self.version = self._get_version()
-        self._detect_env()
-        self._setup_logging()
+        
+        try:
+            self._detect_env()      # 可能抛出权限或系统错误
+            self._setup_logging()   # 可能抛出日志初始化错误
+            logging.info("TaskManager initialization finished")
+            
+        except (PermissionError, OSError) as e:
+            # 系统级错误，通常无法继续
+            print(f"Fatal error: initialization failed {e}")
+            raise
+        except Exception as e:
+            # 其他未预期错误
+            print(f"Unexpected error during initialization: {e}")
+            raise e
 
 
     def __repr__(self):
-        return f"Taskmanager(version={self.version}, env={self.env}, project_root={self.project_root}, workspace={self.workspace}, log_base={self.log_base}, log_dir={self.log_dir})"
+        return f"Taskmanager(version={self.version}, env={self.env}, project_root={self.project_root}, workspace={self.workspace}, log_dir={self.log_dir})"
 
 
     def _get_version(self):
@@ -42,28 +54,100 @@ class TaskManager:
 
     def _detect_env(self):
         """检测运行环境 - Detect execution environment"""
-        if Path("/.dockerenv").exists() or "DOCKER" in os.environ:
-            self.env = "DOCKER"
-            self.workspace = Path("/app")
-            self.log_dir = Path("/app/logs")
-        conda_env = os.getenv("CONDA_DEFAULT_ENV")
-        env_msg = conda_env if conda_env else "Not Conda Env"
-        self.envs = f"{self.env} ({env_msg})"
-        self.workspace.mkdir(exist_ok=True)
+        try:
+            # 环境检测逻辑通常不会直接抛出异常，但路径检查可能因权限问题失败
+            if Path("/.dockerenv").exists() or "DOCKER" in os.environ:
+                self.env = "DOCKER"
+                self.workspace = Path("/app")
+                self.log_dir = Path("/app/logs")
+            else:
+                conda_env = os.getenv("CONDA_DEFAULT_ENV")
+                env_msg = conda_env if conda_env else "Not Conda Env"
+                self.envs = f"{self.env} ({env_msg})"
+                # 目录创建是主要的异常风险点
+                self.workspace.mkdir(exist_ok=True)
+        except (PermissionError,OSError) as e:
+            # 其他系统级错误，如磁盘满、路径无效等
+            logging.error(f"Failed to create workspace directory {self.workspace}: {e}")
+            raise e
+        except Exception as e:
+            # 捕获其他未预期的异常并记录，但考虑重新抛出
+            logging.error(f"Unexpected error during environment detection: {e}")
+            raise e
 
 
     def _setup_logging(self):
         """配置日志系统 - Configure logging system"""
-        self.log_dir = self.workspace / self.log_base
-        self.log_dir.mkdir(parents=True, exist_ok=True)
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-            handlers=[
-                logging.FileHandler(self.log_dir / "system.log"),
-                logging.StreamHandler(),
-            ],
-        )
+        try:
+            if self.env == "LOCAL":
+                self.log_dir.mkdir(parents=True, exist_ok=True)
+
+            # 获取根日志器，清除已有 handlers（避免重复）
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+            logger.handlers.clear()  # 清除 pytest 可能注入的 handlers
+
+            # 创建文件处理器
+            file_handler = logging.FileHandler(self.log_dir / "system.log")
+            file_handler.setFormatter(
+                logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+            )
+
+            # 创建控制台处理器
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(
+                logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+            )
+
+            # 添加处理器
+            logger.addHandler(file_handler)
+            logger.addHandler(console_handler)
+
+            # 防止日志传播到上级（避免在测试过程中 pytest 重复输出）
+            logger.propagate = False
+            logger.info("Logging system initialized")
+
+        except PermissionError:
+            if self.env == "LOCAL":
+                # 权限错误：尝试回退到临时目录
+                fallback_dir = Path(tempfile.gettempdir()) / "myapp_logs"
+                fallback_dir.mkdir(exist_ok=True)
+                
+                self.log_dir = fallback_dir
+                logging.warning(f"No permission to access original log directory, fallback to temporary directory: {fallback_dir}")
+                
+                # 重新尝试设置日志（简化版）
+                self._setup_fallback_logging()
+            else:
+                # Docker 环境下：/app/logs 应由镜像创建，若失败，是部署错误
+                logging.error(f"Permission denied for log directory {self.log_dir} in non-local environment")
+                raise PermissionError("Insufficient permissions for log directory")
+            
+        except OSError as e:
+            if self.env == "LOCAL":
+                # 磁盘空间不足、路径无效等系统错误
+                logging.error(f"Logging system initialization failed: {e}")
+                # 可以选择重新抛出或使用基本日志配置
+                raise e
+            else:
+                logging.error(f"Logging system initialization failed in Docker: {e}")
+                raise e
+        except Exception as e:
+            logging.error(f"Unexpected error in logging setup: {e}")
+            raise e
+
+
+    def _setup_fallback_logging(self):
+        """降级方案：最小化日志配置"""
+        try:
+            # 仅设置控制台日志作为保底方案
+            logging.basicConfig(
+                level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+            )
+            logging.warning("Using fallback logging configuration (console only)")
+        except Exception as e:
+            # 如果连基本日志配置都失败，打印信息作为最后手段
+            print(f"Fatal error in logging system initialization: {e}")
 
 
     def _cleanup_task_files(self, module: str, pid: int):
@@ -229,7 +313,7 @@ class TaskManager:
     def task_runner(self, module: str, work_dir: str):
         """任务执行器 - Task execution handler"""
         work_dir = Path(work_dir)
-        if not os.path.exists(work_dir):
+        if not work_dir.exists():
             print(f"Work directory {work_dir} does not exist")
             return
 
@@ -243,19 +327,26 @@ class TaskManager:
             raise ImportError(f"Module {module_name} not found")
         # 启动子进程
         cmd = [sys.executable, "-m", module_name, str(work_dir)]
-
-        with open(console_log, "w") as f:
-            process = subprocess.Popen(
-                cmd,
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid if os.name != "nt" else None,
-            )
+        try:
+            with console_log.open("w") as f:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                    preexec_fn=os.setsid if os.name != "nt" else None,
+                )
+        except PermissionError as e:
+            logging.error(f"Permission denied when writing to {console_log}: {e}")
+            return
+        except Exception as e:
+            logging.error(f"Error starting subprocess for {module}: {e}")
+            return
 
         # 等待PID文件创建
         time.sleep(1)
+
         try:
-            with open(pid_file, "w") as f:
+            with pid_file.open("w") as f:
                 f.write(str(process.pid))
         except Exception as e:
             logging.error(f"Error writing PID file: {e}")
@@ -268,9 +359,9 @@ class TaskManager:
         try:
             output_log = output_log.resolve()
             std_log.symlink_to(output_log)
-            os.remove(pid_file)
+            pid_file.unlink(missing_ok=True)
         except FileExistsError:
-            os.remove(std_log)
+            std_log.unlink(missing_ok=True)
             std_log.symlink_to(output_log)
 
         print('Starting task ......')

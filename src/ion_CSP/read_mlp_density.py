@@ -131,7 +131,7 @@ class ReadMlpDensity:
                 else float("-inf"),
                 reverse=True,
             )
-        elif sort_by == "energy":
+        else:
             sorted_list = sorted(
                 property_index_list,
                 key=lambda x: x["energy"] 
@@ -139,7 +139,12 @@ class ReadMlpDensity:
                 else float("inf"),
             )
         # 筛选出有效的结构（有对应的排序属性值）
-        valid_sorted_list = [item for item in sorted_list if item[sort_by] is not None]
+        valid_sorted_list = [
+            item
+            for item in sorted_list
+            if isinstance(item[sort_by], (int, float))
+            and not isinstance(item[sort_by], bool)
+        ]
         # 输出筛选结果
         if molecules_screen:
             logging.info(
@@ -158,7 +163,7 @@ class ReadMlpDensity:
         # 设置排序结果保存目录
         if sort_by == "density":
             self.sort_value_dir = self.max_density_dir
-        elif sort_by == "energy":
+        else:
             self.sort_value_dir = self.min_energy_dir
         # 将前n个最大密度的CONTCAR文件进行重命名并保存到max_density文件夹
         if self.sort_value_dir.exists():
@@ -179,7 +184,7 @@ class ReadMlpDensity:
             # 根据排序属性决定文件名中的值
             if sort_by == "density":
                 sort_value = f"{density:.3f}"
-            elif sort_by == "energy":
+            else:
                 sort_value = f"{energy:.2f}"
 
             # 保留 CONTCAR 的序数信息，方便回推检查
@@ -196,8 +201,8 @@ class ReadMlpDensity:
             new_OUTCAR_filename = f"OUTCAR_{sort_value}_{number}"
             new_CONTCAR_path = self.sort_value_dir / new_CONTCAR_filename
             new_OUTCAR_path = self.sort_value_dir / new_OUTCAR_filename
-            if src_CONTCAR_path.exists():
-                shutil.copy(str(src_CONTCAR_path), str(new_CONTCAR_path))
+            # 复制并重命名文件(CONTCAR已经过read_vasp读取解析，无需额外检查)
+            shutil.copy(str(src_CONTCAR_path), str(new_CONTCAR_path))
             if src_OUTCAR_path.exists():
                 shutil.copy(str(src_OUTCAR_path), str(new_OUTCAR_path))
             logging.info(

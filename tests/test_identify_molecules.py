@@ -1,7 +1,9 @@
 import os
-import logging
 import pytest
+import logging
+import numpy as np
 from ase import Atoms
+from unittest.mock import MagicMock
 
 from ion_CSP.identify_molecules import (
     identify_molecules,
@@ -145,10 +147,124 @@ def test_identify_molecules_no_gjf_files(setup_test_environment):
     assert initial_info == []
 
 
-def test_identify_molecules_empty_atoms(tmp_path):
-    atoms = Atoms()
-    merged_molecules, molecules_flag, initial_info = identify_molecules(atoms, tmp_path)
-    assert len(merged_molecules) == 0
+def test_identify_molecules_complex_bonding():
+    """
+    Test identification of multiple disconnected molecules and complex bonding.
+    Includes:
+    - Two separate molecules: H2O and CH4
+    - One cyclic molecule: benzene (C6H6)
+    - Ensure DFS correctly identifies 3 independent molecules
+    """
+
+    # 1. 构建一个包含三个独立分子的体系：
+    #    - H2O: 3 atoms
+    #    - CH4: 5 atoms
+    #    - C6H6 (benzene): 12 atoms
+    #    总计：20 个原子
+
+    positions = []
+    symbols = []
+
+    # --- H2O 分子 ---
+    h2o_positions = [
+        [0.0, 0.0, 0.0],  # O
+        [0.95, 0.0, 0.0],  # H1
+        [-0.95, 0.0, 0.0],  # H2
+    ]
+    positions.extend(h2o_positions)
+    symbols.extend(["O", "H", "H"])
+
+    # --- CH4 分子（与 H2O 不相连）---
+    ch4_positions = [
+        [5.0, 0.0, 0.0],  # C
+        [5.0 + 1.09, 0.0, 0.0],  # H1
+        [5.0, 1.09, 0.0],  # H2
+        [5.0, 0.0, 1.09],  # H3
+        [5.0 - 0.545, -0.545, -0.545],  # H4 (近似四面体)
+    ]
+    positions.extend(ch4_positions)
+    symbols.extend(["C", "H", "H", "H", "H"])
+
+    # --- 苯环 C6H6（环状结构）---
+    # 简化模型：六边形平面结构，键长 ~1.4 Å
+    benzene_radius = 1.4
+    for i in range(6):
+        angle = i * np.pi / 3
+        x = benzene_radius * np.cos(angle) + 10.0  # 平移到远处，避免与前两个分子成键
+        y = benzene_radius * np.sin(angle) + 0.0
+        z = 0.0
+        positions.append([x, y, z])  # C
+        symbols.append("C")
+        # 每个 C 上加一个 H，向外径向
+        h_x = x + 1.09 * np.cos(angle + np.pi / 2)
+        h_y = y + 1.09 * np.sin(angle + np.pi / 2)
+        h_z = 0.0
+        positions.append([h_x, h_y, h_z])  # H
+        symbols.append("H")
+
+    # 创建 Atoms 对象（非周期性）
+    cell = np.eye(3) * 20.0  # 20Å 足够大，无周期性成键
+    atoms = Atoms(symbols=symbols, positions=positions, cell=cell, pbc=False)
+
+    # 2. 调用函数
+    molecules, flag, initial_info = identify_molecules(atoms, MagicMock())
+
+    # 3. 验证：应识别出 3 个独立分子
+    assert len(molecules) == 3, f"Expected 3 molecules, got {len(molecules)}"
+
+    # 4. 验证每个分子的元素组成
+    molecule_dicts = [dict(mol) for mol in molecules.keys()]
+
+    # 按元素计数排序，便于比较
+    molecule_dicts_sorted = sorted(
+        molecule_dicts, key=lambda x: tuple(sorted(x.items()))
+    )
+
+    expected_molecules = [
+        {"O": 1, "H": 2},  # H2O
+        {"C": 1, "H": 4},  # CH4
+        {"C": 6, "H": 6},  # C6H6
+    ]
+    expected_sorted = sorted(expected_molecules, key=lambda x: tuple(sorted(x.items())))
+
+    assert molecule_dicts_sorted == expected_sorted, (
+        f"Expected: {expected_sorted}\nGot: {molecule_dicts_sorted}"
+    )
+
+    # 5. 验证 flag（匹配初始文件）：我们不关心，因为 base_dir 是 MagicMock()
+    assert isinstance(flag, bool)
+
+    # 6. 验证 initial_info：应为 list[dict]，我们没提供 .gjf 文件，所以是空列表
+    assert isinstance(initial_info, list)
+    assert len(initial_info) == 0  # 因为 base_dir 是 MagicMock()，无 .gjf 文件
+
+
+def test_identify_molecules_empty_structure():
+    """
+    Test that identify_molecules handles an empty Atoms object gracefully.
+    Should return empty list of molecules, flag=True (empty matches empty .gjf), initial_info=[]
+    """
+
+    # 关键：创建空原子体系，但显式设置合法 cell 和 pbc
+    atoms = Atoms(
+        symbols=[],  # 无原子
+        positions=np.zeros((0, 3)),  # 0 个位置
+        cell=np.eye(3),  # 必须是 (3,3) 数组！不能是 None
+        pbc=False,  # 非周期性
+    )
+
+    # 调用函数
+    molecules, flag, initial_info = identify_molecules(atoms, MagicMock())
+
+    # 验证：没有分子
+    assert len(molecules) == 0, "Empty structure should return 0 molecules"
+
+    # 验证 flag：空体系与空 .gjf 文件匹配 → 应为 True
+    assert flag is True, "Empty structure should match empty initial molecules"
+
+    # 验证 initial_info：无 .gjf 文件，应为 []
+    assert isinstance(initial_info, list)
+    assert len(initial_info) == 0
 
 
 # ==================== 测试 format_molecule_output 函数 ====================

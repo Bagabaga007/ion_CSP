@@ -44,8 +44,7 @@ def identify_molecules(atoms, base_dir: Path = Path('./')) -> Tuple[List[Dict[st
                     # 将未访问的成键原子索引添加到栈中
                     stack.extend(idx for idx in bonded_indices if idx not in visited)
             # 如果当前分子包含元素信息，则将其添加到分子列表中
-            if current_molecule:
-                identified_molecules.append(current_molecule) 
+            identified_molecules.append(current_molecule) 
     # 用于合并分子及其计数
     merged_molecules = defaultdict(int)
     # 将识别到的分子转换为集合，方便与初始分子进行比较
