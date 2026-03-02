@@ -44,8 +44,9 @@ ion-csp = "ion_CSP.task_manager:main"
 addopts = [
     "--tb=short",
     "-v",
-    "--cov=ion_CSP",
+    "--cov=src/ion_CSP",
     "--cov-report=html",
+    "--cov-report=term-missing",
     "--cov-branch",
 ]
 filterwarnings = [

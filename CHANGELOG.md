@@ -2,6 +2,12 @@
 
 ## Latest Changes
 
+### 53b44c8 (2026-02-28)
+
+Enhance tests for molecule identification and improve coverage of codes
+
+## V2.2.6
+
 ### f05f61c (2025-12-12)
 
 Update version number to 2.2.6. Refactoring and testing various functional scripts, and increasing the statement coverage and branch coverage of some tests to 100%.

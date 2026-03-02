@@ -315,138 +315,171 @@ class VaspProcessing:
             return None, float("-inf"), float("inf")
 
 
-    def read_vaspout_save_csv(self, molecules_prior: bool, relaxation: bool = False):
+    def _load_config(self):
         """
-        Read VASP output files in batches and save energy and density to corresponding CSV files in the directory
-        """
-        data_rows = []
+        Load configuration from config.yaml file.
 
+        Returns:
+            tuple: (species_json, ion_numbers) or ([], []) if config not found
+        """
         config_path = self.base_dir / "config.yaml"
+        species_json = []
+        ion_numbers = []
+
         if config_path.exists():
             with open(config_path, "r") as file:
                 config = yaml.safe_load(file)
-        species_json = [
-            os.path.splitext(f)[0] + ".json" for f in config["gen_opt"]["species"]
-        ]
-        ion_numbers = config["gen_opt"]["ion_numbers"]
+            if config and "gen_opt" in config:
+                species_json = [
+                    os.path.splitext(f)[0] + ".json" for f in config["gen_opt"]["species"]
+                ]
+                ion_numbers = config["gen_opt"]["ion_numbers"]
 
-        for folder in self.vasp_optimized_dir.iterdir():
-            if not folder.is_dir():
-                continue
-            if "_" not in folder.name:
-                logging.warning(
-                    f"Skipping folder with unexpected name format: {folder.name}"
+        return species_json, ion_numbers
+
+
+    def _read_structure_properties(self, folder: Path, relaxation: bool):
+        """
+        Read properties from a single structure folder.
+
+        Args:
+            folder: Path to the structure folder
+            relaxation: Whether to read final relaxation results
+
+        Returns:
+            dict: Dictionary containing all properties for this structure
+        """
+        number = folder.name.split("_")[-1]
+        logging.info(f"CONTCAR_{folder.name}")
+
+        # Read MLP properties
+        mlp_contcar = self.vasp_optimized_dir / f"CONTCAR_{folder.name}"
+        mlp_outcar = self.vasp_optimized_dir / f"OUTCAR_{folder.name}"
+        mlp_density, mlp_energy = self._read_mlp_properties(mlp_contcar, mlp_outcar)
+        logging.info(f"  MLP_Density: {mlp_density}, MLP_Energy: {mlp_energy}")
+
+        # Read Rough optimization
+        rough_outcar = folder / "OUTCAR"
+        rough_atoms, rough_density, rough_energy = self._read_vasp_outcar(rough_outcar)
+        if rough_atoms is None:
+            logging.error(f"Error reading OUTCAR file {rough_outcar}\n")
+        else:
+            logging.info(f"  Rough_Density: {rough_density}, Rough_Energy: {rough_energy}")
+
+        # Read Fine optimization
+        fine_outcar = folder / "fine/OUTCAR"
+        fine_atoms, fine_density, fine_energy = self._read_vasp_outcar(fine_outcar)
+        fine_ions_check = False
+
+        if fine_atoms is None:
+            logging.error(f"Error reading fine/OUTCAR file {fine_outcar}\n")
+        else:
+            if not relaxation:
+                molecules, fine_ions_check, initial_info = identify_molecules(
+                    fine_atoms, base_dir=self.base_dir
                 )
-                continue
-
-            number = folder.name.split("_")[-1]
-            logging.info(f"CONTCAR_{folder.name}")
-            # 读取 4_vasp_optimized 目录下的机器学习势的 CONTCAR 与 OUTCAR 文件
-            mlp_contcar = self.vasp_optimized_dir / f"CONTCAR_{folder.name}"
-            mlp_outcar = self.vasp_optimized_dir / f"OUTCAR_{folder.name}"
-            mlp_density, mlp_energy = self._read_mlp_properties(mlp_contcar, mlp_outcar)
-            logging.info(f"  MLP_Density: {mlp_density}, MLP_Energy: {mlp_energy}")
-            # 读取二级目录下 Rough 优化的 OUTCAR 文件
-            rough_outcar = folder / "OUTCAR"
-            rough_atoms, rough_density, rough_energy = self._read_vasp_outcar(rough_outcar)
-            if rough_atoms is None:
-                logging.error(f"Error reading OUTCAR file {rough_outcar}\n")
-            else:
+                if not initial_info:
+                    raise KeyError("No available initial molecules")
                 logging.info(
-                    f"  Rough_Density: {rough_density}, Rough_Energy: {rough_energy}"
+                    f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}, Ions_Check: {fine_ions_check}"
                 )
-
-            # 读取三级目录下 Fine 优化的 OUTCAR 文件
-            fine_outcar = folder / "fine/OUTCAR"
-            fine_atoms, fine_density, fine_energy = (
-                self._read_vasp_outcar(fine_outcar)
-            )
-            fine_ions_check, final_ions_check = False, False
-            final_density, final_energy = float("-inf"), float("inf")
-            if fine_atoms is None:
-                logging.error(f"Error reading fine/OUTCAR file {fine_outcar}\n")
+                molecules_information(molecules, fine_ions_check, initial_info)
             else:
-                if not relaxation:
-                    molecules, fine_ions_check, initial_info = identify_molecules(
-                        fine_atoms, base_dir=self.base_dir
-                    )
-                    if not initial_info:
-                        raise KeyError("No available initial molecules")
-                    logging.info(
-                        f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}, Ions_Check: {fine_ions_check}"
-                    )
-                    molecules_information(molecules, fine_ions_check, initial_info)
-                else:
-                    logging.info(
-                        f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}"
-                    )
-                    # 读取四级目录下 Final 优化的 OUTCAR 文件
-                    final_outcar = folder / "fine/final/OUTCAR"
-                    final_atoms, final_density, final_energy = (
-                        self._read_vasp_outcar(final_outcar)
-                    )
-                    if final_atoms is None:
-                        logging.error(f"Error reading final/OUTCAR file {final_outcar}\n")
-                    else:
-                        molecules, final_ions_check, initial_info = identify_molecules(
-                            final_atoms, base_dir=self.base_dir
-                        )
-                        if not initial_info:
-                            raise KeyError("No available initial molecules")
-                        logging.info(
-                            f"  Final_Density: {final_density}, Final_Energy: {final_energy}, Ions_Check: {final_ions_check}"
-                        )
-                        molecules_information(molecules, final_ions_check, initial_info)
-            fine_PC = False
-            final_PC = False
-            # 读取根目录下的 config.yaml 信息与对应的 .json 文件
-            try:
-                for json_file, count in zip(species_json, ion_numbers):
-                    molecular_volumes = 0
+                logging.info(f"  Fine_Density: {fine_density}, Fine_Energy: {fine_energy}")
 
+        # Read Final relaxation (if applicable)
+        final_density, final_energy = float("-inf"), float("inf")
+        final_ions_check = False
+        final_atoms = None
+
+        if relaxation and fine_atoms is not None:
+            final_outcar = folder / "fine/final/OUTCAR"
+            final_atoms, final_density, final_energy = self._read_vasp_outcar(final_outcar)
+            if final_atoms is None:
+                logging.error(f"Error reading final/OUTCAR file {final_outcar}\n")
+            else:
+                molecules, final_ions_check, initial_info = identify_molecules(
+                    final_atoms, base_dir=self.base_dir
+                )
+                if not initial_info:
+                    raise KeyError("No available initial molecules")
+                logging.info(
+                    f"  Final_Density: {final_density}, Final_Energy: {final_energy}, Ions_Check: {final_ions_check}"
+                )
+                molecules_information(molecules, final_ions_check, initial_info)
+
+        return {
+            "number": number,
+            "mlp_density": mlp_density,
+            "mlp_energy": mlp_energy,
+            "rough_density": rough_density,
+            "rough_energy": rough_energy,
+            "fine_density": fine_density,
+            "fine_energy": fine_energy,
+            "fine_ions_check": fine_ions_check,
+            "fine_atoms": fine_atoms,
+            "final_density": final_density,
+            "final_energy": final_energy,
+            "final_ions_check": final_ions_check,
+            "final_atoms": final_atoms,
+        }
+
+
+    def _calculate_packing_coefficient(self, atoms, species_json, ion_numbers, relaxation: bool, final_atoms=None):
+        """
+        Calculate packing coefficient for a structure.
+
+        Args:
+            atoms: Fine optimization atoms object
+            species_json: List of species JSON files
+            ion_numbers: List of ion numbers
+            relaxation: Whether final relaxation was performed
+            final_atoms: Final relaxation atoms object (if applicable)
+
+        Returns:
+            tuple: (fine_PC, final_PC)
+        """
+        fine_PC = False
+        final_PC = False
+
+        if species_json and ion_numbers:
+            try:
+                molecular_volumes = 0
+                for json_file, count in zip(species_json, ion_numbers):
                     with open(self.base_dir / json_file, "r") as file:
                         property = json.load(file)
                     molecular_volume = float(property["volume"])
                     molecular_volumes += molecular_volume * count
-                    fine_volume = (
-                        fine_atoms.get_volume() if fine_atoms is not None else None
-                    )
+
+                fine_volume = atoms.get_volume() if atoms is not None else None
+                if fine_volume:
                     fine_PC = round(molecular_volumes / fine_volume, 3)
-                if relaxation:
-                    final_volume = (
-                        final_atoms.get_volume() if final_atoms is not None else None
-                    )
-                    final_PC = round(molecular_volumes / final_volume, 3)
-            except (FileNotFoundError, UnboundLocalError, TypeError):
+
+                if relaxation and final_atoms is not None:
+                    final_volume = final_atoms.get_volume()
+                    if final_volume:
+                        final_PC = round(molecular_volumes / final_volume, 3)
+            except (FileNotFoundError, TypeError, ZeroDivisionError):
                 fine_PC = False
                 final_PC = False
 
-            row = {
-                "Number": number,
-                "MLP_Density": mlp_density,
-                "MLP_Energy": mlp_energy,
-                "Rough_Density": rough_density,
-                "Rough_Energy": rough_energy,
-                "Fine_Density": fine_density,
-                "Fine_Energy": fine_energy,
-                "Fine_Ions_Check": fine_ions_check,
-                "Fine_PC": fine_PC,
-            }
-            if relaxation:
-                row.update(
-                    {
-                        "Final_Density": final_density,
-                        "Final_Energy": final_energy,
-                        "Final_Ions_Check": final_ions_check,
-                        "Final_PC": final_PC,
-                    }
-                )
-            data_rows.append(row)
+        return fine_PC, final_PC
 
-        csv_file_path = self.base_dir / "vasp_density_energy.csv"
-        if csv_file_path.exists():
-            csv_file_path.unlink()
-        with csv_file_path.open("w", newline="", encoding="utf-8") as csv_file:
+
+    def _write_csv_file(self, data_rows, csv_path: Path, molecules_prior: bool, relaxation: bool):
+        """
+        Write data rows to CSV file with proper sorting.
+
+        Args:
+            data_rows: List of data dictionaries
+            csv_path: Path to output CSV file
+            molecules_prior: Whether to prioritize molecular structures in sorting
+            relaxation: Whether final relaxation was performed
+        """
+        if csv_path.exists():
+            csv_path.unlink()
+
+        with csv_path.open("w", newline="", encoding="utf-8") as csv_file:
             header = (
                 [
                     "Number",
@@ -492,8 +525,15 @@ class VaspProcessing:
             writer.writeheader()
             writer.writerows(data_rows)
 
-        logging.info(f"VASP Density and Energy data saved to {csv_file_path}")
 
+    def _log_max_densities(self, data_rows, relaxation: bool):
+        """
+        Log maximum density information.
+
+        Args:
+            data_rows: List of data dictionaries
+            relaxation: Whether final relaxation was performed
+        """
         # 创建以number为键的字典
         data_dict = {}
         for row in data_rows:
@@ -512,19 +552,18 @@ class VaspProcessing:
         max_mlp_density = data_dict[max_mlp_num]['mlp_density']
         max_fine_density = data_dict[max_fine_num]['fine_density']
 
-        if relaxation:
-            max_final_num = max(data_dict, key=lambda k: data_dict[k]['final_density'])
-            max_final_density = data_dict[max_final_num]['final_density']
-
         # 打印结果
         logging.info(
             f"Maximum MLP Density: {max_mlp_density} (Structure Number: {max_mlp_num})"
         )
+
         if not relaxation:
             logging.info(
                 f"Maximum Fine Density: {max_fine_density} (Structure Number: {max_fine_num})\n"
             )
         else:
+            max_final_num = max(data_dict, key=lambda k: data_dict[k]['final_density'])
+            max_final_density = data_dict[max_final_num]['final_density']
             logging.info(
                 f"Maximum Fine Density: {max_fine_density} (Structure Number: {max_fine_num})"
             )
@@ -532,6 +571,62 @@ class VaspProcessing:
                 f"Maximum Final Density: {max_final_density} (Structure Number: {max_final_num})\n"
             )
 
+
+    def read_vaspout_save_csv(self, molecules_prior: bool, relaxation: bool = False):
+        """
+        Read VASP output files in batches and save energy and density to corresponding CSV files in the directory
+
+        Args:
+            molecules_prior: Whether to prioritize molecular structures in sorting
+            relaxation: Whether to read final relaxation results
+        """
+        data_rows = []
+        species_json, ion_numbers = self._load_config()
+
+        for folder in self.vasp_optimized_dir.iterdir():
+            if not folder.is_dir():
+                continue
+            if "_" not in folder.name:
+                logging.warning(
+                    f"Skipping folder with unexpected name format: {folder.name}"
+                )
+                continue
+
+            # Read all properties for this structure
+            props = self._read_structure_properties(folder, relaxation)
+
+            # Calculate packing coefficient
+            fine_PC, final_PC = self._calculate_packing_coefficient(
+                props["fine_atoms"], species_json, ion_numbers, relaxation, props["final_atoms"]
+            )
+
+            row = {
+                "Number": props["number"],
+                "MLP_Density": props["mlp_density"],
+                "MLP_Energy": props["mlp_energy"],
+                "Rough_Density": props["rough_density"],
+                "Rough_Energy": props["rough_energy"],
+                "Fine_Density": props["fine_density"],
+                "Fine_Energy": props["fine_energy"],
+                "Fine_Ions_Check": props["fine_ions_check"],
+                "Fine_PC": fine_PC,
+            }
+            if relaxation:
+                row.update(
+                    {
+                        "Final_Density": props["final_density"],
+                        "Final_Energy": props["final_energy"],
+                        "Final_Ions_Check": props["final_ions_check"],
+                        "Final_PC": final_PC,
+                    }
+                )
+            data_rows.append(row)
+
+        csv_file_path = self.base_dir / "vasp_density_energy.csv"
+        self._write_csv_file(data_rows, csv_file_path, molecules_prior, relaxation)
+        logging.info(f"VASP Density and Energy data saved to {csv_file_path}")
+
+        self._log_max_densities(data_rows, relaxation)
 
     def export_max_density_structure(self, relaxation: bool = False):
         """
