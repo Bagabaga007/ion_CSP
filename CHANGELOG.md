@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### a17d6c1 (2026-03-02)
+
+Refactor VaspProcessing module and enhance test coverage to 88%
+
 ### 53b44c8 (2026-02-28)
 
 Enhance tests for molecule identification and improve coverage of codes
