@@ -1,3 +1,9 @@
+"""VASP calculation processing and management module.
+
+This module provides functionality for processing VASP calculations, including
+input file preparation, job submission, output parsing, and result analysis.
+"""
+
 import os
 import csv
 import json

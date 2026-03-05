@@ -1,7 +1,6 @@
 import os
 import sys
 import pytest
-import signal
 import numpy as np
 from io import StringIO
 from unittest.mock import patch, MagicMock, ANY
@@ -14,7 +13,7 @@ sys.modules["deepmd.calculator"] = MagicMock()
 sys.modules["deepmd.calculator"].DP = MagicMock()
 
 from ion_CSP.mlp_opt import (get_element_num, write_CONTCAR, write_OUTCAR,
-                             get_indexes, run_opt, stop_handler, main)
+                             get_indexes, run_opt, main)
 
 
 @pytest.fixture(autouse=True)
@@ -224,65 +223,9 @@ def test_run_opt_with_existing_outcar(
 
     # 7. 验证：原 OUTCAR 被移动，不再是原文件
     # 注意：我们没有实际创建 OUTCAR，但 mock_move 已验证行为
-    
-
-# ==================== 测试 stop_handler 函数 ====================
-@patch("ion_CSP.mlp_opt.print")
-@patch("ion_CSP.mlp_opt.pool", new_callable=MagicMock)
-def test_stop_handler_terminates_pool(mock_pool, mock_print):
-    """测试 stop_handler 是否正确终止进程池并退出"""
-    # 模拟收到 SIGINT 信号
-    with pytest.raises(SystemExit) as exc_info:  # 捕获 sys.exit(0)
-        stop_handler(signal.SIGINT, None)
-
-    # 验证退出码是 0
-    assert exc_info.value.code == 0
-
-    # 验证是否打印了退出信息
-    mock_print.assert_any_call("\nReceived signal 2 (Ctrl+C or SIGTERM), shutting down gracefully...")
-    mock_print.assert_any_call("Terminating multiprocessing pool...")
-    mock_print.assert_any_call("All child processes terminated. Exiting.")
-
-    # 验证是否调用了 pool.terminate() 和 pool.join()
-    mock_pool.terminate.assert_called_once()
-    mock_pool.join.assert_called_once()
-
-
-@patch("ion_CSP.mlp_opt.print")
-def test_stop_handler_pool_is_none(mock_print):
-    """测试当 pool 为 None 时，stop_handler 不崩溃，且不调用 terminate/join"""
-    # 获取 mlp_opt 模块
-    mlp_opt = sys.modules["ion_CSP.mlp_opt"]
-    original_pool = mlp_opt.pool  # 保存原始值
-
-    try:
-        mlp_opt.pool = None  # 显式设为 None（即使本来就是）
-
-        with pytest.raises(SystemExit) as exc_info:
-            stop_handler(signal.SIGINT, None)
-
-        assert exc_info.value.code == 0
-
-        # 验证打印了正确的信息
-        mock_print.assert_any_call(
-            "\nReceived signal 2 (Ctrl+C or SIGTERM), shutting down gracefully..."
-        )
-        mock_print.assert_any_call("All child processes terminated. Exiting.")
-
-        # 确保没有打印 "Terminating multiprocessing pool..."
-        terminate_msg = "Terminating multiprocessing pool..."
-        for call in mock_print.call_args_list:
-            if terminate_msg in str(call):
-                raise AssertionError(
-                    f"Unexpected print: {terminate_msg} when pool is None"
-                )
-
-    finally:
-        mlp_opt.pool = original_pool  # 恢复原值
 
 
 # ==================== 测试 main 函数 ====================
-@patch("ion_CSP.mlp_opt.signal.signal")
 @patch("multiprocessing.get_context")
 @patch("ion_CSP.mlp_opt.get_indexes")
 @patch("ion_CSP.mlp_opt.sys.exit")
@@ -290,7 +233,6 @@ def test_main_normal_exit(
     mock_exit,
     mock_get_indexes,
     mock_get_context,
-    mock_signal,
     tmp_path,
     monkeypatch,
 ):
@@ -311,8 +253,6 @@ def test_main_normal_exit(
     main()
 
     # 5. 验证调用顺序
-    mock_signal.assert_any_call(signal.SIGINT, ANY)  # 注册了 SIGINT
-    mock_signal.assert_any_call(signal.SIGTERM, ANY)  # 注册了 SIGTERM
     mock_get_context.assert_called_once_with("spawn")
 
     # 6. 验证 Pool 和 map 调用
@@ -323,13 +263,11 @@ def test_main_normal_exit(
     mock_exit.assert_not_called()
 
 
-@patch("ion_CSP.mlp_opt.signal.signal")
 @patch("multiprocessing.get_context")
 @patch("ion_CSP.mlp_opt.get_indexes")
 def test_main_no_files(
     mock_get_indexes,
     mock_get_context,
-    mock_signal,
     tmp_path,
     monkeypatch,
 ):
@@ -340,16 +278,11 @@ def test_main_no_files(
     # 2. 调用 main
     main()
 
-    # 3. 验证：初始化逻辑仍被调用
-    mock_signal.assert_any_call(signal.SIGINT, ANY)
-    mock_signal.assert_any_call(signal.SIGTERM, ANY)
-
-    # 4. 验证进程池没有启动
+    # 3. 验证进程池没有启动
     mock_get_context.assert_not_called()
     # 由于 get_context 没被调用，Pool 也不会被调用，无需额外验证
 
 
-@patch("ion_CSP.mlp_opt.signal.signal")
 @patch("multiprocessing.get_context")
 @patch("ion_CSP.mlp_opt.get_indexes")
 @patch("ion_CSP.mlp_opt.run_opt")
@@ -357,7 +290,6 @@ def test_main_pool_creation_fails(
     mock_run_opt,
     mock_get_indexes,
     mock_get_context,
-    mock_signal,
     tmp_path,
     monkeypatch,
 ):
@@ -383,12 +315,7 @@ def test_main_pool_creation_fails(
     mock_run_opt.assert_any_call(1)
     mock_run_opt.assert_any_call(2)
 
-    # 7. 验证：信号注册了
-    mock_signal.assert_any_call(signal.SIGINT, ANY)
-    mock_signal.assert_any_call(signal.SIGTERM, ANY)
 
-
-@patch("ion_CSP.mlp_opt.signal.signal")
 @patch("multiprocessing.get_context")
 @patch("ion_CSP.mlp_opt.get_indexes")
 @patch("ion_CSP.mlp_opt.run_opt")
@@ -396,7 +323,6 @@ def test_main_finally_block_pool_is_none(
     mock_run_opt,
     mock_get_indexes,
     mock_get_context,
-    mock_signal,
 ):
     # 1. 设置模拟行为
     # 让 get_indexes 返回一些任务，确保程序会尝试进入多进程流程
@@ -419,25 +345,19 @@ def test_main_finally_block_pool_is_none(
     # 5.1 验证 get_context 被调用过（尝试创建 pool）
     mock_get_context.assert_called_once_with("spawn")
 
-    # 5.2 验证信号处理函数被设置（这是 main 函数开头就应该执行的）
-    mock_signal.assert_any_call(signal.SIGINT, ANY)
-    mock_signal.assert_any_call(signal.SIGTERM, ANY)
-
-    # 5.3 由于 pool 为 None，没有任何方法在其上被调用
+    # 5.2 由于 pool 为 None，没有任何方法在其上被调用
     mock_run_opt.assert_not_called()
 
-    # 5.4 Pool 构造函数未被调用以及类方法未被调用
+    # 5.3 Pool 构造函数未被调用以及类方法未被调用
     fake_pool_class.assert_not_called()
     assert not fake_pool_class.called
 
 
-@patch("ion_CSP.mlp_opt.signal.signal")
 @patch("multiprocessing.get_context")
 @patch("ion_CSP.mlp_opt.get_indexes")
 def test_main_finally_else_branch(
     mock_get_indexes,
     mock_get_context,
-    mock_signal,
 ):
     """测试：当 get_context() 抛异常时，pool 保持为 None，finally 执行 else 分支"""
 
@@ -457,28 +377,148 @@ def test_main_finally_else_branch(
         # 5. 获取打印输出
         output = captured_output.getvalue()
 
-        # 6. 验证：信号处理器被注册
-        mock_signal.assert_any_call(signal.SIGINT, ANY)
-        mock_signal.assert_any_call(signal.SIGTERM, ANY)
-
-        # 7. 验证：get_context 被调用（尝试创建池）
+        # 6. 验证：get_context 被调用（尝试创建池）
         mock_get_context.assert_called_once_with("spawn")
 
-        # 8. 关键：验证 else 分支的打印内容
+        # 7. 关键：验证 else 分支的打印内容
         assert "No process pool to clean up." in output, (
             f"Expected 'No process pool to clean up.' in output, got:\n{output}"
         )
 
-        # 9. 验证：没有打印 "Process pool cleaned up successfully."（因为没进 if）
+        # 8. 验证：没有打印 "Process pool cleaned up successfully."（因为没进 if）
         assert "Process pool cleaned up successfully." not in output, (
             "Unexpected 'Process pool cleaned up successfully.' printed when pool is None"
         )
 
-        # 10. 验证：有预期的异常提示
+        # 9. 验证：有预期的异常提示
         assert (
             "Unexpected error during multiprocessing pool initialization" in output
         )
         assert "Aborting execution." in output
+
+
+@patch("multiprocessing.get_context")
+@patch("ion_CSP.mlp_opt.get_indexes")
+def test_main_keyboard_interrupt(
+    mock_get_indexes,
+    mock_get_context,
+):
+    """测试：当 pool.map 抛出 KeyboardInterrupt 时，main() 优雅地关闭进程池"""
+    # 1. 模拟有任务
+    mock_get_indexes.return_value = [1, 2, 3]
+
+    # 2. 模拟 get_context 返回一个 mock 上下文
+    mock_context = MagicMock()
+    mock_get_context.return_value = mock_context
+
+    # 3. 模拟 Pool 实例
+    mock_pool_instance = MagicMock()
+    mock_context.Pool.return_value = mock_pool_instance
+
+    # 4. 关键：让 pool.map 抛出 KeyboardInterrupt
+    mock_pool_instance.map.side_effect = KeyboardInterrupt("User interrupted")
+
+    # 5. 捕获 stdout
+    captured_output = StringIO()
+    with patch("sys.stdout", new=captured_output):
+        # 6. 执行 main()，应该捕获并重新抛出 KeyboardInterrupt
+        try:
+            main()
+            assert False, "Expected KeyboardInterrupt to be raised"
+        except KeyboardInterrupt:
+            pass  # 预期的异常
+
+        # 7. 获取打印输出
+        output = captured_output.getvalue()
+
+        # 8. 验证：Pool 被创建
+        mock_context.Pool.assert_called_once_with(8)
+
+        # 9. 验证：pool.map 被调用
+        mock_pool_instance.map.assert_called_once_with(func=run_opt, iterable=[1, 2, 3])
+
+        # 10. 验证：KeyboardInterrupt 处理逻辑被执行
+        assert "Received KeyboardInterrupt, shutting down gracefully..." in output
+        assert "Terminating multiprocessing pool..." in output
+        assert "All child processes terminated." in output
+
+        # 11. 验证：pool.terminate() 和 pool.join() 被调用
+        mock_pool_instance.terminate.assert_called_once()
+        mock_pool_instance.join.assert_called()  # 可能被调用两次（except 和 finally）
+
+
+@patch("multiprocessing.get_context")
+@patch("ion_CSP.mlp_opt.get_indexes")
+def test_main_keyboard_interrupt_pool_none(
+    mock_get_indexes,
+    mock_get_context,
+):
+    """测试：当 get_context 抛出 KeyboardInterrupt 且 pool 为 None 时的处理"""
+    # 1. 模拟有任务
+    mock_get_indexes.return_value = [1, 2, 3]
+
+    # 2. 关键：让 get_context 抛出 KeyboardInterrupt，pool 不会被创建
+    mock_get_context.side_effect = KeyboardInterrupt("User interrupted during setup")
+
+    # 3. 捕获 stdout
+    captured_output = StringIO()
+    with patch("sys.stdout", new=captured_output):
+        # 4. 执行 main()，应该捕获并重新抛出 KeyboardInterrupt
+        try:
+            main()
+            assert False, "Expected KeyboardInterrupt to be raised"
+        except KeyboardInterrupt:
+            pass  # 预期的异常
+
+        # 5. 获取打印输出
+        output = captured_output.getvalue()
+
+        # 6. 验证：get_context 被调用
+        mock_get_context.assert_called_once_with("spawn")
+
+        # 7. 验证：KeyboardInterrupt 处理逻辑被执行
+        assert "Received KeyboardInterrupt, shutting down gracefully..." in output
+        assert "All child processes terminated." in output
+
+        # 8. 验证：由于 pool 为 None，不会打印 "Terminating multiprocessing pool..."
+        assert "Terminating multiprocessing pool..." not in output
+
+
+def test_main_entry_point(monkeypatch, tmp_path):
+    """测试 if __name__=='__main__' 入口点"""
+    import subprocess
+    import sys
+
+    # 创建一个临时的测试脚本，模拟运行 mlp_opt.py
+    test_script = tmp_path / "test_mlp_opt_main.py"
+    test_script.write_text("""
+import sys
+sys.path.insert(0, 'src')
+from unittest.mock import patch, MagicMock
+
+# 模拟所有依赖
+sys.modules['torch'] = MagicMock()
+sys.modules['torch'].load = MagicMock()
+sys.modules['deepmd'] = MagicMock()
+sys.modules['deepmd.calculator'] = MagicMock()
+sys.modules['deepmd.calculator'].DP = MagicMock()
+
+# 模拟 get_indexes 返回空列表
+with patch('ion_CSP.mlp_opt.get_indexes', return_value=[]):
+    # 直接运行模块
+    import runpy
+    runpy.run_module('ion_CSP.mlp_opt', run_name='__main__')
+""")
+
+    result = subprocess.run(
+        [sys.executable, str(test_script)],
+        capture_output=True,
+        text=True,
+        cwd="/workplace/yz/ion_CSP"
+    )
+
+    # 验证脚本成功执行
+    assert result.returncode == 0, f"Script failed with stderr: {result.stderr}"
 
 
 if __name__ == "__main__":

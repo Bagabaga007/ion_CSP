@@ -52,3 +52,11 @@ addopts = [
 filterwarnings = [
     "ignore::pytest.PytestAssertRewriteWarning",
 ]
+markers = [
+    "unit: Unit tests (fast, isolated)",
+    "integration: Integration tests (moderate speed)",
+    "ci: Configuration Item tests (black-box testing)",
+    "system: System tests (slow, end-to-end)",
+    "slow: Slow running tests",
+]
+testpaths = ["tests"]

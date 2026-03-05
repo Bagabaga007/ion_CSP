@@ -1070,6 +1070,749 @@ def test_export_max_density_structure_contcar_not_found(
     assert "Eligible CONTCAR not found" in caplog.text
 
 
+def test_export_max_density_structure_no_matching_folder(
+    vasp_processor: VaspProcessing, caplog
+):
+    """测试没有匹配的文件夹"""
+    caplog.set_level(logging.INFO)
+
+    csv_file = vasp_processor.base_dir / "vasp_density_energy.csv"
+    csv_file.write_text("""Number,MLP_Energy,Rough_Energy,Fine_Energy,MLP_Density,Rough_Density,Fine_Density,Fine_Ions_Check,Fine_PC
+999,-10.1,-11.5,-12.3,0.345,0.350,0.355,True,0.85
+""", encoding="utf-8")
+
+    # 不创建任何匹配的文件夹
+
+    vasp_processor.export_max_density_structure(relaxation=False)
+
+    assert "No folder found for structure number 999" in caplog.text
+
+
+@patch("dpdispatcher.Submission.run_submission")
+@patch("dpdispatcher.Submission.__init__", return_value=None)
+@patch("dpdispatcher.Task.__init__", return_value=None)
+def test_dpdisp_vasp_optimization_tasks_src_not_exists(
+    mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path, caplog
+):
+    """测试源目录不存在的情况"""
+    caplog.set_level(logging.INFO)
+
+    # 创建测试 CONTCAR 文件
+    contcar = vasp_processor.for_vasp_opt_dir / "CONTCAR_001"
+    contcar.write_text("dummy", encoding="utf-8")
+    outcar = vasp_processor.for_vasp_opt_dir / "OUTCAR_001"
+    outcar.write_text("TOTEN = -10.123456\n", encoding="utf-8")
+
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+
+    machine_path.write_text("""
+context_type: LocalContext
+local_root: ./
+remote_root: /your/remote/workplace
+batch_type: Shell
+""", encoding="utf-8")
+
+    resources_path.write_text("""
+number_node: 1
+cpu_per_node: 8
+gpu_per_node: 0
+group_size: 1
+""", encoding="utf-8")
+
+    # 执行（不创建pop目录，所以src不存在）
+    vasp_processor.dpdisp_vasp_optimization_tasks(
+        machine_path=str(machine_path),
+        resources_path=str(resources_path),
+        nodes=1,
+    )
+
+    # 验证完成
+    assert "Batch VASP optimization completed!!!" in caplog.text
+
+
+@patch("dpdispatcher.Submission.run_submission")
+@patch("dpdispatcher.Submission.__init__", return_value=None)
+@patch("dpdispatcher.Task.__init__", return_value=None)
+def test_dpdisp_vasp_relaxation_tasks_final_dir_exists(
+    mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path, caplog
+):
+    """测试final目录存在的情况"""
+    caplog.set_level(logging.INFO)
+
+    # 创建测试结构
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir(parents=True)
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_contcar = fine_dir / "CONTCAR"
+    fine_contcar.write_text("dummy", encoding="utf-8")
+
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+
+    machine_path.write_text("""
+context_type: LocalContext
+local_root: ./
+remote_root: /remote/path
+batch_type: Shell
+""", encoding="utf-8")
+
+    resources_path.write_text("""
+number_node: 1
+cpu_per_node: 8
+""", encoding="utf-8")
+
+    from unittest.mock import MagicMock
+    mock_machine = MagicMock()
+    mock_machine.serialize.return_value = {"context_type": "LocalContext"}
+
+    with patch("ion_CSP.vasp_processing.machine_resources_prep") as mock_prep:
+        mock_prep.return_value = (mock_machine, MagicMock(), "test")
+
+        # 在调用前创建正确的目录结构
+        task_dir = vasp_processor.vasp_optimized_dir / "testpop0"
+        task_dir.mkdir()
+
+        # 创建fine/CONTCAR（这是必需的）
+        task_fine_dir = task_dir / "fine"
+        task_fine_dir.mkdir()
+        (task_fine_dir / "CONTCAR").write_text("dummy", encoding="utf-8")
+
+        # 创建final目录
+        vasp_dir = task_dir / "2.876_001"
+        vasp_dir.mkdir()
+        final_dir = vasp_dir / "fine" / "final"
+        final_dir.mkdir(parents=True)
+        (final_dir / "test.txt").write_text("test", encoding="utf-8")
+
+        vasp_processor.dpdisp_vasp_relaxation_tasks(
+            machine_path=str(machine_path),
+            resources_path=str(resources_path),
+            nodes=1,
+        )
+
+    # 验证final目录被复制
+    dst_final = vasp_processor.vasp_optimized_dir / "2.876_001" / "fine" / "final"
+    assert dst_final.exists()
+    assert (dst_final / "test.txt").exists()
+    assert "Batch VASP optimization completed!!!" in caplog.text
+
+
+@patch("ion_CSP.vasp_processing.identify_molecules")
+@patch("ion_CSP.vasp_processing.read_vasp_out")
+def test_read_vaspout_save_csv_no_initial_molecules(
+    mock_read_vasp_out, mock_identify, vasp_processor: VaspProcessing
+):
+    """测试没有初始分子的情况"""
+    from ase import Atoms
+    from ase.calculators.singlepoint import SinglePointCalculator
+
+    # Mock read_vasp_out返回有效的atoms
+    mock_atoms = Atoms("CN", positions=[[0, 0, 0], [1, 0, 0]], cell=[5, 5, 5], pbc=False)
+    calc = SinglePointCalculator(mock_atoms, energy=-12.3)
+    mock_atoms.calc = calc
+    mock_read_vasp_out.return_value = mock_atoms
+
+    # Mock identify_molecules返回空的initial_info
+    mock_identify.return_value = (
+        {frozenset([("C", 1), ("H", 4)]): 1},
+        True,
+        [],  # 空的initial_info
+    )
+
+    # 创建测试结构
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir()
+
+    mlp_contcar = vasp_processor.vasp_optimized_dir / "CONTCAR_2.876_001"
+    mlp_contcar.write_text("""System with 2 atoms
+1.0
+5.0 0.0 0.0
+0.0 5.0 0.0
+0.0 0.0 5.0
+C N
+1 1
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    mlp_outcar = vasp_processor.vasp_optimized_dir / "OUTCAR_2.876_001"
+    mlp_outcar.write_text("TOTEN =     -10.123456 eV\n", encoding="utf-8")
+
+    rough_outcar = folder / "OUTCAR"
+    rough_outcar.write_text("dummy", encoding="utf-8")
+
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_outcar = fine_dir / "OUTCAR"
+    fine_outcar.write_text("dummy", encoding="utf-8")
+
+    # 应该抛出KeyError
+    with pytest.raises(KeyError, match="No available initial molecules"):
+        vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=False)
+
+
+@patch("ion_CSP.vasp_processing.identify_molecules")
+@patch("ion_CSP.vasp_processing.read_vasp_out")
+def test_read_vaspout_save_csv_with_relaxation_no_initial_molecules(
+    mock_read_vasp_out, mock_identify, vasp_processor: VaspProcessing
+):
+    """测试relaxation模式下没有初始分子的情况"""
+    from ase import Atoms
+    from ase.calculators.singlepoint import SinglePointCalculator
+
+    # Mock read_vasp_out返回有效的atoms
+    mock_atoms = Atoms("CN", positions=[[0, 0, 0], [1, 0, 0]], cell=[5, 5, 5], pbc=False)
+    calc = SinglePointCalculator(mock_atoms, energy=-13.8)
+    mock_atoms.calc = calc
+    mock_read_vasp_out.return_value = mock_atoms
+
+    # Mock identify_molecules返回空的initial_info
+    mock_identify.return_value = (
+        {frozenset([("C", 1), ("H", 4)]): 1},
+        True,
+        [],  # 空的initial_info
+    )
+
+    # 创建测试结构
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir()
+
+    mlp_contcar = vasp_processor.vasp_optimized_dir / "CONTCAR_2.876_001"
+    mlp_contcar.write_text("""System with 2 atoms
+1.0
+5.0 0.0 0.0
+0.0 5.0 0.0
+0.0 0.0 5.0
+C N
+1 1
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    mlp_outcar = vasp_processor.vasp_optimized_dir / "OUTCAR_2.876_001"
+    mlp_outcar.write_text("TOTEN =     -10.123456 eV\n", encoding="utf-8")
+
+    rough_outcar = folder / "OUTCAR"
+    rough_outcar.write_text("dummy", encoding="utf-8")
+
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_outcar = fine_dir / "OUTCAR"
+    fine_outcar.write_text("dummy", encoding="utf-8")
+
+    # 创建final目录
+    final_dir = fine_dir / "final"
+    final_dir.mkdir()
+    final_outcar = final_dir / "OUTCAR"
+    final_outcar.write_text("dummy", encoding="utf-8")
+
+    # 应该抛出KeyError
+    with pytest.raises(KeyError, match="No available initial molecules"):
+        vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=True)
+
+
+
+def test_read_mlp_properties_no_toten_in_outcar(vasp_processor: VaspProcessing, tmp_path: Path):
+    """Test _read_mlp_properties when OUTCAR has no TOTEN line"""
+    contcar = vasp_processor.vasp_optimized_dir / "CONTCAR_2.876_001"
+    contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    outcar = vasp_processor.vasp_optimized_dir / "OUTCAR_2.876_001"
+    # Write OUTCAR without TOTEN line
+    outcar.write_text("Some other content\nNo TOTEN here\n", encoding="utf-8")
+
+    density, energy = vasp_processor._read_mlp_properties(contcar, outcar)
+
+    assert density is not None
+    assert energy is None  # Should be None when TOTEN not found
+
+
+def test_read_vaspout_save_csv_no_config_file(vasp_processor: VaspProcessing):
+    """Test read_vaspout_save_csv when config.yaml doesn't exist"""
+    from ase import Atoms
+
+    # Remove config file
+    config_path = vasp_processor.base_dir / "config.yaml"
+    if config_path.exists():
+        config_path.unlink()
+
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir()
+
+    mlp_contcar = vasp_processor.vasp_optimized_dir / "CONTCAR_2.876_001"
+    mlp_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    mlp_outcar = vasp_processor.vasp_optimized_dir / "OUTCAR_2.876_001"
+    mlp_outcar.write_text("TOTEN =     -10.123456 eV\n", encoding="utf-8")
+
+    rough_outcar = folder / "OUTCAR"
+    rough_outcar.write_text("dummy", encoding="utf-8")
+
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_outcar = fine_dir / "OUTCAR"
+    fine_outcar.write_text("dummy", encoding="utf-8")
+
+    # Create mock Atoms object with calculator
+    from ase.calculators.singlepoint import SinglePointCalculator
+    mock_atoms = Atoms('H2', positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
+    mock_atoms.calc = SinglePointCalculator(mock_atoms, energy=-10.0)
+
+    with patch("ion_CSP.vasp_processing.read_vasp_out") as mock_read:
+        mock_read.return_value = mock_atoms
+        with patch("ion_CSP.vasp_processing.identify_molecules") as mock_identify:
+            mock_identify.return_value = ({frozenset([("H", 2)]): 1}, True, [{"H": 2}])
+
+            vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=False)
+
+            # Should work without config file (species_json and ion_numbers will be None)
+            csv_path = vasp_processor.base_dir / "vasp_density_energy.csv"
+            assert csv_path.exists()
+
+
+def test_read_vaspout_save_csv_config_no_gen_opt(vasp_processor: VaspProcessing):
+    """Test read_vaspout_save_csv when config.yaml has no gen_opt key"""
+    # Overwrite config without gen_opt
+    config_path = vasp_processor.base_dir / "config.yaml"
+    config_path.write_text("other_key: value\n", encoding="utf-8")
+
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir()
+
+    mlp_contcar = vasp_processor.vasp_optimized_dir / "CONTCAR_2.876_001"
+    mlp_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    mlp_outcar = vasp_processor.vasp_optimized_dir / "OUTCAR_2.876_001"
+    mlp_outcar.write_text("TOTEN =     -10.123456 eV\n", encoding="utf-8")
+
+    rough_outcar = folder / "OUTCAR"
+    rough_outcar.write_text("dummy", encoding="utf-8")
+
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_outcar = fine_dir / "OUTCAR"
+    fine_outcar.write_text("dummy", encoding="utf-8")
+
+    with patch("ion_CSP.vasp_processing.read_vasp_out") as mock_read:
+        from ase import Atoms
+        from ase.calculators.singlepoint import SinglePointCalculator
+        mock_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
+        mock_atoms.calc = SinglePointCalculator(mock_atoms, energy=-10.0)
+        mock_read.return_value = mock_atoms
+        with patch("ion_CSP.vasp_processing.identify_molecules") as mock_identify:
+            mock_identify.return_value = ({frozenset([("H", 2)]): 1}, True, [{"H": 2}])
+
+            vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=False)
+
+            csv_path = vasp_processor.base_dir / "vasp_density_energy.csv"
+            assert csv_path.exists()
+
+
+def test_read_vaspout_save_csv_with_molecules_information(vasp_processor: VaspProcessing):
+    """Test read_vaspout_save_csv with molecules_information in fine step"""
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir()
+
+    mlp_contcar = vasp_processor.vasp_optimized_dir / "CONTCAR_2.876_001"
+    mlp_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    mlp_outcar = vasp_processor.vasp_optimized_dir / "OUTCAR_2.876_001"
+    mlp_outcar.write_text("TOTEN =     -10.123456 eV\n", encoding="utf-8")
+
+    rough_outcar = folder / "OUTCAR"
+    rough_outcar.write_text("dummy", encoding="utf-8")
+
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_contcar = fine_dir / "CONTCAR"
+    fine_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+    fine_outcar = fine_dir / "OUTCAR"
+    fine_outcar.write_text("dummy", encoding="utf-8")
+
+    with patch("ion_CSP.vasp_processing.read_vasp_out") as mock_read:
+        from ase import Atoms
+        from ase.calculators.singlepoint import SinglePointCalculator
+        mock_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
+        mock_atoms.calc = SinglePointCalculator(mock_atoms, energy=-10.0)
+        mock_read.return_value = mock_atoms
+        with patch("ion_CSP.vasp_processing.identify_molecules") as mock_identify:
+            mock_identify.return_value = ({frozenset([("H", 2)]): 1}, True, [{"H": 2}])
+
+            vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=False)
+
+            # Verify identify_molecules was called for fine step
+            assert mock_identify.call_count >= 1
+
+
+def test_read_vaspout_save_csv_final_atoms_none(vasp_processor: VaspProcessing, caplog):
+    """Test read_vaspout_save_csv when final_atoms is None in relaxation"""
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir()
+
+    mlp_contcar = vasp_processor.vasp_optimized_dir / "CONTCAR_2.876_001"
+    mlp_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    mlp_outcar = vasp_processor.vasp_optimized_dir / "OUTCAR_2.876_001"
+    mlp_outcar.write_text("TOTEN =     -10.123456 eV\n", encoding="utf-8")
+
+    rough_outcar = folder / "OUTCAR"
+    rough_outcar.write_text("dummy", encoding="utf-8")
+
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_outcar = fine_dir / "OUTCAR"
+    fine_outcar.write_text("dummy", encoding="utf-8")
+
+    final_dir = fine_dir / "final"
+    final_dir.mkdir()
+    final_outcar = final_dir / "OUTCAR"
+    final_outcar.write_text("dummy", encoding="utf-8")
+
+    with patch("ion_CSP.vasp_processing.read_vasp_out") as mock_read:
+        # Return None for final_atoms by making read_vasp_out raise an exception
+        from ase import Atoms
+        from ase.calculators.singlepoint import SinglePointCalculator
+        mock_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
+        mock_atoms.calc = SinglePointCalculator(mock_atoms, energy=-10.0)
+
+        # First two calls return atoms, third call (for final) raises exception
+        mock_read.side_effect = [mock_atoms, mock_atoms, Exception("Parse error")]
+
+        with patch("ion_CSP.vasp_processing.identify_molecules") as mock_identify:
+            mock_identify.return_value = ({frozenset([("H", 2)]): 1}, True, [{"H": 2}])
+            with caplog.at_level(logging.ERROR):
+                vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=True)
+
+                # Check error was logged for final OUTCAR
+                assert any("Error reading final/OUTCAR file" in record.message for record in caplog.records)
+
+
+def test_read_vaspout_save_csv_with_final_density_logging(vasp_processor: VaspProcessing, caplog):
+    """Test read_vaspout_save_csv logs final density correctly"""
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir()
+
+    mlp_contcar = vasp_processor.vasp_optimized_dir / "CONTCAR_2.876_001"
+    mlp_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    mlp_outcar = vasp_processor.vasp_optimized_dir / "OUTCAR_2.876_001"
+    mlp_outcar.write_text("TOTEN =     -10.123456 eV\n", encoding="utf-8")
+
+    rough_outcar = folder / "OUTCAR"
+    rough_outcar.write_text("dummy", encoding="utf-8")
+
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_outcar = fine_dir / "OUTCAR"
+    fine_outcar.write_text("dummy", encoding="utf-8")
+
+    final_dir = fine_dir / "final"
+    final_dir.mkdir()
+    final_contcar = final_dir / "CONTCAR"
+    final_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+    final_outcar = final_dir / "OUTCAR"
+    final_outcar.write_text("dummy", encoding="utf-8")
+
+    with patch("ion_CSP.vasp_processing.read_vasp_out") as mock_read:
+        from ase import Atoms
+        from ase.calculators.singlepoint import SinglePointCalculator
+        mock_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
+        mock_atoms.calc = SinglePointCalculator(mock_atoms, energy=-10.0)
+        mock_read.return_value = mock_atoms
+        with patch("ion_CSP.vasp_processing.identify_molecules") as mock_identify:
+            mock_identify.return_value = ({frozenset([("H", 2)]): 1}, True, [{"H": 2}])
+            with caplog.at_level(logging.INFO):
+                vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=True)
+
+                # Check final density was logged
+                assert any("Final_Density" in record.message for record in caplog.records)
+
+
+def test_calculate_packing_coefficient_empty_species(vasp_processor: VaspProcessing):
+    """Test _calculate_packing_coefficient with empty species_json"""
+    from ase import Atoms
+    atoms = Atoms('H2', positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
+
+    fine_PC, final_PC = vasp_processor._calculate_packing_coefficient(
+        atoms=atoms,
+        final_atoms=atoms,
+        species_json=None,
+        ion_numbers=None,
+        relaxation=True
+    )
+
+    assert fine_PC is False
+    assert final_PC is False
+
+
+def test_write_csv_file_existing_file(vasp_processor: VaspProcessing):
+    """Test _write_csv_file when CSV already exists"""
+    csv_path = vasp_processor.vasp_optimized_dir / "test.csv"
+    csv_path.write_text("old content", encoding="utf-8")
+
+    assert csv_path.exists()
+
+    data_rows = [{
+        "Number": "001",
+        "MLP_Energy": -10.0,
+        "Rough_Energy": -9.0,
+        "Fine_Energy": -8.0,
+        "MLP_Density": 2.5,
+        "Rough_Density": 2.4,
+        "Fine_Density": 2.3,
+        "Fine_Ions_Check": "H2",
+        "Fine_PC": 0.5
+    }]
+
+    vasp_processor._write_csv_file(data_rows, csv_path, molecules_prior=False, relaxation=False)
+
+    # File should be recreated
+    assert csv_path.exists()
+    content = csv_path.read_text()
+    assert "Number" in content
+    assert "001" in content
+
+
+def test_write_csv_file_with_molecules_prior_sorting(vasp_processor: VaspProcessing):
+    """Test _write_csv_file with molecules_prior=True to trigger sort key"""
+    csv_path = vasp_processor.vasp_optimized_dir / "test.csv"
+
+    data_rows = [
+        {
+            "Number": "001",
+            "MLP_Energy": -10.0,
+            "Rough_Energy": -9.0,
+            "Fine_Energy": -8.0,
+            "MLP_Density": 2.5,
+            "Rough_Density": 2.4,
+            "Fine_Density": 2.3,
+            "Fine_Ions_Check": "",  # No molecules
+            "Fine_PC": 0.5
+        },
+        {
+            "Number": "002",
+            "MLP_Energy": -11.0,
+            "Rough_Energy": -10.0,
+            "Fine_Energy": -9.0,
+            "MLP_Density": 2.6,
+            "Rough_Density": 2.5,
+            "Fine_Density": 2.4,
+            "Fine_Ions_Check": "H2",  # Has molecules
+            "Fine_PC": 0.6
+        }
+    ]
+
+    vasp_processor._write_csv_file(data_rows, csv_path, molecules_prior=True, relaxation=False)
+
+    # Verify file was created and sorted correctly
+    assert csv_path.exists()
+    content = csv_path.read_text()
+    lines = content.strip().split('\n')
+    # With molecules_prior=True, row with molecules should come first
+    assert "002" in lines[1]  # First data row after header
+
+
+def test_export_max_density_structure_csv_value_error(vasp_processor: VaspProcessing, caplog):
+    """Test export_max_density_structure with ValueError in CSV parsing"""
+    csv_path = vasp_processor.vasp_optimized_dir / "vasp_results.csv"
+    csv_path.write_text("""Number,Fine_Density,Fine_Ions_Check,Fine_PC
+001,invalid_density,True,0.5
+""", encoding="utf-8")
+
+    # Copy CSV to expected location
+    target_csv = vasp_processor.base_dir / "vasp_density_energy.csv"
+    target_csv.write_text(csv_path.read_text(), encoding="utf-8")
+
+    folder = vasp_processor.vasp_optimized_dir / "2.876_001"
+    folder.mkdir()
+    fine_dir = folder / "fine"
+    fine_dir.mkdir()
+    fine_contcar = fine_dir / "CONTCAR"
+    fine_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    with caplog.at_level(logging.INFO):
+        vasp_processor.export_max_density_structure(relaxation=False)
+
+        # Should log "No valid structure found" because invalid_density causes ValueError
+        assert any("No valid structure found" in record.message for record in caplog.records)
+
+
+@patch("dpdispatcher.Machine.load_from_yaml")
+@patch("dpdispatcher.Task")
+@patch("dpdispatcher.Submission.__init__", return_value=None)
+@patch("dpdispatcher.Submission.run_submission")
+def test_dpdisp_vasp_relaxation_tasks_ssh_context(
+    mock_run, mock_sub, mock_task, mock_machine_load, vasp_processor: VaspProcessing, tmp_path: Path
+):
+    """Test dpdisp_vasp_relaxation_tasks with SSH context to trigger rmtree"""
+    fine_dir = vasp_processor.for_vasp_opt_dir / "data" / "pop1" / "2.876_001" / "fine"
+    fine_dir.mkdir(parents=True)
+
+    fine_contcar = fine_dir / "CONTCAR"
+    fine_contcar.write_text("""Test
+1.0
+10.0 0.0 0.0
+0.0 10.0 0.0
+0.0 0.0 10.0
+H
+2
+Direct
+0.0 0.0 0.0
+1.0 0.0 0.0""", encoding="utf-8")
+
+    # Create machine and resources files
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+
+    machine_path.write_text("""
+context_type: SSHContext
+local_root: ./
+remote_root: /tmp
+remote_profile:
+  hostname: localhost
+  username: test
+batch_type: Shell
+""", encoding="utf-8")
+
+    resources_path.write_text("""
+number_node: 1
+cpu_per_node: 4
+gpu_per_node: 0
+group_size: 1
+""", encoding="utf-8")
+
+    # Mock Machine to return a machine with SSHContext
+    from unittest.mock import MagicMock
+    mock_machine = MagicMock()
+    mock_machine.serialize.return_value = {"context_type": "SSHContext"}
+    mock_machine_load.return_value = mock_machine
+
+    vasp_processor.dpdisp_vasp_relaxation_tasks(
+        machine_path=str(machine_path),
+        resources_path=str(resources_path),
+        nodes=1
+    )
+
+    # Verify Machine.load_from_yaml was called
+    mock_machine_load.assert_called_once()
+
+
+def test_calculate_packing_coefficient_with_final_volume(vasp_processor: VaspProcessing):
+    """Test _calculate_packing_coefficient with non-zero final volume"""
+    # Create config file
+    config_path = vasp_processor.base_dir / "config.yaml"
+    config_path.write_text("""
+gen_opt:
+  species: ["H2.gjf"]
+  ion_numbers: [1]
+""", encoding="utf-8")
+
+    # Create H2.json file with correct key
+    json_path = vasp_processor.base_dir / "H2.json"
+    json_path.write_text('{"volume": 10.0}', encoding="utf-8")
+
+    # Create mock Atoms objects
+    from ase import Atoms
+    fine_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
+    final_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[12, 12, 12], pbc=True)
+
+    species_json = ["H2.json"]
+    ion_numbers = [1]
+
+    fine_PC, final_PC = vasp_processor._calculate_packing_coefficient(
+        fine_atoms, species_json, ion_numbers, relaxation=True, final_atoms=final_atoms
+    )
+
+    # Both should be calculated
+    assert fine_PC is not False
+    assert final_PC is not False
+    assert isinstance(fine_PC, float)
+    assert isinstance(final_PC, float)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--cov=ion_CSP.vasp_processing"])
     

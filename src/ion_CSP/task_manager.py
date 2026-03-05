@@ -237,8 +237,6 @@ class TaskManager:
             print("Enter number to view log in detail")
         elif function == "kill":
             print("n) Next page | p) Previous page | f) Filter | k) Kill | q) Quit")
-        else:
-            raise ValueError("Unexpected function parameter")
 
 
     def _paginate_tasks(self, tasks, function, page_size=10):

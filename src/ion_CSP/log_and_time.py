@@ -108,19 +108,24 @@ class StatusLogger:
         :params
             work_dir: The working directory where the log and yaml files will be created
             task_name: The name of the task to be logged"""
-        # 使用单例模式，避免重复的日志记录，缺点是再重新给定task_name之后会覆盖原来的实例，只能顺序调用
+        # 更新task_name（即使是单例，也要更新当前任务名）
         self.task_name = task_name
         self.work_dir = work_dir.resolve()
         log_file = self.work_dir / "workflow_status.log"
         yaml_file = self.work_dir / "workflow_status.yaml"
         log_file.touch(exist_ok=True)
         self.yaml_file = yaml_file
-        self._init_yaml()
+
+        # 如果已经初始化过，只需要加载当前任务的状态
         if hasattr(self, "initialized"):
+            self._load_task_status()
             return
-        # 创建 logger 对象
+
+        # 首次初始化：创建 logger 对象
         self.logger = logging.getLogger("WorkflowLogger")
         self.logger.setLevel(logging.INFO)
+        # 清除已有的handlers，避免重复
+        self.logger.handlers.clear()
         # 创建文件处理器
         file_handler = logging.FileHandler(str(log_file))
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -129,13 +134,29 @@ class StatusLogger:
         self.logger.addHandler(file_handler)
         # 控制日志信息的传播，不将logger的日志信息传播到全局
         self.logger.propagate = False
-        # 注册信号处理器
+        # 注册信号处理器（只在首次初始化时注册）
         signal.signal(signal.SIGINT, self._signal_handler)  # 捕捉 Ctrl + C
         signal.signal(signal.SIGTERM, self._signal_handler)  # 捕捉 kill 命令
         # 记录当前进程的 PID
         self.logger.info(f"Process started with PID: {os.getpid()}")
         # 初始化工作状态
         self.initialized = True
+        self._init_yaml()
+
+
+    def _load_task_status(self):
+        """Load the status of the current task from yaml file"""
+        if os.path.exists(self.yaml_file):
+            with open(self.yaml_file, "r") as yaml_file:
+                status_info = yaml.safe_load(yaml_file) or {}
+                if self.task_name in status_info:
+                    self.run_count = status_info[self.task_name]["run_count"]
+                    self.current_status = status_info[self.task_name]["current_status"]
+                    return
+
+        # 如果任务不存在，初始化新任务
+        self.run_count = 0
+        self.current_status = "INITIAL"
         self._init_yaml()
 
 

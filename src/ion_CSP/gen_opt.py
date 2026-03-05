@@ -1,3 +1,9 @@
+"""Crystal structure generation and optimization module.
+
+This module provides functionality for generating and optimizing crystal structures
+using various methods including CALYPSO, USPEX, and other crystal structure prediction tools.
+"""
+
 import os
 import sys
 import csv
@@ -342,14 +348,16 @@ class CrystalGenerator:
             task_list=task_list,
         )
 
-        # 注册信号处理器
-        signal.signal(signal.SIGINT, self._signal_handler)  # Ctrl+C
-        signal.signal(signal.SIGTERM, self._signal_handler)  # kill
 
         # 执行提交（阻塞直到任务完成）
         try:
             logging.info("Submitting tasks to dpdispatcher...")
             self._submission.run_submission()
+        except KeyboardInterrupt:
+            # 捕获KeyboardInterrupt，终止任务后重新抛出让StatusLogger处理
+            logging.info("Received KeyboardInterrupt, terminating tasks...")
+            self._terminate_tasks()
+            raise  # 重新抛出，让StatusLogger的信号处理器处理状态更新
         except Exception as e:
             logging.error(f"Submission failed with error: {e}")
             self._terminate_tasks()
@@ -391,24 +399,6 @@ class CrystalGenerator:
         logging.info("Batch optimization completed!!!")
         # 清理内部引用
         self._submission = None
-
-
-    def _signal_handler(self, signum, frame):
-        """
-        独立的信号处理器方法，优雅终止所有任务
-        """
-        logging.info(
-            f"Received signal {signum} (Ctrl+C or kill), stopping all submitted tasks..."
-        )
-        if hasattr(self, "_submission") and self._submission is not None:
-            try:
-                self._terminate_tasks()
-                logging.info("All tasks stopped gracefully.")
-            except Exception as e:
-                logging.error(f"Failed to stop submission: {e}")
-        else:
-            logging.warning("No active submission to stop.")
-        sys.exit(0)
 
 
     def _terminate_tasks(self):

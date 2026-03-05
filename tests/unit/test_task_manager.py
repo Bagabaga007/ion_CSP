@@ -4,7 +4,7 @@ import psutil
 import logging
 import importlib
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 
 from ion_CSP.task_manager import TaskManager
 
@@ -12,9 +12,15 @@ from ion_CSP.task_manager import TaskManager
 @pytest.fixture(scope="session", autouse=True)
 def set_working_directory():
     project_root = Path(__file__).resolve().parent
+    original_cwd = Path.cwd()
     os.chdir(project_root)
     yield
-    os.chdir(project_root)
+    os.chdir(original_cwd)
+    # 清理测试过程中创建的logs文件夹
+    logs_dir = project_root / "logs"
+    if logs_dir.exists() and logs_dir.is_dir():
+        import shutil
+        shutil.rmtree(logs_dir, ignore_errors=True)
 
 
 @pytest.fixture
@@ -757,7 +763,7 @@ def test_get_related_tasks_invalid_symlink_target(
     match1.group.side_effect = lambda x: "CSP" if x == 1 else "1234"
 
     with patch("ion_CSP.task_manager.re.match", return_value=match1):
-        with patch("logging.error") as mock_error:
+        with patch("logging.error"):
             with patch(
                 "ion_CSP.task_manager.TaskManager._is_valid_task_pid", return_value=True
             ):
@@ -1122,7 +1128,7 @@ def test_get_related_tasks_value_error(task_manager):
     log_file.touch()
 
     with patch("ion_CSP.task_manager.re.match", side_effect=ValueError("Parse error")):
-        with patch("logging.error") as mock_error:
+        with patch("logging.error"):
             tasks = task_manager.get_related_tasks()
             assert len(tasks) == 0
 

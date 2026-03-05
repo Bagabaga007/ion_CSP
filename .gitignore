@@ -37,7 +37,14 @@ server_config
 !examples/example_1/*
 !examples/example_2/combo_1/*
 model_ori.pt
-logs/*
 dist/*
 *.tar.gz
 *.whl
+logs/
+*/logs/
+
+# 测试覆盖率文件
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/

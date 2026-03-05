@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Machine Learning Potential (MLP) optimization module.
+
+This module provides functionality for optimizing crystal structures using
+machine learning potentials such as DeePMD, MACE, and other ML-based force fields.
+"""
+
 import os
 
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -11,7 +17,6 @@ os.environ["OMP_NUM_THREADS"] = "3"
 import sys
 import time
 import shutil
-import signal
 import numpy as np
 import multiprocessing
 from ase.optimize import LBFGS
@@ -21,7 +26,7 @@ from deepmd.calculator import DP
 
 
 base_dir = os.path.dirname(__file__)
-pool = None  # 用于信号处理中终止进程池
+pool = None  # 用于KeyboardInterrupt处理中终止进程池
 
 
 def get_mlp_calc(relative_path='./model.pt'):
@@ -212,40 +217,24 @@ def run_opt(index: int, output_dir=None):
     print(f'{_cwd} is done, time: {stop-start}')
 
 
-def stop_handler(signum, frame):
-    """
-    Signal processing function: gracefully close process pool on receiving termination signals.
-    :params
-        signum: signal number
-        frame: current stack frame
-    """
-    print(
-        f"\nReceived signal {signum} (Ctrl+C or SIGTERM), shutting down gracefully..."
-    )
-    if pool is not None:
-        print("Terminating multiprocessing pool...")
-        pool.terminate()  # 强制终止所有子进程
-        pool.join()  # 等待子进程完全退出
-    print("All child processes terminated. Exiting.")
-    sys.exit(0)
-
-
 def main():
     """
     Main function to run the optimization in parallel.
     It initializes a multiprocessing pool and maps the run_opt function to the indexes of POSCAR files.
     """
     total_start = time.time()
-    # 注册信号处理器
-    signal.signal(signal.SIGINT, stop_handler)
-    signal.signal(signal.SIGTERM, stop_handler)
+    # 不再注册信号处理器 - 让父进程的StatusLogger统一处理
+    # 子进程会自动继承父进程的信号处理行为
+    # signal.signal(signal.SIGINT, stop_handler)
+    # signal.signal(signal.SIGTERM, stop_handler)
+
     # 获取需要优化的结构索引
     indexes = get_indexes()
     if not indexes:
         print("No POSCAR_*.vasp files found. Nothing to optimize.")
         return
 
-    try:    
+    try:
         # 初始化进程池
         ctx = multiprocessing.get_context("spawn")
         global pool
@@ -254,6 +243,15 @@ def main():
         print(f"Starting optimization for {len(indexes)} structures...")
         pool.map(func=run_opt, iterable=indexes)
         print("All optimizations completed successfully.")
+    except KeyboardInterrupt:
+        # 捕获KeyboardInterrupt，优雅地关闭进程池
+        print("\nReceived KeyboardInterrupt, shutting down gracefully...")
+        if pool is not None:
+            print("Terminating multiprocessing pool...")
+            pool.terminate()
+            pool.join()
+        print("All child processes terminated.")
+        raise  # 重新抛出，让父进程处理
     except (MemoryError, OSError, PermissionError) as e:
         print("Falling back to serial execution due to resource constraints:", e)
         for index in indexes:

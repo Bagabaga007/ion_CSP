@@ -1,10 +1,23 @@
 {
+    "python.defaultInterpreterPath": "/home/yangze/anaconda3/envs/ion_CSP/bin/python",
     "python.analysis.typeCheckingMode": "off",
     "python.testing.pytestEnabled": true,
     "python.testing.unittestEnabled": false,
     "python.testing.pytestArgs": [
         "tests",
-        "-v"
+        "-v",
+        "--cov=src/ion_CSP",
+        "--cov-report=xml",
+        "--cov-report=html",
+        "--cov-report=term-missing"
     ],
-    "python.testing.autoTestDiscoverOnSaveEnabled": true
+    "python.testing.autoTestDiscoverOnSaveEnabled": true,
+    "coverage-gutters.coverageFileNames": [
+        "coverage.xml",
+        ".coverage",
+        "htmlcov/index.html"
+    ],
+    "coverage-gutters.showLineCoverage": true,
+    "coverage-gutters.showRulerCoverage": true,
+    "coverage-gutters.coverageBaseDir": "**"
 }

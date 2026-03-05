@@ -586,3 +586,188 @@ group_size: 1
         KeyError, match=r"Unsupported context type in machine configuration"
     ):
         machine_resources_prep(str(machine_path), str(resources_path))
+
+
+def test_status_logger_load_existing_task(tmp_path):
+    """测试 _load_task_status：当 yaml 文件存在且包含任务时加载状态"""
+    # 1. 创建一个已存在的 yaml 文件，包含任务信息
+    yaml_file = tmp_path / "workflow_status.yaml"
+    yaml_file.write_text("""
+TestTask:
+  run_count: 3
+  current_status: SUCCESS
+""")
+
+    # 2. 创建 StatusLogger，应该加载已存在的状态
+    logger = StatusLogger(tmp_path, "TestTask")
+
+    # 3. 验证：状态被正确加载
+    assert logger.run_count == 3
+    assert logger.current_status == "SUCCESS"
+
+
+def test_status_logger_load_task_not_in_yaml(tmp_path):
+    """测试 _load_task_status：当 yaml 文件存在但不包含当前任务时初始化新任务"""
+    # 1. 创建一个已存在的 yaml 文件，但不包含当前任务
+    yaml_file = tmp_path / "workflow_status.yaml"
+    yaml_file.write_text("""
+OtherTask:
+  run_count: 2
+  current_status: RUNNING
+""")
+
+    # 2. 创建 StatusLogger，应该初始化新任务
+    logger = StatusLogger(tmp_path, "NewTask")
+
+    # 3. 验证：新任务被初始化（覆盖 152->158 分支）
+    assert logger.run_count == 0
+    assert logger.current_status == "INITIAL"
+
+    # 4. 验证：yaml 文件包含两个任务
+    with open(yaml_file, "r") as f:
+        status_info = yaml.safe_load(f)
+        assert "OtherTask" in status_info
+        assert "NewTask" in status_info
+
+
+def test_init_yaml_with_existing_file(tmp_path):
+    """测试 _init_yaml：当 yaml 文件已存在时读取并更新"""
+    # 1. 创建一个已存在的 yaml 文件
+    yaml_file = tmp_path / "workflow_status.yaml"
+    yaml_file.write_text("""
+ExistingTask:
+  run_count: 5
+  current_status: FAILURE
+""")
+
+    # 2. 创建 StatusLogger，会调用 _init_yaml
+    logger = StatusLogger(tmp_path, "NewTask")
+
+    # 3. 验证：yaml 文件被读取并保留了原有任务（覆盖 227-228 分支）
+    with open(yaml_file, "r") as f:
+        status_info = yaml.safe_load(f)
+        assert "ExistingTask" in status_info
+        assert status_info["ExistingTask"]["run_count"] == 5
+        assert "NewTask" in status_info
+
+
+def test_init_yaml_task_already_exists(tmp_path):
+    """测试 _init_yaml：当任务已存在于 yaml 文件中时读取其状态"""
+    # 1. 创建一个已存在的 yaml 文件，包含任务
+    yaml_file = tmp_path / "workflow_status.yaml"
+    yaml_file.write_text("""
+TestTask:
+  run_count: 7
+  current_status: RUNNING
+""")
+
+    # 2. 手动调用 _init_yaml（通过创建 StatusLogger）
+    # 由于 _load_task_status 会先加载，我们需要直接测试 _init_yaml
+    # 创建一个新的 logger，它会先加载状态
+    logger = StatusLogger(tmp_path, "TestTask")
+
+    # 3. 验证：状态被正确加载（覆盖 238-239 分支）
+    assert logger.run_count == 7
+    assert logger.current_status == "RUNNING"
+
+
+def test_get_work_dir_interactive_input(monkeypatch, tmp_path):
+    """测试 get_work_dir_and_config：交互式输入工作目录"""
+    # 1. 创建一个有效的工作目录和配置文件
+    work_dir = tmp_path / "valid_work_dir"
+    work_dir.mkdir()
+    config_file = work_dir / "config.yaml"
+    config_file.write_text("test_key: test_value\n")
+
+    # 2. 模拟命令行参数为 None（触发交互式输入）
+    monkeypatch.setattr("sys.argv", ["script_name"])
+
+    # 3. 模拟用户输入
+    inputs = iter([str(work_dir)])
+    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+    # 4. 调用函数
+    result_dir, config = get_work_dir_and_config()
+
+    # 5. 验证：工作目录和配置被正确返回（覆盖 302->315 分支）
+    assert result_dir == work_dir
+    assert config["test_key"] == "test_value"
+
+
+def test_get_work_dir_interactive_invalid_then_valid(monkeypatch, tmp_path, capsys):
+    """测试 get_work_dir_and_config：交互式输入先输入无效目录，再输入有效目录"""
+    # 1. 创建一个有效的工作目录和配置文件
+    valid_dir = tmp_path / "valid_dir"
+    valid_dir.mkdir()
+    config_file = valid_dir / "config.yaml"
+    config_file.write_text("key: value\n")
+
+    # 2. 模拟命令行参数为 None
+    monkeypatch.setattr("sys.argv", ["script_name"])
+
+    # 3. 模拟用户输入：先输入无效路径，再输入有效路径
+    invalid_path = str(tmp_path / "nonexistent")
+    inputs = iter([invalid_path, str(valid_dir)])
+    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+    # 4. 调用函数
+    result_dir, config = get_work_dir_and_config()
+
+    # 5. 验证：最终返回有效目录
+    assert result_dir == valid_dir
+    assert config["key"] == "value"
+
+    # 6. 验证：错误消息被打印
+    captured = capsys.readouterr()
+    assert "does not exist" in captured.out
+
+
+def test_get_work_dir_with_command_line_arg(monkeypatch, tmp_path):
+    """测试 get_work_dir_and_config：通过命令行参数直接提供工作目录（跳过交互式输入）"""
+    # 1. 创建一个有效的工作目录和配置文件
+    work_dir = tmp_path / "cmd_work_dir"
+    work_dir.mkdir()
+    config_file = work_dir / "config.yaml"
+    config_file.write_text("cmd_key: cmd_value\n")
+
+    # 2. 模拟命令行参数直接提供工作目录（覆盖 302->315 分支）
+    monkeypatch.setattr("sys.argv", ["script_name", str(work_dir)])
+
+    # 3. 调用函数
+    result_dir, config = get_work_dir_and_config()
+
+    # 4. 验证：工作目录和配置被正确返回，且跳过了交互式输入
+    assert result_dir == work_dir
+    assert config["cmd_key"] == "cmd_value"
+
+
+def test_init_yaml_else_branch_direct(tmp_path):
+    """测试 _init_yaml 的 else 分支：任务已存在时读取状态"""
+    # 1. 先创建一个 StatusLogger，让任务被写入 yaml
+    yaml_file = tmp_path / "workflow_status.yaml"
+    yaml_file.write_text("""
+ExistingTask:
+  run_count: 10
+  current_status: SUCCESS
+""")
+
+    # 2. 创建 StatusLogger 实例
+    logger = StatusLogger(tmp_path, "ExistingTask")
+
+    # 3. 修改状态并保存
+    logger.set_running()
+
+    # 4. 再次创建同一个任务的 logger，这次会通过 _load_task_status 加载
+    # 但我们需要测试 _init_yaml 的 else 分支
+    # 让我们直接调用 _init_yaml
+    logger2 = StatusLogger.__new__(StatusLogger)
+    logger2.task_name = "ExistingTask"
+    logger2.yaml_file = yaml_file
+    logger2.log_file = tmp_path / "workflow_status.log"
+
+    # 调用 _init_yaml，此时任务已存在
+    logger2._init_yaml()
+
+    # 5. 验证：状态被正确读取（覆盖 238-239 分支）
+    assert logger2.run_count == 11  # 初始值 10，被 set_running 更新为 11
+    assert logger2.current_status == "RUNNING"

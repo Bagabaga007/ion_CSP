@@ -958,87 +958,6 @@ def test_dpdisp_mlp_tasks_remote_exception(
     mock_rmtree.assert_called()
 
 
-# ==================== 测试 _signal_handler 私有函数 ====================
-@patch("sys.exit")
-@patch("ion_CSP.gen_opt.CrystalGenerator._terminate_tasks")
-def test_signal_handler_success(
-    mock_terminate, mock_exit, crystal_generator: CrystalGenerator
-):
-    """直接测试类方法 _signal_handler 是否行为正确"""
-
-    # 模拟 submission
-    mock_submission = MagicMock()
-    crystal_generator._submission = mock_submission
-
-    # 模拟日志
-    with patch("logging.info") as mock_info:
-        # 模拟触发 SIGINT
-        crystal_generator._signal_handler(signal.SIGINT, None)
-
-        # 验证
-        mock_info.assert_any_call(
-            "Received signal 2 (Ctrl+C or kill), stopping all submitted tasks..."
-        )
-        mock_terminate.assert_called_once()
-        mock_info.assert_any_call("All tasks stopped gracefully.")
-        mock_exit.assert_called_once_with(0)
-
-
-@patch("sys.exit")
-@patch("ion_CSP.gen_opt.CrystalGenerator._terminate_tasks")
-def test_signal_handler_no_active_submission(
-    mock_terminate, mock_exit, crystal_generator: CrystalGenerator
-):
-    """直接测试类方法 _signal_handler 在无 active submission 时的行为"""
-
-    # 模拟 submission 为空
-    crystal_generator._submission = None
-
-    # 模拟日志
-    with patch("logging.warning") as mock_warning:
-        # 模拟触发 SIGINT
-        crystal_generator._signal_handler(signal.SIGINT, None)
-
-        # 验证
-        mock_terminate.assert_not_called()
-        mock_warning.assert_any_call("No active submission to stop.")
-        mock_exit.assert_called_once_with(0)
-
-
-@patch("sys.exit")
-@patch("ion_CSP.gen_opt.CrystalGenerator._terminate_tasks")
-@patch("logging.error")
-def test_signal_handler_terminate_tasks_raises_exception(
-    mock_logging_error, mock_terminate, mock_exit, crystal_generator: CrystalGenerator
-):
-    """
-    Test that _signal_handler logs an error and exits gracefully
-    when _terminate_tasks() raises an exception.
-    """
-    # 1. 模拟 _terminate_tasks 抛出异常
-    mock_terminate.side_effect = Exception(
-        "Failed to terminate tasks due to network timeout"
-    )
-
-    # 2. 模拟 submission 存在（确保进入 try 块）
-    mock_submission = MagicMock()
-    crystal_generator._submission = mock_submission
-
-    # 3. 捕获 sys.exit(0) 调用
-    # 4. 执行信号处理器
-    crystal_generator._signal_handler(signal.SIGINT, None)
-
-    # 5. 验证 _terminate_tasks 被调用
-    mock_terminate.assert_called_once()
-
-    # 6. 验证错误日志被记录
-    mock_logging_error.assert_called_once_with(
-        "Failed to stop submission: Failed to terminate tasks due to network timeout"
-    )
-
-    # 7. 验证 sys.exit(0) 仍被调用（即使终止失败）
-    mock_exit.assert_called_once_with(0)
-
 
 # ==================== 测试 _terminate_tasks 私有函数 ====================
 def test_terminate_tasks_sshcontext_success(
@@ -1530,6 +1449,61 @@ def test_wait_for_gpu_timeout_no_gpu(caplog):
         assert sleep_call_count == 3  # sleep 被调用了 3 次
         assert "No available GPUs found. Waiting for 1 second ..." in caplog.text
         assert "Unexpected error: invalid literal for int()" in caplog.text
+
+
+def test_dpdisp_mlp_tasks_keyboard_interrupt(crystal_generator: CrystalGenerator, tmp_path):
+    """测试 dpdisp_mlp_tasks 在 submission.run_submission() 时收到 KeyboardInterrupt"""
+    # 创建必要的文件和目录
+    model_dir = crystal_generator.base_dir / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "model.pt").write_text("dummy model")
+
+    dpdisp_base = crystal_generator.base_dir / "dpdisp_mlp"
+    dpdisp_base.mkdir(parents=True, exist_ok=True)
+
+    # 创建 primitive_cell 目录并在其中创建多个 POSCAR 文件
+    primitive_cell_dir = crystal_generator.base_dir / "1_generated" / "primitive_cell"
+    primitive_cell_dir.mkdir(parents=True, exist_ok=True)
+
+    # 创建多个 POSCAR 文件以匹配 node_jobs 的分配
+    for i in range(4):  # 创建足够的文件
+        poscar = primitive_cell_dir / f"POSCAR_{i}"
+        poscar.write_text("dummy poscar")
+
+    # 创建 mlp_opt.py 文件
+    mlp_opt_file = crystal_generator.base_dir / "mlp_opt.py"
+    mlp_opt_file.write_text("# dummy mlp_opt script")
+
+    # 1. 模拟 dpdispatcher.Submission 类，让 run_submission() 抛出 KeyboardInterrupt
+    with patch("dpdispatcher.Submission") as mock_submission_class:
+        mock_submission_instance = MagicMock()
+        mock_submission_class.return_value = mock_submission_instance
+        mock_submission_instance.run_submission.side_effect = KeyboardInterrupt("User interrupted")
+
+        # 2. 模拟 _terminate_tasks 方法
+        with patch.object(crystal_generator, "_terminate_tasks") as mock_terminate:
+            # 3. 模拟 machine_resources_prep 返回值（返回 3 个值）
+            with patch("ion_CSP.gen_opt.machine_resources_prep") as mock_prep:
+                mock_machine = MagicMock()
+                mock_resources = MagicMock()
+                mock_prep.return_value = (mock_machine, mock_resources, "test_parent")
+
+                # 4. 模拟 Task 类
+                with patch("dpdispatcher.Task") as mock_task:
+                    mock_task.return_value = MagicMock()
+
+                    # 5. 执行函数，应该捕获 KeyboardInterrupt 并重新抛出
+                    try:
+                        crystal_generator.dpdisp_mlp_tasks(
+                            machine_path="dummy_machine.yaml",
+                            resources_path="dummy_resources.yaml"
+                        )
+                        assert False, "Expected KeyboardInterrupt to be raised"
+                    except KeyboardInterrupt:
+                        pass  # 预期的异常
+
+                    # 6. 验证：_terminate_tasks 被调用（覆盖 352-354 行）
+                    mock_terminate.assert_called_once()
 
 
 if __name__ == "__main__":

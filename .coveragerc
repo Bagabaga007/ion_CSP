@@ -1,0 +1,29 @@
+[run]
+source = src/ion_CSP
+omit =
+    */tests/*
+    */test_*.py
+    setup.py
+    */__pycache__/*
+    */__init__.py
+    */__main__.py
+
+[report]
+precision = 2
+show_missing = True
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    def __str__
+    if __name__ == "__main__":
+    if TYPE_CHECKING:
+    raise AssertionError
+    raise NotImplementedError
+    @abstractmethod
+    @abc.abstractmethod
+
+[html]
+directory = htmlcov
+
+[xml]
+output = coverage.xml
