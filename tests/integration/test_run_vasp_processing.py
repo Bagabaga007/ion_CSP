@@ -21,8 +21,8 @@ def test_work_dir(tmp_path):
         "vasp_processing": {
             "nodes": 2,
             "molecules_prior": True,
-            "machine_path": "machine.yaml",
-            "resources_path": "resources.yaml"
+            "machine": "machine.yaml",
+            "resources": "resources.yaml"
         }
     }
 
@@ -58,6 +58,13 @@ def test_run_vasp_processing_main_with_mocks(test_work_dir):
 
             # Verify VaspProcessing was initialized correctly
             MockVasp.assert_called_once_with(work_dir=test_work_dir)
+
+            # Verify the optimization task was submitted with correct arguments
+            mock_vasp.dpdisp_vasp_optimization_tasks.assert_called_once_with(
+                machine_path="machine.yaml",
+                resources_path="resources.yaml",
+                nodes=2,
+            )
 
             # Verify read_vaspout_save_csv was called with molecules_prior=True
             mock_vasp.read_vaspout_save_csv.assert_called_once_with(True)

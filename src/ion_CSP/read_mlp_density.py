@@ -190,7 +190,7 @@ class ReadMlpDensity:
             # 保留 CONTCAR 的序数信息，方便回推检查
             numbers.append(number)
             mlp_densities.append(f"{density:.3f}" if density else "N/A")
-            mlp_energies.append(f"{energy:.2f}" if energy else "N/A")
+            mlp_energies.append(f"{energy:.2f}" if isinstance(energy, float) else "N/A")
             # 源文件名及其路径
             src_CONTCAR_filename = f"CONTCAR_{number}"
             src_OUTCAR_filename = f"OUTCAR_{number}"

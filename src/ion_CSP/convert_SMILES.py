@@ -146,14 +146,18 @@ class SmilesProcessing:
                 num_charge += atom.GetFormalCharge()
                 num_unpaired_electrons += atom.GetNumRadicalElectrons()
             if num_charge != charge:
+                # 计算电荷与声明电荷不一致：不写入文件并返回失败，
+                # 否则会把带错误电荷的结构写进按声明电荷分组的文件夹，污染后续离子配对
                 logging.error(
                     f"{basename}: charge wrong! calculated {num_charge} and given {charge}"
                 )
-            multiplicity = 2 * num_unpaired_electrons + 1
+                return False, basename
+            # 多重度为 2S+1，其中 S = 未成对电子数/2，故 multiplicity = 未成对电子数 + 1
+            multiplicity = num_unpaired_electrons + 1
             # 根据type参数判断要生成什么类型的结构文件, 目前只支持gjf, xyz, mol格式
             gjf_path = dir_path / f"{basename}.gjf"
             # 创建gjf文件内容
-            gjf_content = f"%nprocshared=8\n%chk={basename}.chk\n#p B3LYP/6-31G** opt\n\n{basename}\n\n{num_charge} {multiplicity}\n"
+            gjf_content = f"%nprocshared=8\n%chk={basename}.chk\n#p B3LYP/6-31G** opt=(MaxCycles=100)\n\n{basename}\n\n{num_charge} {multiplicity}\n"
             for atom in range(num_atoms):
                 pos = conf.GetAtomPosition(atom)
                 atom_symbol = mol.GetAtomWithIdx(atom).GetSymbol()
@@ -246,6 +250,36 @@ class SmilesProcessing:
         screened_message = f"\nNumber of ions with charge of [{charge_screen}] and {group_name} group: {success_count}\n"
         logging.info(screened_message)
 
+    @staticmethod
+    def _parse_gaussian_error(log_path: Path) -> str:
+        """Parse a Gaussian .log file to determine the reason for failure."""
+        if not log_path.exists():
+            return "Gaussian log file not found"
+        try:
+            content = log_path.read_text(errors="replace")
+        except OSError as e:
+            return f"Unable to read log file: {e}"
+
+        if "Normal termination" in content:
+            return "Optimization completed but formchk failed to generate .fchk"
+
+        # 常见 Gaussian 错误模式
+        if "Number of steps exceeded" in content:
+            return "Geometry optimization did not converge (max steps exceeded)"
+        if "Convergence failure" in content:
+            return "SCF convergence failure"
+        if "FormBX had a problem" in content:
+            return "Internal coordinate error (FormBX)"
+        if "NtrErr Called from FileIO" in content:
+            return "File I/O error (disk space or permission issue)"
+        if "galloc:  could not allocate memory" in content:
+            return "Insufficient memory"
+        if "Link died" in content or "Erroneous write" in content:
+            return "Gaussian process crashed (link died or erroneous write)"
+        if "Error termination" in content:
+            return "Gaussian terminated with error (check log for details)"
+        return "Unknown error (no normal termination found)"
+
 
     def dpdisp_gaussian_tasks(
         self,
@@ -282,12 +316,21 @@ class SmilesProcessing:
                         f"Provided folder {folder} is not either in the work directory or the converted directory.\n"
                     )
                     continue
-            # 获取文件夹中所有以 .gjf 结尾的文件
+            # 过滤掉已有对应 .json 文件的离子（已预优化），只提交未优化的 .gjf 文件
+            json_stems = {f.stem for f in folder_dir.glob("*.json")}
             gjf_files = [
-                f for f in folder_dir.iterdir() if f.suffix == ".gjf"
+                f for f in folder_dir.iterdir()
+                if f.suffix == ".gjf" and f.stem not in json_stems
             ]
+            if json_stems:
+                skipped = [s for s in sorted(json_stems) if (folder_dir / f"{s}.gjf").exists()]
+                if skipped:
+                    logging.info(
+                        f"Folder '{folder}': {len(skipped)} ion(s) already pre-optimized "
+                        f"(.gjf + .json), skipping Gaussian optimization for: {skipped}"
+                    )
             if not gjf_files:
-                logging.error(f"No .gjf files found in folder: {folder}")
+                logging.info(f"No .gjf files need Gaussian optimization in folder: {folder}")
                 continue
             # 创建一个嵌套列表来存储每个节点的任务并将文件平均依次分配给每个节点
             # 例如：对于10个结构文件任务分发给4个节点的情况，则4个节点领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7]
@@ -341,6 +384,7 @@ class SmilesProcessing:
             # 创建用于存放优化后文件的 gaussian_optimized 目录
             optimized_folder_dir = self.gaussian_optimized_dir / folder
             optimized_folder_dir.mkdir(parents=True, exist_ok=True)
+            failed_jobs = []
             for pop in range(nodes):
                 # 从传回目录下的 pop 文件夹中将结果文件取到 gaussian_optimized 目录
                 task_dir = self.converted_dir / f"{parent}pop{pop}"
@@ -356,10 +400,28 @@ class SmilesProcessing:
                             shutil.copyfile(str(src), str(dst))
                         else:
                             logging.error(f"File not found during copying: {src}")
+                    # 检查 Gaussian 优化是否成功完成
+                    fchk_dst = optimized_folder_dir / f"{base_name}.fchk"
+                    log_dst = optimized_folder_dir / f"{base_name}.log"
+                    if not fchk_dst.exists() or fchk_dst.stat().st_size == 0:
+                        error_reason = self._parse_gaussian_error(log_dst)
+                        failed_jobs.append((base_name, error_reason))
+                        logging.error(
+                            f"Gaussian optimization failed for {base_name}: {error_reason}"
+                        )
                 # 在成功完成Gaussian优化后，删除 1_1_SMILES_gjf/{csv}/{parent}/pop{n} 临时目录
                 shutil.rmtree(task_dir, ignore_errors=True)
-    
+
+            if failed_jobs:
+                total = len(gjf_files)
+                failed_count = len(failed_jobs)
+                logging.warning(
+                    f"Gaussian optimization: {failed_count}/{total} jobs failed in folder '{folder}':"
+                )
+                for name, reason in failed_jobs:
+                    logging.warning(f"  - {name}: {reason}")
+
         if machine.serialize()["context_type"] == "SSHContext":
             # 如果调用远程服务器，则删除data级目录
-            shutil.rmtree(self.converted_dir / parent)
+            shutil.rmtree(self.converted_dir / parent, ignore_errors=True)
         logging.info("Batch Gaussian optimization completed!!!")

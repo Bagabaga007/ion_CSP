@@ -207,7 +207,9 @@ class VaspProcessing:
                     shutil.copyfile(str(fine_contcar_path), str(dst))
                 else:
                     logging.error(f"File {fine_contcar_path} does not exist.")
-                    raise
+                    raise FileNotFoundError(
+                        f"Required fine CONTCAR not found: {fine_contcar_path}"
+                    )
                 forward_files.append(fine_optimized_file)
                 # 每个POSCAR文件在优化后都取回对应的CONTCAR和OUTCAR输出文件
                 backward_files.append(f"{vasp_dir_name}/*")
@@ -541,6 +543,9 @@ class VaspProcessing:
             relaxation: Whether final relaxation was performed
         """
         # 创建以number为键的字典
+        if not data_rows:
+            logging.warning("No structure data available to report maximum densities.")
+            return
         data_dict = {}
         for row in data_rows:
             number = row["Number"]
@@ -550,13 +555,17 @@ class VaspProcessing:
                 "final_density": row["Final_Density"] if relaxation else None
             }
 
-        # 获取每种密度的最大值所对应的编号
-        max_mlp_num = max(data_dict, key=lambda k: data_dict[k]['mlp_density'])
-        max_fine_num = max(data_dict, key=lambda k: data_dict[k]['fine_density'])
+        def _max_num(field):
+            # 读取失败的密度为 None，将其排除后再取最大，避免 None 与 float 比较报错
+            candidates = {k: v[field] for k, v in data_dict.items() if v[field] is not None}
+            if not candidates:
+                return None, None
+            num = max(candidates, key=lambda k: candidates[k])
+            return num, candidates[num]
 
-        # 通过编号获取对应的最大值
-        max_mlp_density = data_dict[max_mlp_num]['mlp_density']
-        max_fine_density = data_dict[max_fine_num]['fine_density']
+        # 获取每种密度的最大值所对应的编号及数值
+        max_mlp_num, max_mlp_density = _max_num("mlp_density")
+        max_fine_num, max_fine_density = _max_num("fine_density")
 
         # 打印结果
         logging.info(
@@ -568,8 +577,7 @@ class VaspProcessing:
                 f"Maximum Fine Density: {max_fine_density} (Structure Number: {max_fine_num})\n"
             )
         else:
-            max_final_num = max(data_dict, key=lambda k: data_dict[k]['final_density'])
-            max_final_density = data_dict[max_final_num]['final_density']
+            max_final_num, max_final_density = _max_num("final_density")
             logging.info(
                 f"Maximum Fine Density: {max_fine_density} (Structure Number: {max_fine_num})"
             )

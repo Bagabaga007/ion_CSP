@@ -41,13 +41,13 @@ src = "src"
 ion-csp = "ion_CSP.task_manager:main"
 
 [tool.pytest.ini_options]
+# 注意：不要把 --cov 放进 addopts，否则会破坏 VS Code/Trae 的测试发现与调试
+# （pytest-cov 与 IDE 测试适配器都依赖 sys.settrace，二者冲突）。
+# 需要覆盖率时显式运行：
+#   pytest --cov=src/ion_CSP --cov-branch --cov-report=html --cov-report=term-missing
 addopts = [
     "--tb=short",
     "-v",
-    "--cov=src/ion_CSP",
-    "--cov-report=html",
-    "--cov-report=term-missing",
-    "--cov-branch",
 ]
 filterwarnings = [
     "ignore::pytest.PytestAssertRewriteWarning",

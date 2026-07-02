@@ -5,11 +5,7 @@
     "python.testing.unittestEnabled": false,
     "python.testing.pytestArgs": [
         "tests",
-        "-v",
-        "--cov=src/ion_CSP",
-        "--cov-report=xml",
-        "--cov-report=html",
-        "--cov-report=term-missing"
+        "-v"
     ],
     "python.testing.autoTestDiscoverOnSaveEnabled": true,
     "coverage-gutters.coverageFileNames": [

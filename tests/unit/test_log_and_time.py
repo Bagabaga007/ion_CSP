@@ -433,7 +433,29 @@ key2:
     assert "Error parsing YAML file:" in captured.err
     assert "Line 8, Column 1" in captured.err  # 具体行号可能变化，但应包含
     assert "Details:" in captured.err
-    assert "expected the node content" in captured.err  # yaml 解析错误的典型描述
+
+
+def test_get_work_dir_and_config_yaml_error_without_problem_mark(
+    monkeypatch, tmp_path, capsys
+):
+    """YAMLError 不带 problem_mark 时，不应二次抛 AttributeError，仍能优雅退出"""
+    work_dir = tmp_path / "project"
+    work_dir.mkdir()
+    (work_dir / "config.yaml").write_text("key: value", encoding="utf-8")
+
+    monkeypatch.setattr("builtins.input", lambda _: str(work_dir))
+    monkeypatch.setattr("sys.argv", ["script.py"])
+    # 让 safe_load 抛出一个不带 problem_mark 的 YAMLError
+    with patch("yaml.safe_load", side_effect=yaml.YAMLError("generic error")):
+        with pytest.raises(SystemExit) as excinfo:
+            get_work_dir_and_config()
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error parsing YAML file:" in captured.err
+    assert "Details:" in captured.err
+    # 没有行列信息（因为没有 problem_mark），也不应崩溃
+    assert "Line " not in captured.err
 
 
 # ==================== 测试 machine_resources_prep 函数 ====================

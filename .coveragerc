@@ -1,5 +1,11 @@
 [run]
 source = src/ion_CSP
+# mlp_opt.py 使用 multiprocessing.Pool，需要开启以下选项，
+# coverage 才能正确合并子进程的覆盖率数据并清理临时文件，
+# 否则会在项目根目录残留 .coverage.<host>.<pid>.<random> 文件。
+parallel = True
+concurrency = multiprocessing
+sigterm = True
 omit =
     */tests/*
     */test_*.py

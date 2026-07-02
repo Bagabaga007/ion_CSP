@@ -140,6 +140,30 @@ def test_run_empirical_estimate_without_combo_dir(test_work_dir):
         mock_est.make_combo_dir.assert_not_called()
 
 
+def test_run_empirical_estimate_nc_ratio_sort(test_work_dir):
+    """sort_by=NC_ratio 时，density/nitrogen 分支均不调用（覆盖 line 35 False 分支）"""
+    with open(test_work_dir / "config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+
+    config["empirical_estimate"]["sort_by"] = "NC_ratio"
+    config["empirical_estimate"] = run_empirical_estimate.merge_config(
+        default_config=run_empirical_estimate.DEFAULT_CONFIG,
+        user_config=config,
+        key="empirical_estimate",
+    )
+
+    with patch("ion_CSP.run.run_empirical_estimate.EmpiricalEstimation") as MockEstimation:
+        mock_est = MockEstimation.return_value
+
+        run_empirical_estimate.main(test_work_dir, config)
+
+        # density 与 nitrogen 分支都跳过
+        mock_est.empirical_estimate.assert_not_called()
+        mock_est.nitrogen_content_estimate.assert_not_called()
+        # make_combo_dir 仍执行
+        mock_est.make_combo_dir.assert_called_once()
+
+
 def test_run_empirical_estimate_default_config():
     """Test that DEFAULT_CONFIG has expected structure"""
     assert "empirical_estimate" in run_empirical_estimate.DEFAULT_CONFIG

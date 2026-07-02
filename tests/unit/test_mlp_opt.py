@@ -338,8 +338,9 @@ def test_main_finally_block_pool_is_none(
     fake_pool_class = MagicMock()
     mock_get_context.return_value.Pool = fake_pool_class
 
-    # 4. 执行测试
-    main()
+    # 4. 执行测试：异常应向上传播（不再被静默吞掉）
+    with pytest.raises(RuntimeError, match="Simulated failure during context acquisition"):
+        main()
 
     # 5. 验证关键行为
     # 5.1 验证 get_context 被调用过（尝试创建 pool）
@@ -371,8 +372,9 @@ def test_main_finally_else_branch(
             "Simulated failure during context acquisition"
         )
 
-        # 4. 执行 main()
-        main()
+        # 4. 执行 main()：异常应向上传播（不再被静默吞掉）
+        with pytest.raises(RuntimeError, match="Simulated failure during context acquisition"):
+            main()
 
         # 5. 获取打印输出
         output = captured_output.getvalue()
@@ -380,7 +382,7 @@ def test_main_finally_else_branch(
         # 6. 验证：get_context 被调用（尝试创建池）
         mock_get_context.assert_called_once_with("spawn")
 
-        # 7. 关键：验证 else 分支的打印内容
+        # 7. 关键：验证 else 分支的打印内容（finally 仍在异常传播前执行）
         assert "No process pool to clean up." in output, (
             f"Expected 'No process pool to clean up.' in output, got:\n{output}"
         )
@@ -392,9 +394,8 @@ def test_main_finally_else_branch(
 
         # 9. 验证：有预期的异常提示
         assert (
-            "Unexpected error during multiprocessing pool initialization" in output
+            "Unexpected error during multiprocessing optimization" in output
         )
-        assert "Aborting execution." in output
 
 
 @patch("multiprocessing.get_context")

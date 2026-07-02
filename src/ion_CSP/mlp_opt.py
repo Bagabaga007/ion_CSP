@@ -76,22 +76,22 @@ def write_CONTCAR(element, ele, lat, pos, index, output_dir=None):
     """
 
     output_dir = base_dir if not output_dir else output_dir
-    f = open(os.path.join(output_dir, f"CONTCAR_{index}"), "w")
-    f.write('ASE-MLP-Optimization\n')
-    f.write('1.0\n') 
-    for i in range(3):
-        f.write('%15.10f %15.10f %15.10f\n' % tuple(lat[i]))
-    for x in element: 
-        f.write(x + '  ')
-    f.write('\n') 
-    for x in element:
-        f.write(str(ele[x]) + '  ') 
-    f.write('\n') 
-    f.write('Direct\n')
-    na = sum(ele.values())
-    dpos = np.dot(pos,np.linalg.inv(lat))
-    for i in range(na): 
-        f.write('%15.10f %15.10f %15.10f\n' % tuple(dpos[i]))
+    with open(os.path.join(output_dir, f"CONTCAR_{index}"), "w") as f:
+        f.write('ASE-MLP-Optimization\n')
+        f.write('1.0\n')
+        for i in range(3):
+            f.write('%15.10f %15.10f %15.10f\n' % tuple(lat[i]))
+        for x in element:
+            f.write(x + '  ')
+        f.write('\n')
+        for x in element:
+            f.write(str(ele[x]) + '  ')
+        f.write('\n')
+        f.write('Direct\n')
+        na = sum(ele.values())
+        dpos = np.dot(pos,np.linalg.inv(lat))
+        for i in range(na):
+            f.write('%15.10f %15.10f %15.10f\n' % tuple(dpos[i]))
 
 
 def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pstress, index, output_dir=None):
@@ -112,40 +112,40 @@ def write_OUTCAR(element, ele, masses, volume, lat, pos, ene, force, stress, pst
         output_dir: directory where the OUTCAR file will be saved
     """
     output_dir = base_dir if not output_dir else output_dir
-    f = open(os.path.join(output_dir, f"OUTCAR_{index}"), "w")
-    for x in element: 
-        f.write('VRHFIN =' + str(x) + '\n')
-    f.write('ions per type =')
-    for x in element:
-        f.write('%5d' % ele[x])
-    f.write('\nDirection     XX             YY             ZZ             XY             YZ             ZX\n') 
-    f.write('in kB') 
-    f.write('%15.6f' % stress[0])
-    f.write('%15.6f' % stress[1])
-    f.write('%15.6f' % stress[2])
-    f.write('%15.6f' % stress[3])
-    f.write('%15.6f' % stress[4])
-    f.write('%15.6f' % stress[5])
-    f.write('\n') 
-    ext_pressure = np.sum(stress[0] + stress[1] + stress[2])/3.0 - pstress
-    f.write('external pressure = %20.6f kB    Pullay stress = %20.6f  kB\n'% (ext_pressure, pstress))
-    f.write('volume of cell : %20.6f\n' % volume)
-    f.write('direct lattice vectors\n')
-    for i in range(3):
-        f.write('%10.6f %10.6f %10.6f\n' % tuple(lat[i]))
-    f.write('POSITION                                       TOTAL-FORCE(eV/Angst)\n')  
-    f.write('-------------------------------------------------------------------\n')
-    na = sum(ele.values()) 
-    for i in range(na): 
-        f.write('%15.6f %15.6f %15.6f' % tuple(pos[i])) 
-        f.write('%15.6f %15.6f %15.6f\n' % tuple(force[i]))
-    f.write('-------------------------------------------------------------------\n')
-    # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
-    atoms_density = 1.66054 * masses / volume
-    f.write('density = %20.6f\n' % atoms_density)
-    f.write('energy  without entropy= %20.6f %20.6f\n' % (ene, ene/na))
-    enthalpy = ene + pstress * volume / 1602.17733      
-    f.write('enthalpy TOTEN    = %20.6f %20.6f\n' % (enthalpy, enthalpy/na)) 
+    with open(os.path.join(output_dir, f"OUTCAR_{index}"), "w") as f:
+        for x in element:
+            f.write('VRHFIN =' + str(x) + '\n')
+        f.write('ions per type =')
+        for x in element:
+            f.write('%5d' % ele[x])
+        f.write('\nDirection     XX             YY             ZZ             XY             YZ             ZX\n')
+        f.write('in kB')
+        f.write('%15.6f' % stress[0])
+        f.write('%15.6f' % stress[1])
+        f.write('%15.6f' % stress[2])
+        f.write('%15.6f' % stress[3])
+        f.write('%15.6f' % stress[4])
+        f.write('%15.6f' % stress[5])
+        f.write('\n')
+        ext_pressure = np.sum(stress[0] + stress[1] + stress[2])/3.0 - pstress
+        f.write('external pressure = %20.6f kB    Pullay stress = %20.6f  kB\n'% (ext_pressure, pstress))
+        f.write('volume of cell : %20.6f\n' % volume)
+        f.write('direct lattice vectors\n')
+        for i in range(3):
+            f.write('%10.6f %10.6f %10.6f\n' % tuple(lat[i]))
+        f.write('POSITION                                       TOTAL-FORCE(eV/Angst)\n')
+        f.write('-------------------------------------------------------------------\n')
+        na = sum(ele.values())
+        for i in range(na):
+            f.write('%15.6f %15.6f %15.6f' % tuple(pos[i]))
+            f.write('%15.6f %15.6f %15.6f\n' % tuple(force[i]))
+        f.write('-------------------------------------------------------------------\n')
+        # 1.66054这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度g/cm³
+        atoms_density = 1.66054 * masses / volume
+        f.write('density = %20.6f\n' % atoms_density)
+        f.write('energy  without entropy= %20.6f %20.6f\n' % (ene, ene/na))
+        enthalpy = ene + pstress * volume / 1602.17733
+        f.write('enthalpy TOTEN    = %20.6f %20.6f\n' % (enthalpy, enthalpy/na))
         
 
 def get_indexes():
@@ -258,8 +258,9 @@ def main():
             run_opt(index)
         print("All optimizations completed successfully in serial mode.")
     except Exception as e:
-        print("Unexpected error during multiprocessing pool initialization:", e)
-        print("Aborting execution.")
+        # worker 抛回的异常或池初始化失败都应向上传播，避免把失败的优化误报为成功
+        print("Unexpected error during multiprocessing optimization:", e)
+        raise
     finally:
         if pool is not None:
             pool.close()

@@ -43,9 +43,8 @@ def main(work_dir, config):
                 task_1_2.set_running()
                 # 基于 dpdispatcher 模块，在远程服务器上批量准备并提交输入文件，并在任务结束后回收机器学习势优化的输出文件 OUTCAR 与 CONTCAR
                 generator.dpdisp_mlp_tasks(
-                    machine=config["gen_opt"]["machine"],
-                    resources=config["gen_opt"]["resources"],
-                    python_path=config["gen_opt"]["python_path"],
+                    machine_path=config["gen_opt"]["machine"],
+                    resources_path=config["gen_opt"]["resources"],
                     nodes=config["gen_opt"]["nodes"],
                 )
                 task_1_2.set_success()

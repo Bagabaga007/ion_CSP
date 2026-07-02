@@ -110,9 +110,8 @@ def test_run_gen_opt_main_with_mocks(test_work_dir):
 
             # Verify optimization task was executed
             mock_gen.dpdisp_mlp_tasks.assert_called_once_with(
-                machine="machine.yaml",
-                resources="resources.yaml",
-                python_path="/usr/bin/python3",
+                machine_path="machine.yaml",
+                resources_path="resources.yaml",
                 nodes=1
             )
 
@@ -181,6 +180,80 @@ def test_run_gen_opt_task_failure_handling(test_work_dir):
 
             # Verify failure was logged
             mock_logger.set_failure.assert_called_once()
+
+
+def test_run_gen_opt_generation_not_successful_skips_optimization(test_work_dir):
+    """生成任务始终未成功时，跳过优化任务（覆盖 line 38 False 分支）"""
+    with open(test_work_dir / "config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    config["gen_opt"] = run_gen_opt.merge_config(
+        default_config=run_gen_opt.DEFAULT_CONFIG, user_config=config, key="gen_opt"
+    )
+
+    with patch("ion_CSP.run.run_gen_opt.CrystalGenerator") as MockGenerator:
+        mock_gen = MockGenerator.return_value
+        with patch("ion_CSP.run.run_gen_opt.StatusLogger") as MockLogger:
+            mock_logger_1 = MagicMock()
+            MockLogger.return_value = mock_logger_1
+            # 两次 is_successful 均为 False：进入首个 try 执行生成，但 line 38 仍判定未成功
+            mock_logger_1.is_successful.side_effect = [False, False]
+
+            run_gen_opt.main(test_work_dir, config)
+
+            mock_gen.generate_structures.assert_called_once()
+            mock_gen.phonopy_processing.assert_called_once()
+            # 优化任务未被触发
+            mock_gen.dpdisp_mlp_tasks.assert_not_called()
+
+
+def test_run_gen_opt_optimization_already_successful(test_work_dir):
+    """生成成功且优化任务已完成时，跳过优化（覆盖 line 41 False 分支）"""
+    with open(test_work_dir / "config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    config["gen_opt"] = run_gen_opt.merge_config(
+        default_config=run_gen_opt.DEFAULT_CONFIG, user_config=config, key="gen_opt"
+    )
+
+    with patch("ion_CSP.run.run_gen_opt.CrystalGenerator") as MockGenerator:
+        mock_gen = MockGenerator.return_value
+        with patch("ion_CSP.run.run_gen_opt.StatusLogger") as MockLogger:
+            mock_logger_1 = MagicMock()
+            mock_logger_2 = MagicMock()
+            MockLogger.side_effect = [mock_logger_1, mock_logger_2]
+            # 生成任务已成功
+            mock_logger_1.is_successful.return_value = True
+            # 优化任务也已成功 → 跳过
+            mock_logger_2.is_successful.return_value = True
+
+            run_gen_opt.main(test_work_dir, config)
+
+            mock_gen.generate_structures.assert_not_called()
+            mock_gen.dpdisp_mlp_tasks.assert_not_called()
+
+
+def test_run_gen_opt_optimization_failure_handling(test_work_dir):
+    """优化任务抛异常时，记录失败并重新抛出（覆盖 line 52-54）"""
+    with open(test_work_dir / "config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    config["gen_opt"] = run_gen_opt.merge_config(
+        default_config=run_gen_opt.DEFAULT_CONFIG, user_config=config, key="gen_opt"
+    )
+
+    with patch("ion_CSP.run.run_gen_opt.CrystalGenerator") as MockGenerator:
+        mock_gen = MockGenerator.return_value
+        mock_gen.dpdisp_mlp_tasks.side_effect = RuntimeError("Optimization failed")
+        with patch("ion_CSP.run.run_gen_opt.StatusLogger") as MockLogger:
+            mock_logger_1 = MagicMock()
+            mock_logger_2 = MagicMock()
+            MockLogger.side_effect = [mock_logger_1, mock_logger_2]
+            # 生成任务已成功，优化任务未成功 → 进入优化 try 并失败
+            mock_logger_1.is_successful.return_value = True
+            mock_logger_2.is_successful.return_value = False
+
+            with pytest.raises(RuntimeError, match="Optimization failed"):
+                run_gen_opt.main(test_work_dir, config)
+
+            mock_logger_2.set_failure.assert_called_once()
 
 
 def test_run_gen_opt_default_config():

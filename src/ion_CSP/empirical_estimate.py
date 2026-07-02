@@ -94,6 +94,51 @@ class EmpiricalEstimation:
         # 检查Multiwfn可执行文件是否存在
         self.multiwfn_path = self._check_multiwfn_executable()
 
+    def _check_pre_optimized_ions(self, folder: str):
+        """
+        检查工作目录下的文件夹中每个离子的优化状态。
+        同时包含同名 .gjf 和 .json 文件的离子视为已预优化，只有 .gjf 文件的离子需要后续处理。
+
+        :return: (pre_optimized, needs_processing)
+            pre_optimized: 已预优化的离子 stem 名称列表
+            needs_processing: 需要 Multiwfn 处理的离子 stem 名称列表
+        """
+        folder_path = self.base_dir / folder
+        if not folder_path.exists():
+            return [], []
+        gjf_stems = {f.stem for f in folder_path.glob("*.gjf")}
+        json_stems = {f.stem for f in folder_path.glob("*.json")}
+        pre_optimized = sorted(gjf_stems & json_stems)
+        needs_processing = sorted(gjf_stems - json_stems)
+        return pre_optimized, needs_processing
+
+    def _copy_pre_optimized_ions(self, folder: str, ion_names: List[str]):
+        """
+        将工作目录下已预优化好的离子（同名 .gjf 和 .json）直接复制到 gaussian_dir 和 Optimized 目录中。
+        """
+        src_folder = self.base_dir / folder
+        dst_gaussian_folder = self.gaussian_dir / folder
+        dst_gaussian_folder.mkdir(parents=True, exist_ok=True)
+        dst_optimized_folder = self.gaussian_result_dir / folder
+        dst_optimized_folder.mkdir(parents=True, exist_ok=True)
+
+        for name in ion_names:
+            for ext in ["gjf", "json"]:
+                src = src_folder / f"{name}.{ext}"
+                if not src.exists():
+                    continue
+                dst = dst_gaussian_folder / f"{name}.{ext}"
+                if not dst.exists():
+                    shutil.copyfile(str(src), str(dst))
+                dst_opt = dst_optimized_folder / f"{name}.{ext}"
+                if not dst_opt.exists():
+                    shutil.copyfile(str(src), str(dst_opt))
+
+        logging.info(
+            f"Folder '{folder}': {len(ion_names)} pre-optimized ion(s) copied directly "
+            f"to Optimized directory (skipping Multiwfn): {ion_names}"
+        )
+
     def _check_multiwfn_executable(self):
         """
         Private method:
@@ -168,6 +213,14 @@ class EmpiricalEstimation:
             self._multiwfn_process_fchk_to_json(specific_directory)
         else:
             for folder in self.folders:
+                # 检查工作目录下是否有预优化好的离子，直接复制跳过 Multiwfn
+                pre_optimized, needs_processing = self._check_pre_optimized_ions(folder)
+                if pre_optimized:
+                    self._copy_pre_optimized_ions(folder, pre_optimized)
+                if needs_processing:
+                    logging.info(
+                        f"Folder '{folder}': {len(needs_processing)} ion(s) need Multiwfn processing: {needs_processing}"
+                    )
                 (self.gaussian_result_dir / folder).mkdir(parents=True, exist_ok=True)
                 self._multiwfn_process_fchk_to_json(folder)
 
@@ -373,6 +426,13 @@ class EmpiricalEstimation:
             self._gaussian_log_to_optimized_gjf(specific_directory)
         else:
             for folder in self.folders:
+                # 预优化的离子已在 multiwfn_process_fchk_to_json 中复制了 gjf，此处无需再处理
+                pre_optimized, _ = self._check_pre_optimized_ions(folder)
+                if pre_optimized:
+                    logging.info(
+                        f"Folder '{folder}': {len(pre_optimized)} pre-optimized ion(s) "
+                        f"already have .gjf files, skipping log-to-gjf for them."
+                    )
                 (self.gaussian_result_dir / folder).mkdir(parents=True, exist_ok=True)
                 self._gaussian_log_to_optimized_gjf(folder)
 
@@ -640,6 +700,8 @@ class EmpiricalEstimation:
         """
         combinations = self._generate_combinations(suffix=".json")
         predicted_crystal_densities = []
+        # 只保留成功计算出密度的组合，保证与 predicted_crystal_densities 一一对应
+        valid_combos = []
         for combo in combinations:
             # 每个组合包含数个离子，分别获取其各项性质，包括质量、体积、密度、正/负电势与面积
             refcodes, ion_types, masses, volumes = [], [], 0, 0
@@ -651,24 +713,31 @@ class EmpiricalEstimation:
                 negative_average_values,
                 negative_electrostatics,
             ) = 0, 0, 0, 0, 0, 0
+            combo_valid = True
             for json_file, count in combo.items():
                 # 根据每一个组合中的组分找到对应的 JSON 文件并读取其中的性质内容
                 try:
-                    with open(json_file, "r") as json_file:
-                        property = json.load(json_file)
-                except json.decoder.JSONDecodeError:
-                    continue
-                refcodes.append(property["refcode"])
-                ion_types.append(property["ion_type"])
-                # 1.66054 这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度 g/cm³
-                mass = property["molecular_mass"] * 1.66054
-                masses += mass * count
-                molecular_volume = float(property["volume"])
-                volumes += molecular_volume * count
-                positive_surface_area = property["positive_surface_area"]
-                negative_surface_area = property["negative_surface_area"]
-                positive_average_value = property["positive_average_value"]
-                negative_average_value = property["negative_average_value"]
+                    with open(json_file, "r") as jf:
+                        property = json.load(jf)
+                    refcodes.append(property["refcode"])
+                    ion_types.append(property["ion_type"])
+                    # 1.66054 这一转换因子用于将原子质量单位转换为克，以便在宏观尺度上计算密度 g/cm³
+                    mass = property["molecular_mass"] * 1.66054
+                    masses += mass * count
+                    molecular_volume = float(property["volume"])
+                    volumes += molecular_volume * count
+                    positive_surface_area = property["positive_surface_area"]
+                    negative_surface_area = property["negative_surface_area"]
+                    positive_average_value = property["positive_average_value"]
+                    negative_average_value = property["negative_average_value"]
+                except (json.decoder.JSONDecodeError, KeyError, ValueError, TypeError, OSError) as e:
+                    # 任一组分 JSON 损坏或缺少必要字段时，跳过整个组合，
+                    # 避免用部分离子算出错误密度或后续除零
+                    logging.warning(
+                        f"Skipping combination due to invalid JSON '{json_file}': {e}"
+                    )
+                    combo_valid = False
+                    break
                 if (
                     positive_surface_area != "0.00000"
                     and positive_average_value != "NaN"
@@ -690,6 +759,13 @@ class EmpiricalEstimation:
                     )
                     negative_electrostatics += negative_electrostatic * count
 
+            # 组合无效或总体积为 0（无法计算密度）时跳过
+            if not combo_valid:
+                continue
+            if volumes == 0:
+                logging.warning("Skipping combination with zero total molecular volume.")
+                continue
+
             # 1. 拟合经验公式参数来源：Molecular Physics 2010, 108:10, 1391-1396.
             # http://dx.doi.org/10.1080/00268971003702221
             # alpha, beta, gamma, delta = 1.0260, 0.0514, 0.0419, 0.0227
@@ -706,10 +782,11 @@ class EmpiricalEstimation:
             )
             predicted_crystal_density = round(predicted_crystal_density, 4)
             predicted_crystal_densities.append(predicted_crystal_density)
+            valid_combos.append(combo)
 
         # 将组合和对应的密度合并并排序
         data = []
-        for combo, density in zip(combinations, predicted_crystal_densities):
+        for combo, density in zip(valid_combos, predicted_crystal_densities):
             # 转换为需要的格式: "folder_name/file_name"
             cleaned_combo = [
                 f"{component.parent.name}/{component.stem}" for component in combo
@@ -723,7 +800,7 @@ class EmpiricalEstimation:
         with self.density_csv.open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.writer(csv_file)
             # 动态生成表头
-            num_components = len(combinations[0]) if combinations else 0
+            num_components = len(valid_combos[0]) if valid_combos else 0
             header = [f"Component {i + 1}" for i in range(num_components)] + [
                 "Pred_Density"
             ]

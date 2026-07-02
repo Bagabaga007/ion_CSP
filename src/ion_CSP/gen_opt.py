@@ -447,12 +447,14 @@ class CrystalGenerator:
                 return
 
             # 使用 pkill -f 匹配环境变量，而非命令行
-            cmd = f'ssh {username}@{hostname} "pkill -f \\"DPDISPATCHER_JOB_ID={self._job_id}\\""'
+            # 用 argv 列表调用，避免把 hostname/username 交给本地 shell 解释造成命令注入
+            remote_cmd = f'pkill -f "DPDISPATCHER_JOB_ID={self._job_id}"'
+            cmd = ["ssh", f"{username}@{hostname}", remote_cmd]
             logging.info(
                 f"Terminating remote tasks on {hostname} with JOB_ID={self._job_id}..."
             )
             try:
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
                     logging.info(
                         f"Remote termination command executed successfully on {hostname}"

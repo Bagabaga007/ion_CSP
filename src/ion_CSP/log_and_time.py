@@ -30,12 +30,17 @@ def log_and_time(func):
         # 获取脚本所在目录, 在该目录下生成日志
         log_file_path = work_dir / f"{script_name}_output.log"
         print(f"Log file path: {log_file_path}")
-        # 配置日志记录
-        logging.basicConfig(
-            filename=str(log_file_path),  # 日志文件名
-            level=logging.INFO,  # 指定日志级别
-            format="%(asctime)s - %(levelname)s - %(message)s",  # 日志格式
+        # 配置日志记录：为每次调用单独挂载 FileHandler。
+        # 不用 logging.basicConfig —— 它在 root logger 已有 handler 后是 no-op，
+        # 会导致同一进程内后续被装饰函数的日志错误地写入首个调用的文件。
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        file_handler = logging.FileHandler(str(log_file_path))
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         )
+        root_logger.addHandler(file_handler)
         # 获取程序开始执行时的CPU时间和Wall Clock时间
         start_cpu, start_clock = time.process_time(), time.perf_counter()
         # 记录程序开始信息
@@ -44,21 +49,25 @@ def log_and_time(func):
         result = None
         try:
             result = func(work_dir, *args, **kwargs)
+            print(
+                f"The script {script_name} has run successfully, and the output content has been recorded in the {script_name}_output.log file in the same directory."
+            )
+            # 获取程序结束时的CPU时间和Wall Clock时间
+            end_cpu, end_clock = time.process_time(), time.perf_counter()
+            # 计算CPU时间和Wall Clock时间的差值
+            cpu_time, wall_time = end_cpu - start_cpu, end_clock - start_clock
+            # 记录程序结束信息
+            logging.info(
+                f"End running: {script_name}\nWall time: {wall_time:.4f} sec, CPU time: {cpu_time:.4f} sec\n"
+            )
+            return result
         except Exception as e:
             logging.error(f"Error occurred: {e}", exc_info=True)
             raise
-        print(
-            f"The script {script_name} has run successfully, and the output content has been recorded in the {script_name}_output.log file in the same directory."
-        )
-        # 获取程序结束时的CPU时间和Wall Clock时间
-        end_cpu, end_clock = time.process_time(), time.perf_counter()
-        # 计算CPU时间和Wall Clock时间的差值
-        cpu_time, wall_time = end_cpu - start_cpu, end_clock - start_clock
-        # 记录程序结束信息
-        logging.info(
-            f"End running: {script_name}\nWall time: {wall_time:.4f} sec, CPU time: {cpu_time:.4f} sec\n"
-        )
-        return result
+        finally:
+            # 无论成功失败都要卸载并关闭本次调用的 handler，避免句柄泄漏与跨调用串写
+            file_handler.close()
+            root_logger.removeHandler(file_handler)
     return wrapper
 
 
@@ -118,6 +127,20 @@ class StatusLogger:
 
         # 如果已经初始化过，只需要加载当前任务的状态
         if hasattr(self, "initialized"):
+            # work_dir 可能变化：若变化则把 FileHandler 指向新的 log 文件，
+            # 否则 .log 仍写入首个 work_dir 而 .yaml 写入新目录，导致二者分叉
+            current_files = [
+                getattr(h, "baseFilename", None) for h in self.logger.handlers
+            ]
+            if str(log_file) not in current_files:
+                for h in list(self.logger.handlers):
+                    h.close()
+                    self.logger.removeHandler(h)
+                file_handler = logging.FileHandler(str(log_file))
+                file_handler.setFormatter(
+                    logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+                )
+                self.logger.addHandler(file_handler)
             self._load_task_status()
             return
 
@@ -323,10 +346,13 @@ def get_work_dir_and_config():
         sys.exit(1)
     except yaml.YAMLError as e:
         print("Error parsing YAML file:", file=sys.stderr)
-        print(
-            f"  Line {e.problem_mark.line + 1}, Column {e.problem_mark.column + 1}",
-            file=sys.stderr,
-        )
+        # 并非所有 YAMLError 都带 problem_mark，缺失时不再二次抛 AttributeError
+        problem_mark = getattr(e, "problem_mark", None)
+        if problem_mark is not None:
+            print(
+                f"  Line {problem_mark.line + 1}, Column {problem_mark.column + 1}",
+                file=sys.stderr,
+            )
         print(f"  Details: {str(e)}", file=sys.stderr)
         sys.exit(1)
 

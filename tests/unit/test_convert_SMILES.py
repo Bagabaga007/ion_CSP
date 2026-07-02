@@ -125,20 +125,43 @@ def test_convert_SMILES_add_hydrogens_exception(
 
 
 def test_convert_SMILES_charge_mismatch(smiles_processor: SmilesProcessing, caplog):
-    """测试计算出的分子电荷与 CSV 中指定电荷不一致，应记录错误"""
+    """测试计算出的分子电荷与 CSV 中指定电荷不一致，应记录错误并返回失败、不写文件"""
     sp = smiles_processor
     caplog.set_level(logging.ERROR)
 
+    dir_path = sp.converted_dir / "charge_1"
+    dir_path.mkdir(parents=True, exist_ok=True)
+
     # 乙醇 CCO，实际电荷为 0，但指定为 1
     result_flag, basename = sp._convert_SMILES(
-        dir_path=sp.converted_dir / "charge_1",
+        dir_path=dir_path,
         smiles="CCO",
         basename="REF001",
         charge=1,  # 给定电荷错误
     )
 
-    assert result_flag is True  # 文件仍生成，仅警告
+    assert result_flag is False  # 电荷不匹配视为失败
     assert "REF001: charge wrong! calculated 0 and given 1" in caplog.text
+    # 不应写入被错误分组的结构文件
+    assert not (dir_path / "REF001.gjf").exists()
+
+
+def test_convert_SMILES_multiplicity_radical(smiles_processor: SmilesProcessing):
+    """自由基的多重度应为 未成对电子数+1（甲基自由基 → 2），而非 2n+1（=3）"""
+    sp = smiles_processor
+    dir_path = sp.converted_dir / "charge_0"
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+    # 甲基自由基 [CH3]：1 个未成对电子 → 多重度应为 2
+    result_flag, _ = sp._convert_SMILES(
+        dir_path=dir_path, smiles="[CH3]", basename="RAD001", charge=0
+    )
+
+    assert result_flag is True
+    content = (dir_path / "RAD001.gjf").read_text()
+    # Gaussian 输入的电荷/多重度行应为 "0 2"
+    assert "\n0 2\n" in content
+    assert "0 3" not in content
 
 
 @patch("pathlib.Path.write_text")
@@ -512,9 +535,9 @@ gen_opt:
         nodes=2,
     )
 
-    # 5. 验证日志：提示无文件
+    # 5. 验证日志：提示无需优化的文件
     assert (
-        "No .gjf files found in folder: charge_1" in caplog.text
+        "No .gjf files need Gaussian optimization in folder: charge_1" in caplog.text
     )
 
     # 6. 验证优化目录未被创建
@@ -580,7 +603,7 @@ def test_dpdisp_gaussian_tasks_cleanup_ssh_context(
     )
 
     # 验证 rmtree 被调用，删除的是 data/ 目录
-    mock_rmtree.assert_called_once_with(sp.converted_dir / "data")
+    mock_rmtree.assert_called_once_with(sp.converted_dir / "data", ignore_errors=True)
 
 
 def test_dpdisp_gaussian_tasks_no_folders(smiles_processor: SmilesProcessing, caplog):
@@ -687,6 +710,222 @@ def test_error_handling(smiles_processor: SmilesProcessing, caplog):
     sp.charge_group()
     assert "REF005" in caplog.text
     assert "Invalid SMILES:" in caplog.text
+
+
+# ==================== 测试 _parse_gaussian_error ====================
+def test_parse_gaussian_error_log_not_found(tmp_path: Path):
+    """日志文件不存在时返回对应提示"""
+    missing = tmp_path / "nope.log"
+    assert (
+        SmilesProcessing._parse_gaussian_error(missing)
+        == "Gaussian log file not found"
+    )
+
+
+def test_parse_gaussian_error_unreadable(tmp_path: Path):
+    """读取日志抛 OSError 时返回可读的错误信息"""
+    # 用目录冒充日志文件，read_text 会抛 IsADirectoryError(OSError 子类)
+    fake_log = tmp_path / "dir.log"
+    fake_log.mkdir()
+    result = SmilesProcessing._parse_gaussian_error(fake_log)
+    assert result.startswith("Unable to read log file:")
+
+
+@pytest.mark.parametrize(
+    "content, expected",
+    [
+        (
+            "Normal termination of Gaussian 16",
+            "Optimization completed but formchk failed to generate .fchk",
+        ),
+        (
+            "Number of steps exceeded, NStep= 100",
+            "Geometry optimization did not converge (max steps exceeded)",
+        ),
+        ("Convergence failure -- run terminated.", "SCF convergence failure"),
+        ("FormBX had a problem.", "Internal coordinate error (FormBX)"),
+        (
+            "NtrErr Called from FileIO.",
+            "File I/O error (disk space or permission issue)",
+        ),
+        ("galloc:  could not allocate memory.", "Insufficient memory"),
+        ("Link died unexpectedly", "Gaussian process crashed (link died or erroneous write)"),
+        ("Erroneous write during file flush", "Gaussian process crashed (link died or erroneous write)"),
+        (
+            "Error termination via Lnk1e",
+            "Gaussian terminated with error (check log for details)",
+        ),
+        ("some random text with no known marker", "Unknown error (no normal termination found)"),
+    ],
+)
+def test_parse_gaussian_error_patterns(tmp_path: Path, content: str, expected: str):
+    """逐一覆盖各类 Gaussian 报错模式的识别"""
+    log_path = tmp_path / "job.log"
+    log_path.write_text(content, encoding="utf-8")
+    assert SmilesProcessing._parse_gaussian_error(log_path) == expected
+
+
+# ==================== 测试跳过已预优化离子 ====================
+def test_dpdisp_gaussian_tasks_skips_pre_optimized(
+    smiles_processor: SmilesProcessing, tmp_path: Path, caplog
+):
+    """当 .gjf 已有对应 .json（已预优化）时，记录跳过日志且不提交任务"""
+    sp = smiles_processor
+    caplog.set_level(logging.INFO)
+
+    # 创建同名 .gjf + .json，使其被判定为已预优化
+    folder_dir = sp.converted_dir / "charge_0"
+    folder_dir.mkdir(parents=True, exist_ok=True)
+    (folder_dir / "REF001.gjf").write_text("dummy", encoding="utf-8")
+    (folder_dir / "REF001.json").write_text("{}", encoding="utf-8")
+
+    machine_config = tmp_path / "machine.json"
+    resources_config = tmp_path / "resources.json"
+    machine_config.write_text(
+        json.dumps({
+            "context_type": "LocalContext",
+            "local_root": "./",
+            "remote_root": "/workplace/autodpgen/pytest",
+            "batch_type": "Shell",
+        }),
+        encoding="utf-8",
+    )
+    resources_config.write_text(
+        json.dumps({
+            "number_node": 1,
+            "cpu_per_node": 4,
+            "gpu_per_node": 0,
+            "group_size": 1,
+        }),
+        encoding="utf-8",
+    )
+
+    with patch("dpdispatcher.Submission.run_submission") as mock_run:
+        sp.dpdisp_gaussian_tasks(
+            folders=["charge_0"],
+            machine_path=str(machine_config),
+            resources_path=str(resources_config),
+            nodes=1,
+        )
+
+    # 记录了「已预优化，跳过」的日志
+    assert "already pre-optimized" in caplog.text
+    assert "REF001" in caplog.text
+    # 没有需要优化的 .gjf，因此提示无需优化且未提交任务
+    assert "No .gjf files need Gaussian optimization in folder: charge_0" in caplog.text
+    mock_run.assert_not_called()
+
+
+def test_dpdisp_gaussian_tasks_json_without_matching_gjf(
+    smiles_processor: SmilesProcessing, tmp_path: Path, caplog
+):
+    """有 .json 但无同名 .gjf 时，skipped 为空，不记录预优化跳过日志"""
+    sp = smiles_processor
+    caplog.set_level(logging.INFO)
+
+    # 仅有 .json，没有任何同名 .gjf
+    folder_dir = sp.converted_dir / "charge_0"
+    folder_dir.mkdir(parents=True, exist_ok=True)
+    (folder_dir / "REF001.json").write_text("{}", encoding="utf-8")
+
+    machine_config = tmp_path / "machine.json"
+    resources_config = tmp_path / "resources.json"
+    machine_config.write_text(
+        json.dumps({
+            "context_type": "LocalContext",
+            "local_root": "./",
+            "remote_root": "/workplace/autodpgen/pytest",
+            "batch_type": "Shell",
+        }),
+        encoding="utf-8",
+    )
+    resources_config.write_text(
+        json.dumps({
+            "number_node": 1,
+            "cpu_per_node": 4,
+            "gpu_per_node": 0,
+            "group_size": 1,
+        }),
+        encoding="utf-8",
+    )
+
+    with patch("dpdispatcher.Submission.run_submission") as mock_run:
+        sp.dpdisp_gaussian_tasks(
+            folders=["charge_0"],
+            machine_path=str(machine_config),
+            resources_path=str(resources_config),
+            nodes=1,
+        )
+
+    assert "already pre-optimized" not in caplog.text
+    assert "No .gjf files need Gaussian optimization in folder: charge_0" in caplog.text
+    mock_run.assert_not_called()
+
+
+# ==================== 测试作业全部成功（无失败分支）====================
+@patch("dpdispatcher.Submission.run_submission")
+@patch("dpdispatcher.Submission.__init__", return_value=None)
+@patch("dpdispatcher.Task.__init__", return_value=None)
+def test_dpdisp_gaussian_tasks_all_jobs_succeed(
+    mock_task,
+    mock_sub,
+    mock_run,
+    smiles_processor: SmilesProcessing,
+    tmp_path: Path,
+    caplog,
+):
+    """当每个 .gjf 都生成了非空 .fchk 时，视为成功，不记录失败告警"""
+    sp = smiles_processor
+    caplog.set_level(logging.INFO)
+
+    folder_dir = sp.converted_dir / "charge_1"
+    folder_dir.mkdir(parents=True, exist_ok=True)
+    (folder_dir / "REF001.gjf").write_text("dummy", encoding="utf-8")
+
+    machine_config = tmp_path / "machine.json"
+    resources_config = tmp_path / "resources.json"
+    machine_config.write_text(
+        json.dumps({
+            "context_type": "LocalContext",
+            "local_root": "./",
+            "remote_root": "/workplace/autodpgen/pytest",
+            "batch_type": "Shell",
+        }),
+        encoding="utf-8",
+    )
+    resources_config.write_text(
+        json.dumps({
+            "number_node": 1,
+            "cpu_per_node": 4,
+            "gpu_per_node": 0,
+            "group_size": 1,
+        }),
+        encoding="utf-8",
+    )
+
+    # LocalContext 下 parent="", 单节点任务目录为 converted_dir/pop0
+    # 用 run_submission 的 side_effect 模拟 Gaussian 产出非空 .log/.fchk
+    def fake_run(*args, **kwargs):
+        task_dir = sp.converted_dir / "pop0"
+        (task_dir / "REF001.log").write_text("Normal termination", encoding="utf-8")
+        (task_dir / "REF001.fchk").write_text("fchk data", encoding="utf-8")
+
+    mock_run.side_effect = fake_run
+
+    sp.dpdisp_gaussian_tasks(
+        folders=["charge_1"],
+        machine_path=str(machine_config),
+        resources_path=str(resources_config),
+        nodes=1,
+    )
+
+    # 成功路径：优化目录生成了非空 .fchk，且没有失败告警
+    opt_dir = sp.gaussian_optimized_dir / "charge_1"
+    fchk = opt_dir / "REF001.fchk"
+    assert fchk.exists() and fchk.stat().st_size > 0
+    assert "Batch Gaussian optimization completed!!!" in caplog.text
+    assert "jobs failed in folder" not in caplog.text
+    mock_run.assert_called_once()
 
 
 if __name__ == "__main__":

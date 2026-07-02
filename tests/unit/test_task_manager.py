@@ -885,6 +885,7 @@ def test_safe_kill_graceful_exit(mock_process, task_manager, monkeypatch):
     mock_proc.status.return_value = psutil.STATUS_RUNNING
     mock_proc.wait.return_value = 0
     mock_process.return_value = mock_proc
+    monkeypatch.setattr(task_manager, "_is_valid_task_pid", lambda pid: True)
     monkeypatch.setattr("builtins.input", lambda _: None)
     result = task_manager._safe_kill("CSP", 1234)
     mock_proc.terminate.assert_called_once()
@@ -899,6 +900,7 @@ def test_safe_kill_force_kill(mock_process, task_manager, monkeypatch):
     mock_proc.wait.side_effect = psutil.TimeoutExpired(seconds=5)
     mock_proc.kill = MagicMock()
     mock_process.return_value = mock_proc
+    monkeypatch.setattr(task_manager, "_is_valid_task_pid", lambda pid: True)
     monkeypatch.setattr("builtins.input", lambda _: None)
     result = task_manager._safe_kill("CSP", 1234)
     mock_proc.terminate.assert_called_once()
@@ -910,6 +912,7 @@ def test_safe_kill_force_kill(mock_process, task_manager, monkeypatch):
 @patch("ion_CSP.task_manager.psutil.Process")
 def test_safe_kill_process_not_exists(mock_process, task_manager, monkeypatch):
     mock_process.side_effect = psutil.NoSuchProcess(999)
+    monkeypatch.setattr(task_manager, "_is_valid_task_pid", lambda pid: True)
     monkeypatch.setattr("builtins.input", lambda _: None)
     result = task_manager._safe_kill("CSP", 999)
     mock_process.assert_called_once_with(999)
@@ -919,6 +922,7 @@ def test_safe_kill_process_not_exists(mock_process, task_manager, monkeypatch):
 @patch("ion_CSP.task_manager.psutil.Process")
 def test_safe_kill_access_denied(mock_process, task_manager, monkeypatch):
     mock_process.side_effect = psutil.AccessDenied()
+    monkeypatch.setattr(task_manager, "_is_valid_task_pid", lambda pid: True)
     monkeypatch.setattr("builtins.input", lambda _: None)
     result = task_manager._safe_kill("CSP", 1234)
     mock_process.assert_called_once_with(1234)
@@ -928,10 +932,23 @@ def test_safe_kill_access_denied(mock_process, task_manager, monkeypatch):
 @patch("ion_CSP.task_manager.psutil.Process")
 def test_safe_kill_unknown_error(mock_process, task_manager, monkeypatch):
     mock_process.side_effect = Exception("Unknown error")
+    monkeypatch.setattr(task_manager, "_is_valid_task_pid", lambda pid: True)
     monkeypatch.setattr("builtins.input", lambda _: None)
     result = task_manager._safe_kill("CSP", 1234)
     mock_process.assert_called_once_with(1234)
     assert result == -3
+
+
+def test_safe_kill_invalid_pid_skips(task_manager, monkeypatch):
+    """终止前发现 PID 已不属于任务进程（可能被复用），应跳过、不调用 terminate"""
+    monkeypatch.setattr(task_manager, "_is_valid_task_pid", lambda pid: False)
+    monkeypatch.setattr(task_manager, "_cleanup_task_files", lambda module, pid: None)
+    monkeypatch.setattr("builtins.input", lambda _: None)
+    with patch("ion_CSP.task_manager.psutil.Process") as mock_process:
+        result = task_manager._safe_kill("CSP", 4321)
+        # 不应尝试构造 Process 或发送终止信号
+        mock_process.assert_not_called()
+    assert result == -2
 
 
 @patch("ion_CSP.task_manager.Path.unlink")
@@ -1077,9 +1094,9 @@ def test_paginate_tasks_view_log(task_manager):
     """Test _paginate_tasks view log detail"""
     tasks = [{"module": "CSP", "pid": 1234, "status": "Running", "real_log": "/test.log"}]
     with patch("builtins.input", side_effect=["1", "q"]):
-        with patch("ion_CSP.task_manager.os.system") as mock_system:
+        with patch("ion_CSP.task_manager.subprocess.run") as mock_run:
             task_manager._paginate_tasks(tasks, "view")
-            mock_system.assert_called_once_with("less /test.log")
+            mock_run.assert_called_once_with(["less", "/test.log"])
 
 
 def test_task_runner_symlink_exists(task_manager, monkeypatch):

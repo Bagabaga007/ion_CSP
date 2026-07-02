@@ -262,6 +262,60 @@ def test_combination_task_no_combo_dir(mock_estimation, mock_work_dir, mock_conf
     estimation_instance.make_combo_dir.assert_not_called()
 
 
+@patch("ion_CSP.run.main_EE.StatusLogger")
+@patch("ion_CSP.run.main_EE.convertion_task")
+@patch("ion_CSP.run.main_EE.estimation_task")
+@patch("ion_CSP.run.main_EE.combination_task")
+def test_main_update_disabled(
+    mock_combination, mock_estimation, mock_convertion, mock_logger, mock_work_dir, mock_config
+):
+    """update=False 时，跳过额外的 update_combo 逻辑（覆盖 line 49 False 分支）"""
+    mock_config["empirical_estimate"]["update"] = False
+    logger_instance = MagicMock()
+    logger_instance.is_successful.return_value = True  # 循环内任务全部跳过
+    mock_logger.return_value = logger_instance
+
+    main(mock_work_dir, mock_config)
+
+    # update 关闭且循环内任务均已成功 → combination_task 完全不被调用
+    mock_combination.assert_not_called()
+
+
+@patch("ion_CSP.run.main_EE.StatusLogger")
+@patch("ion_CSP.run.main_EE.combination_task")
+def test_main_update_combo_failure(
+    mock_combination, mock_logger, mock_work_dir, mock_config
+):
+    """update 阶段的 combination_task 抛异常时记录失败并抛出（覆盖 line 55-57）"""
+    # 循环内任务全部已成功 → 跳过循环体，避免在循环里触发 combination_task
+    logger_instance = MagicMock()
+    logger_instance.is_successful.return_value = True
+    mock_logger.return_value = logger_instance
+    # update 阶段调用 combination_task 时失败
+    mock_combination.side_effect = RuntimeError("Update failed")
+
+    with pytest.raises(RuntimeError, match="Update failed"):
+        main(mock_work_dir, mock_config)
+
+    logger_instance.set_failure.assert_called()
+
+
+@patch("ion_CSP.run.main_EE.EmpiricalEstimation")
+def test_combination_task_unknown_sort(mock_estimation, mock_work_dir, mock_config):
+    """sort_by 不匹配任何已知排序时，三种估算方法均不调用（覆盖 line 115 False 分支）"""
+    mock_config["empirical_estimate"]["sort_by"] = "unknown"
+    estimation_instance = MagicMock()
+    mock_estimation.return_value = estimation_instance
+
+    combination_task(mock_work_dir, mock_config)
+
+    estimation_instance.empirical_estimate.assert_not_called()
+    estimation_instance.nitrogen_content_estimate.assert_not_called()
+    estimation_instance.carbon_nitrogen_ratio_estimate.assert_not_called()
+    # make_combo_dir 仍会执行
+    estimation_instance.make_combo_dir.assert_called_once()
+
+
 @patch("ion_CSP.run.main_EE.get_work_dir_and_config")
 @patch("ion_CSP.run.main_EE.merge_config")
 @patch("ion_CSP.run.main_EE.main")

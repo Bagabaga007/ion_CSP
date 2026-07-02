@@ -239,7 +239,7 @@ gpu_per_node: 0
 group_size: 1
 """, encoding="utf-8")
 
-    with pytest.raises(Exception):
+    with pytest.raises(FileNotFoundError):
         vasp_processor.dpdisp_vasp_relaxation_tasks(
             machine_path=str(machine_path),
             resources_path=str(resources_path),
@@ -1811,6 +1811,96 @@ gen_opt:
     assert final_PC is not False
     assert isinstance(fine_PC, float)
     assert isinstance(final_PC, float)
+
+
+@patch("dpdispatcher.Submission.run_submission")
+@patch("dpdispatcher.Submission.__init__", return_value=None)
+@patch("dpdispatcher.Task.__init__", return_value=None)
+def test_dpdisp_vasp_optimization_tasks_missing_outcar_and_src_copy(
+    mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path, caplog
+):
+    """一个结构有 OUTCAR 且 pop 结果目录存在(copytree)，另一个缺 OUTCAR(跳过复制)"""
+    caplog.set_level(logging.INFO)
+
+    # 001: 有 CONTCAR + OUTCAR
+    (vasp_processor.for_vasp_opt_dir / "CONTCAR_001").write_text("dummy", encoding="utf-8")
+    (vasp_processor.for_vasp_opt_dir / "OUTCAR_001").write_text(
+        "TOTEN = -10.123456\n", encoding="utf-8"
+    )
+    # 002: 只有 CONTCAR，没有对应 OUTCAR → 覆盖 line 128 False 分支
+    (vasp_processor.for_vasp_opt_dir / "CONTCAR_002").write_text("dummy", encoding="utf-8")
+
+    # 预先创建 pop0/001 结果目录，使 src 存在 → 覆盖 line 143 的 copytree
+    src_result = vasp_processor.for_vasp_opt_dir / "pop0" / "001"
+    src_result.mkdir(parents=True, exist_ok=True)
+    (src_result / "CONTCAR").write_text("result", encoding="utf-8")
+
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+    machine_path.write_text("""
+context_type: LocalContext
+local_root: ./
+remote_root: /your/remote/workplace
+batch_type: Shell
+""", encoding="utf-8")
+    resources_path.write_text("""
+number_node: 1
+cpu_per_node: 8
+gpu_per_node: 0
+group_size: 1
+""", encoding="utf-8")
+
+    vasp_processor.dpdisp_vasp_optimization_tasks(
+        machine_path=str(machine_path),
+        resources_path=str(resources_path),
+        nodes=1,
+    )
+
+    assert "Batch VASP optimization completed!!!" in caplog.text
+    # 001 有 OUTCAR，CONTCAR 被复制到 optimized 目录
+    assert (vasp_processor.vasp_optimized_dir / "CONTCAR_001").exists()
+    # 002 缺 OUTCAR，未被复制
+    assert not (vasp_processor.vasp_optimized_dir / "CONTCAR_002").exists()
+    # pop0/001 结果目录被 copytree 复制
+    assert (vasp_processor.vasp_optimized_dir / "001" / "CONTCAR").exists()
+
+
+def test_calculate_packing_coefficient_zero_final_volume(vasp_processor: VaspProcessing):
+    """final_volume 为 0 时跳过 final_PC 计算（覆盖 line 466 False 分支）"""
+    from ase import Atoms
+    from unittest.mock import MagicMock
+
+    (vasp_processor.base_dir / "H2.json").write_text('{"volume": 10.0}', encoding="utf-8")
+    fine_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
+    # final_atoms 体积为 0 → if final_volume 为 False
+    final_atoms = MagicMock()
+    final_atoms.get_volume.return_value = 0
+
+    fine_PC, final_PC = vasp_processor._calculate_packing_coefficient(
+        fine_atoms, ["H2.json"], [1], relaxation=True, final_atoms=final_atoms
+    )
+
+    assert isinstance(fine_PC, float)  # fine 体积正常，计算出结果
+    assert final_PC is False           # final 体积为 0，保持 False
+
+
+def test_log_max_densities_empty_rows(vasp_processor: VaspProcessing, caplog):
+    """空数据时应记录警告并直接返回，不抛 ValueError"""
+    caplog.set_level(logging.WARNING)
+    vasp_processor._log_max_densities([], relaxation=False)
+    assert "No structure data available" in caplog.text
+
+
+def test_log_max_densities_all_none(vasp_processor: VaspProcessing, caplog):
+    """所有密度均为 None（读取失败）时不应抛 TypeError，最大值记为 None"""
+    caplog.set_level(logging.INFO)
+    data_rows = [
+        {"Number": "001", "MLP_Density": None, "Fine_Density": None, "Final_Density": None},
+        {"Number": "002", "MLP_Density": None, "Fine_Density": None, "Final_Density": None},
+    ]
+    # 不应抛异常
+    vasp_processor._log_max_densities(data_rows, relaxation=True)
+    assert "Maximum MLP Density: None" in caplog.text
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import logging
 import tempfile
 import subprocess
 import importlib.util
+import importlib.metadata
 from pathlib import Path
 
 
@@ -61,11 +62,12 @@ class TaskManager:
                 self.workspace = Path("/app")
                 self.log_dir = Path("/app/logs")
             else:
-                conda_env = os.getenv("CONDA_DEFAULT_ENV")
-                env_msg = conda_env if conda_env else "Not Conda Env"
-                self.envs = f"{self.env} ({env_msg})"
                 # 目录创建是主要的异常风险点
                 self.workspace.mkdir(exist_ok=True)
+            # 无论本地还是 Docker 环境都要设置 self.envs，供 main_menu 显示
+            conda_env = os.getenv("CONDA_DEFAULT_ENV")
+            env_msg = conda_env if conda_env else "Not Conda Env"
+            self.envs = f"{self.env} ({env_msg})"
         except (PermissionError,OSError) as e:
             # 其他系统级错误，如磁盘满、路径无效等
             logging.error(f"Failed to create workspace directory {self.workspace}: {e}")
@@ -161,6 +163,13 @@ class TaskManager:
     def _safe_kill(self, module: str, pid: int):
         """安全终止进程并清理残留资源 - Safely kill process and cleanup orphan resources"""
         try:
+            # 终止前再次校验 PID 仍属于本程序的任务进程，
+            # 防止列举与确认之间进程已退出、PID 被系统复用后误杀无关进程
+            if not self._is_valid_task_pid(pid):
+                print(f"PID {pid} is no longer a valid task process, skipping kill")
+                self._cleanup_task_files(module, pid)
+                input("\nPress Enter to continue...")
+                return -2
             proc = psutil.Process(pid)
             # 先尝试优雅终止并等待进程推出
             proc.terminate()
@@ -235,7 +244,7 @@ class TaskManager:
         if function == "view":
             print("n) Next page | p) Previous page | f) Filter | q) Quit")
             print("Enter number to view log in detail")
-        elif function == "kill":
+        elif function == "kill":  # pragma: no branch - 上游已保证 function 仅为 view/kill
             print("n) Next page | p) Previous page | f) Filter | k) Kill | q) Quit")
 
 
@@ -250,7 +259,7 @@ class TaskManager:
             start = current_page * page_size
             end = start + page_size
             page_tasks = tasks[start:end]
-            if not filter_bool:
+            if not filter_bool:  # pragma: no branch - filter_bool 恒为 False，仅作防御性保留
             # 显示当前页内容
                 self._display_tasks(page_tasks, total, current_page+1, pages, function)
             
@@ -262,9 +271,9 @@ class TaskManager:
             elif function == "kill" and choice == "K":
                 try:
                     task_num = input("Enter task number to kill: ").strip()
-                    if task_num.isdigit() and 1 <= int(task_num) <= 10:
+                    if task_num.isdigit() and 1 <= int(task_num) <= page_size:
                         # 计算全局任务索引
-                        global_index = current_page * 10 + (int(task_num) - 1)
+                        global_index = current_page * page_size + (int(task_num) - 1)
                     else: 
                         raise ValueError
                     if 0 <= global_index < len(tasks):
@@ -284,12 +293,12 @@ class TaskManager:
                 except (ValueError, TypeError):
                     print("Please enter a valid number")
                     input("\nPress Enter to continue...")
-            elif function == "view" and choice.isdigit() and 1<= int(choice) <=10:
+            elif function == "view" and choice.isdigit() and 1 <= int(choice) <= page_size:
                 # 计算全局任务索引
-                global_index = current_page * 10 + (int(choice) - 1)
+                global_index = current_page * page_size + (int(choice) - 1)
                 if 0 <= global_index < len(tasks):
                     selected_index = global_index
-                    os.system(f"less {tasks[selected_index]['real_log']}")
+                    subprocess.run(["less", str(tasks[selected_index]['real_log'])])
                 else:
                     print("Invalid selection")
                     input("\nPress Enter to continue...")
@@ -410,7 +419,7 @@ class TaskManager:
             print("\033c", end="")  # 清屏指令
             # 显示当前页任务
             print(f"\nRunning tasks ({len(tasks)} in total):")
-            if not filter_bool:
+            if not filter_bool:  # pragma: no branch - filter_bool 恒为 False，仅作防御性保留
                 self._paginate_tasks(tasks, function="kill")
                 break
 

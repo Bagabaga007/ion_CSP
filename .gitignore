@@ -45,6 +45,7 @@ logs/
 
 # 测试覆盖率文件
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 .pytest_cache/

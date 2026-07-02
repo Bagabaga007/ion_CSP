@@ -994,7 +994,7 @@ def test_empirical_estimate(estimator: EmpiricalEstimation):
 
 
 def test_empirical_estimate_invalid_json_file(estimator: EmpiricalEstimation, caplog):
-    """测试当 .json 文件为无效 JSON 时，跳过该文件并继续处理其他文件"""
+    """测试组合中任一 .json 无效时，跳过整个组合（避免用部分离子算出错误密度）"""
     # 1. 创建目录结构
     opt_dir = estimator.gaussian_result_dir
     (opt_dir / "cation_1").mkdir(parents=True, exist_ok=True)
@@ -1015,18 +1015,41 @@ def test_empirical_estimate_invalid_json_file(estimator: EmpiricalEstimation, ca
     with patch.object(estimator, "_generate_combinations") as mock_gen:
         mock_gen.return_value = [{valid_json: 1, invalid_json: 1}]
 
-        # 5. 执行方法
+        # 5. 执行方法（不应抛异常）
         estimator.empirical_estimate()
 
-        # 6. 验证：无效文件被跳过，不报错，且有效文件被处理
-        # 由于只处理了一个有效文件，应生成一个组合
+        # 6. 验证：整个组合被跳过，CSV 只有表头、没有数据行，并记录了警告
         csv_path = estimator.gaussian_dir / "sorted_density.csv"
         assert csv_path.exists()
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
             rows = list(reader)
-        assert len(rows) == 2  # 表头 + 1 行数据（仅 c1 被处理）
-        assert rows[1][0] == "cation_1/c1"  # 仅有效文件被写入
+        assert len(rows) == 1  # 仅表头，无数据行
+        assert "Skipping combination due to invalid JSON" in caplog.text
+
+
+def test_empirical_estimate_zero_total_volume(estimator: EmpiricalEstimation, caplog):
+    """组合总体积为 0 时跳过该组合，避免除零"""
+    caplog.set_level("WARNING")
+    opt_dir = estimator.gaussian_result_dir
+    (opt_dir / "cation_1").mkdir(parents=True, exist_ok=True)
+
+    zero_vol_json = opt_dir / "cation_1" / "c1.json"
+    zero_vol_json.write_text(
+        '{"refcode": "c1", "molecular_mass": 100, "volume": 0, "positive_surface_area": "0.00000", "negative_surface_area": "0.00000", "positive_average_value": "NaN", "negative_average_value": "NaN", "ion_type": "cation"}',
+        encoding="utf-8",
+    )
+
+    with patch.object(estimator, "_generate_combinations") as mock_gen:
+        mock_gen.return_value = [{zero_vol_json: 1}]
+        estimator.empirical_estimate()  # 不应抛 ZeroDivisionError
+
+    csv_path = estimator.gaussian_dir / "sorted_density.csv"
+    assert csv_path.exists()
+    with open(csv_path, "r", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    assert len(rows) == 1  # 仅表头
+    assert "zero total molecular volume" in caplog.text
 
 
 def test_copy_combo_file_target_exists_skip_copy(
@@ -1289,6 +1312,112 @@ cation_1/c1,anion_1/a1,0.45
 
     # 6. 验证：config.yaml 未被写入（文件不存在）
     assert not (combo_folder / "config.yaml").exists()
+
+
+# ==================== 测试预优化离子处理 ====================
+def test_check_pre_optimized_ions_folder_missing(estimator: EmpiricalEstimation):
+    """文件夹不存在时返回两个空列表"""
+    assert estimator._check_pre_optimized_ions("nonexistent") == ([], [])
+
+
+def test_check_pre_optimized_ions_classifies(estimator: EmpiricalEstimation):
+    """同名 .gjf+.json 视为已预优化，仅有 .gjf 的需要处理"""
+    folder = "cation_1"
+    folder_path = estimator.base_dir / folder
+    folder_path.mkdir(parents=True, exist_ok=True)
+    # A: 已预优化(.gjf + .json)；B: 只有 .gjf 需要处理
+    (folder_path / "A.gjf").write_text("gjf", encoding="utf-8")
+    (folder_path / "A.json").write_text("{}", encoding="utf-8")
+    (folder_path / "B.gjf").write_text("gjf", encoding="utf-8")
+
+    pre_optimized, needs_processing = estimator._check_pre_optimized_ions(folder)
+    assert pre_optimized == ["A"]
+    assert needs_processing == ["B"]
+
+
+def test_copy_pre_optimized_ions(estimator: EmpiricalEstimation, caplog):
+    """已预优化离子的 .gjf/.json 被复制到 gaussian_dir 和 Optimized 目录"""
+    caplog.set_level("INFO")
+    folder = "cation_1"
+    src_folder = estimator.base_dir / folder
+    src_folder.mkdir(parents=True, exist_ok=True)
+    (src_folder / "A.gjf").write_text("gjf", encoding="utf-8")
+    (src_folder / "A.json").write_text("{}", encoding="utf-8")
+
+    estimator._copy_pre_optimized_ions(folder, ["A"])
+
+    for base in (estimator.gaussian_dir / folder, estimator.gaussian_result_dir / folder):
+        assert (base / "A.gjf").exists()
+        assert (base / "A.json").exists()
+    assert "pre-optimized ion(s) copied directly" in caplog.text
+
+
+def test_copy_pre_optimized_ions_missing_src_and_existing_dst(
+    estimator: EmpiricalEstimation
+):
+    """源文件缺失时跳过；目标已存在时不重复复制（覆盖各分支）"""
+    folder = "cation_1"
+    src_folder = estimator.base_dir / folder
+    src_folder.mkdir(parents=True, exist_ok=True)
+    # 只有 .gjf，没有 .json → .json 分支走 src 不存在的 continue
+    (src_folder / "A.gjf").write_text("gjf", encoding="utf-8")
+
+    # 预先在目标目录放好同名 .gjf，触发 "dst 已存在则不复制" 分支
+    dst_gaussian = estimator.gaussian_dir / folder
+    dst_gaussian.mkdir(parents=True, exist_ok=True)
+    (dst_gaussian / "A.gjf").write_text("existing", encoding="utf-8")
+    dst_opt = estimator.gaussian_result_dir / folder
+    dst_opt.mkdir(parents=True, exist_ok=True)
+    (dst_opt / "A.gjf").write_text("existing", encoding="utf-8")
+
+    estimator._copy_pre_optimized_ions(folder, ["A"])
+
+    # 目标 .gjf 内容保持不变（未被覆盖），且未生成 .json
+    assert (dst_gaussian / "A.gjf").read_text(encoding="utf-8") == "existing"
+    assert not (dst_gaussian / "A.json").exists()
+
+
+def test_multiwfn_process_all_folders_with_pre_optimized(
+    estimator: EmpiricalEstimation, caplog
+):
+    """遍历文件夹时，预优化离子被直接复制，需处理离子记录日志"""
+    caplog.set_level("INFO")
+    folder = "cation_1"
+    estimator.folders = [folder]
+    folder_path = estimator.base_dir / folder
+    folder_path.mkdir(parents=True, exist_ok=True)
+    (folder_path / "A.gjf").write_text("gjf", encoding="utf-8")
+    (folder_path / "A.json").write_text("{}", encoding="utf-8")  # 已预优化
+    (folder_path / "B.gjf").write_text("gjf", encoding="utf-8")  # 需处理
+
+    with patch.object(estimator, "_multiwfn_process_fchk_to_json") as mock_process:
+        estimator.multiwfn_process_fchk_to_json()
+
+    # 预优化离子已复制到 Optimized 目录
+    assert (estimator.gaussian_result_dir / folder / "A.json").exists()
+    # 需处理离子被记录
+    assert "need Multiwfn processing" in caplog.text
+    assert "B" in caplog.text
+    mock_process.assert_called_once_with(folder)
+
+
+def test_gaussian_log_to_optimized_gjf_all_folders_with_pre_optimized(
+    estimator: EmpiricalEstimation, caplog
+):
+    """遍历文件夹时，预优化离子已有 .gjf，记录跳过 log-to-gjf 的日志"""
+    caplog.set_level("INFO")
+    folder = "cation_1"
+    estimator.folders = [folder]
+    folder_path = estimator.base_dir / folder
+    folder_path.mkdir(parents=True, exist_ok=True)
+    (folder_path / "A.gjf").write_text("gjf", encoding="utf-8")
+    (folder_path / "A.json").write_text("{}", encoding="utf-8")
+
+    with patch.object(estimator, "_gaussian_log_to_optimized_gjf") as mock_process:
+        estimator.gaussian_log_to_optimized_gjf()
+
+    assert "skipping log-to-gjf" in caplog.text
+    mock_process.assert_called_once_with(folder)
 
 
 if __name__ == "__main__":
