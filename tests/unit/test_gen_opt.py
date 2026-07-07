@@ -819,7 +819,9 @@ def test_dpdisp_mlp_tasks_local_and_remote(
                 )
 
     # 6. 使用固定job_id执行被测函数
-    with patch("uuid.uuid4") as mock_uuid:
+    with patch("uuid.uuid4") as mock_uuid, patch(
+        "ion_CSP.gen_opt._wait_for_gpu", return_value=0
+    ):
         mock_uuid.return_value = "test-job-123"
 
         # 创建PID文件

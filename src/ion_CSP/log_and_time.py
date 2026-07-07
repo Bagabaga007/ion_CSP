@@ -385,10 +385,29 @@ def machine_resources_prep(machine_path: str, resources_path: str):
         raise KeyError("Unsupported resources file type")
     # 由于dpdispatcher对于远程服务器以及本地运行的forward_common_files的默认存放位置不同，因此需要预先进行判断，从而不改动优化脚本
     machine_inform = machine.serialize()
-    if machine_inform["context_type"] == "SSHContext":
+    context_type = machine_inform.get("context_type")
+    batch_type = machine_inform.get("batch_type")
+    # Shell + SSHContext 意味着 dpdispatcher 会 ssh 到远程主机后直接运行脚本、
+    # 不经过任何作业调度器。若该主机是集群的登录/主节点，计算任务(Gaussian/VASP/MLP)
+    # 会直接压在主节点上——这是共享 HPC 上通常被禁止的行为。此处给出明确警告，
+    # 但不强制拒绝，因为独立计算服务器(无调度器)使用该组合是合法的。
+    if (
+        isinstance(context_type, str)
+        and context_type == "SSHContext"
+        and isinstance(batch_type, str)
+        and batch_type.lower() == "shell"
+    ):
+        logging.warning(
+            "Machine config uses batch_type='Shell' with context_type='SSHContext': "
+            "tasks will run DIRECTLY on the remote host via ssh without any job scheduler. "
+            "If this host is a cluster login/head node, heavy compute (Gaussian/VASP/MLP) "
+            "will overload it. Use a scheduler batch_type (Slurm/LSF/PBS/SGE/...) for cluster "
+            "submission; only keep 'Shell' when the target is a standalone compute server."
+        )
+    if context_type == "SSHContext":
         # 如果调用远程服务器，则创建二级目录
         parent = "data/"
-    elif machine_inform["context_type"] == "LocalContext":
+    elif context_type == "LocalContext":
         # 如果在本地运行作业，则只在后续创建一级目录
         parent = ""
     else:

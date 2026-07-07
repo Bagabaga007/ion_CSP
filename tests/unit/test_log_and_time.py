@@ -559,6 +559,101 @@ group_size: 1
     assert resources.serialize()["cpu_per_node"] == 8
 
 
+def _write_resources(path: Path):
+    path.write_text(
+        """
+number_node: 1
+cpu_per_node: 4
+gpu_per_node: 0
+group_size: 1
+""",
+        encoding="utf-8",
+    )
+
+
+def test_machine_resources_prep_warns_shell_sshcontext(tmp_path: Path, caplog):
+    """Shell + SSHContext：会在远程主节点直接执行，应发出警告"""
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+    machine_path.write_text(
+        """
+context_type: SSHContext
+local_root: ./
+remote_root: /your/remote/workplace
+batch_type: Shell
+remote_profile:
+  hostname: "sshhost"
+  username: "testuser"
+""",
+        encoding="utf-8",
+    )
+    _write_resources(resources_path)
+
+    with (
+        patch("dpdispatcher.contexts.ssh_context.SSHSession._setup_ssh"),
+        patch("dpdispatcher.contexts.ssh_context.SSHSession.ensure_alive"),
+        patch("dpdispatcher.contexts.ssh_context.SSHSession.sftp", new_callable=Mock),
+        caplog.at_level(logging.WARNING),
+    ):
+        machine_resources_prep(str(machine_path), str(resources_path))
+
+    assert "batch_type='Shell' with context_type='SSHContext'" in caplog.text
+
+
+def test_machine_resources_prep_no_warn_scheduler_ssh(tmp_path: Path, caplog):
+    """调度器 batch_type + SSHContext：走队列到计算节点，不应警告"""
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+    machine_path.write_text(
+        """
+context_type: SSHContext
+local_root: ./
+remote_root: /your/remote/workplace
+batch_type: Slurm
+remote_profile:
+  hostname: "sshhost"
+  username: "testuser"
+""",
+        encoding="utf-8",
+    )
+    _write_resources(resources_path)
+
+    with (
+        patch("dpdispatcher.contexts.ssh_context.SSHSession._setup_ssh"),
+        patch("dpdispatcher.contexts.ssh_context.SSHSession.ensure_alive"),
+        patch("dpdispatcher.contexts.ssh_context.SSHSession.sftp", new_callable=Mock),
+        caplog.at_level(logging.WARNING),
+    ):
+        machine, resources, parent = machine_resources_prep(
+            str(machine_path), str(resources_path)
+        )
+
+    assert parent == "data/"
+    assert "context_type='SSHContext'" not in caplog.text
+
+
+def test_machine_resources_prep_no_warn_local_shell(tmp_path: Path, caplog):
+    """Shell + LocalContext：本地执行，不应警告"""
+    machine_path = tmp_path / "machine.json"
+    resources_path = tmp_path / "resources.json"
+    machine_path.write_text(
+        '{"context_type": "LocalContext", "local_root": "./", "remote_root": "/tmp/x", "batch_type": "Shell"}',
+        encoding="utf-8",
+    )
+    resources_path.write_text(
+        '{"number_node": 1, "cpu_per_node": 4, "gpu_per_node": 0, "group_size": 1}',
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        machine, resources, parent = machine_resources_prep(
+            str(machine_path), str(resources_path)
+        )
+
+    assert parent == ""
+    assert "context_type='SSHContext'" not in caplog.text
+
+
 def test_machine_resources_prep_invalid_type(tmp_path: Path):
     machine_path = tmp_path / "machine.txt"
     resources_path = tmp_path / "resources.json"

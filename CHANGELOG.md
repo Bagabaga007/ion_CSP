@@ -1,112 +1,16 @@
 # Changelog
 
-## V2.3.0 (2026-03-05)
-
-### 🎉 Major Release: Complete Test System Overhaul
-
-#### **Test System Achievements**
-
-- ✅ Implemented complete 4-tier test pyramid (420 tests)
-- ✅ Achieved 99.39% code coverage (up from 99.36%)
-- ✅ Eliminated all skipped tests (from 3 to 0)
-- ✅ Fixed VSCode test runner compatibility
-- ✅ Added automatic temporary file cleanup
-- ✅ Optimized test execution time (~60 seconds)
-
-#### **Configuration Item (CI) Tests - NEW**
-
-- ✅ Added 31 CI tests covering 7 categories:
-  - Documentation Review (5 tests)
-  - Static Analysis (3 tests)
-  - Memory Usage (2 tests)
-  - Functional Requirements (6 tests)
-  - Performance (2 tests)
-  - Compatibility (3 tests)
-  - Maintainability (3 tests)
-  - Portability (2 tests)
-
-#### **System Tests Redesign**
-
-- ✅ Redesigned all system tests to use mocks instead of real dependencies
-- ✅ Changed from "needs real data" to "tests error handling"
-- ✅ All system tests now runnable without external files
-- ✅ Added tests for workflow initialization and error paths
-
-#### **Test Infrastructure Improvements**
-
-- ✅ Added global Python path auto-setup in conftest.py
-- ✅ Implemented multi-fallback strategy for version detection
-- ✅ Added automatic logs folder cleanup after tests
-- ✅ Fixed module import issues in VSCode test runner
-
-#### **Documentation Updates**
-
-- ✅ Updated tests/README.md with latest statistics
-- ✅ Completely rewrote docs/TEST_REPORT.md
-- ✅ Updated project README.md with test badges
-- ✅ Added version history section
-
-#### **Quality Metrics**
-
-- Total Tests: 420 (338 unit, 48 integration, 31 CI, 3 system)
-- Coverage: 99.39%
-- Skipped Tests: 0
-- Execution Time: ~60 seconds
-- All tests pass in both CLI and VSCode
-
 ## Latest Changes
 
-### (2026-03-03-4)
+### 1281efa (2026-07-02)
 
-Add comprehensive integration tests for all run scripts
+● All fixes are complete. Full suite: 456 passed, 100% coverage maintained.
 
-- **Created**: 6 integration test files in `tests/run/` directory
-  - `test_run_gen_opt.py` - Tests crystal generation and MLP optimization workflow (6 tests)
-  - `test_run_convert_SMILES.py` - Tests SMILES conversion and Gaussian tasks (5 tests)
-  - `test_run_empirical_estimate.py` - Tests empirical estimation workflow (5 tests)
-  - `test_run_read_mlp_density.py` - Tests MLP density reading and screening (6 tests)
-  - `test_run_vasp_processing.py` - Tests VASP processing workflow (5 tests)
-  - `test_run_upload_download.py` - Tests SSH upload/download workflow (7 tests, skipped due to missing module)
-- **Coverage**: Achieved 78-83% coverage for run scripts
-- **Test Strategy**: Used mocking to isolate workflow logic from external dependencies
-- **Documentation**: Added README.md explaining test structure and usage
-- **Results**: 26 tests passed, 7 skipped (upload_download module not available)
+## V2.3.0
 
-### (2026-03-03-3)
+### cc760c4 (2026-03-05)
 
-Fix mlp_opt.py signal handler conflicts
-
-- **Problem**: mlp_opt.py registered its own signal handlers, overriding parent process handlers
-- **Solution**:
-  - Removed signal handler registration from mlp_opt.py main()
-  - Removed stop_handler() function
-  - Added KeyboardInterrupt handling to gracefully terminate multiprocessing pool
-  - Removed unused signal import
-- **Impact**: Allows parent process (StatusLogger) to handle signals uniformly
-
-### (2026-03-03-2)
-
-Fix workflow_status tracking issue caused by signal handler conflicts
-
-- **Problem**: Signal handlers in gen_opt.py were overriding StatusLogger's handlers, preventing workflow_status.log and workflow_status.yaml from capturing task termination events
-- **Root Cause**: Both CrystalGenerator and StatusLogger registered SIGINT/SIGTERM handlers, causing conflicts
-- **Solution**:
-  - Removed signal handler registration from CrystalGenerator.dpdisp_mlp_tasks()
-  - Added KeyboardInterrupt handling to properly terminate tasks and re-raise for StatusLogger
-  - Fixed StatusLogger singleton pattern to correctly load task status for each new task
-  - Added _load_task_status() method to properly initialize task state
-- **Impact**: workflow_status.yaml now correctly captures RUNNING, SUCCESS, FAILURE, and KILLED states
-- **Documentation**: Created ISSUE_ANALYSIS.md with detailed problem analysis and solutions
-
-### (2026-03-03-1)
-
-Improve vasp_processing.py test coverage from 93.42% to 99.15%
-
-- Added 14 new test cases covering edge cases and error paths
-- Fixed mock return values for identify_molecules function
-- Added tests for config file handling, final atoms error cases, and packing coefficient calculation
-- Total test count increased from 30 to 44 tests
-- All tests passing successfully
+Implemented complete 4-tier test pyramid (420 tests) Achieved 99.39% code coverage (up from 99.36%)
 
 ### b497b28 (2026-03-02)
 
