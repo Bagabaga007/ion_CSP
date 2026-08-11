@@ -1,7 +1,64 @@
-.git/
+# Python
 __pycache__/
-*.pyc
-.env
-.venv/
-Dockerfile
-docker-compose*
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv
+
+# 测试
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# 文档
+docs/
+*.md
+!README.md
+
+# 临时文件
+*.log
+*.tmp
+.DS_Store
+
+# 大数据文件（不应放容器镜像里）
+*.fchk
+*.wfn
+*.cube
+*.chk
+data/
+results/
+*.tar.gz
+*.zip
+
+# Dockerfile 自身
+Dockerfile*
+docker-compose*.yml
+.dockerignore

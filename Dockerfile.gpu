@@ -1,0 +1,61 @@
+# ============================================
+# ion_CSP GPU-Enabled Dockerfile
+# ============================================
+# 用于 MLP 优化的 GPU 加速版本
+# 需要: nvidia-docker, CUDA 11.8+
+
+# ========== 基础镜像（CUDA 运行时）==========
+FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
+
+# 安装 Python 3.11
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-venv python3.11-dev \
+    python3-pip \
+    gcc g++ gfortran \
+    libopenblas-dev liblapack-dev \
+    ca-certificates bash procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置 python3.11 为默认 python
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+WORKDIR /app
+
+# 安装依赖
+COPY pyproject.toml setup.py README.md ./
+COPY src/ion_CSP/__init__.py src/ion_CSP/
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -e .
+
+# 复制项目
+COPY . /app/
+
+# 创建非 root 用户
+RUN useradd -m -u 1000 -s /bin/bash appuser && \
+    mkdir -p /app/data /app/logs && \
+    chown -R appuser:appuser /app
+
+# 环境变量（GPU 优化）
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    LOG_DIR=/app/logs \
+    WORKSPACE=/app/data \
+    CUDA_VISIBLE_DEVICES=0 \
+    OMP_NUM_THREADS=8
+
+VOLUME ["/app/data", "/app/logs"]
+
+USER appuser
+CMD ["/bin/bash"]
+
+# ============================================
+# 使用:
+#   docker build -f Dockerfile.gpu -t ion-csp:gpu .
+#   docker run -it --rm --gpus all \
+#     -v $(pwd)/data:/app/data \
+#     ion-csp:gpu
+# ============================================

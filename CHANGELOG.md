@@ -2,6 +2,10 @@
 
 ## Latest Changes
 
+### d0c0495 (2026-07-07)
+
+Add HPC head-node guard for Shell+SSHContext, bump version to 2.3.3
+
 ### 1281efa (2026-07-02)
 
 ● All fixes are complete. Full suite: 456 passed, 100% coverage maintained.

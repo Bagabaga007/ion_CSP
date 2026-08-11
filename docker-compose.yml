@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  ion-csp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ion-csp:latest
+    container_name: ion-csp-dev
+    
+    # 交互式终端
+    stdin_open: true
+    tty: true
+    
+    # 数据卷挂载
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # 开发时可挂载源码（热更新）
+      # - ./src:/app/src
+    
+    # 环境变量覆盖
+    environment:
+      - WORKSPACE=/app/data
+      - LOG_DIR=/app/logs
+      - OMP_NUM_THREADS=8
+      - DP_INTRA_OP_PARALLELISM_THREADS=8
+    
+    # 资源限制（可选）
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 16G
+        reservations:
+          cpus: '4'
+          memory: 8G
+    
+    # 默认命令（可覆盖）
+    command: /bin/bash
+    
+    # 网络（如果需要多容器通信）
+    # networks:
+    #   - ion-csp-net
+
+# networks:
+#   ion-csp-net:
+#     driver: bridge

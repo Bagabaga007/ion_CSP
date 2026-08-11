@@ -1,0 +1,11 @@
+ase==3.23.0
+scipy==1.15.2
+deepmd-kit==3.0.1
+torch==2.5.0
+dpdispatcher>=0.6.7
+numpy==1.26.4
+paramiko>=3.5.1
+pyxtal>=1.0.4
+phonopy>=2.28.0
+rdkit>=2024.3.3
+pytest>=8.3.4
