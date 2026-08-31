@@ -43,7 +43,7 @@
 
 ✅ 镜像构建成功（CPU 3.06GB）  
 ✅ 模块导入（`ion_CSP.task_manager`）  
-✅ CLI 启动（`ion-csp --help`）  
+✅ 交互式 CLI 启动（`ion-csp`）
 ✅ 重型依赖（torch/deepmd/phonopy/pyxtal/rdkit）  
 ✅ 数据文件（model.pt, param/INCAR）  
 ✅ torch CPU 版本（2.5.0+cpu，CUDA=None）

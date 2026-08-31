@@ -2,6 +2,21 @@
 
 ## Latest Changes
 
+### V2.3.4 (2026-08-31)
+
+Documentation and configuration alignment:
+
+- Unified the user-facing configuration contract around YAML and <work_dir>/config.yaml; removed stale JSON, --config, and old API guidance.
+- Rewrote the usage guide to match the EE/CSP execution graph, output directories, logs, resume semantics, scheduler setup, and external-program requirements.
+- Corrected the CSP/EE Python examples to import ion_CSP.run.* and call main(work_dir, config).
+- Added direct declarations for pandas, PyYAML, and psutil; aligned the Conda and uv lock metadata with Phonopy 2.34.1.
+- Fixed target_dir to accept YAML strings, resolving relative paths against the EE work directory; added a regression test.
+- The full Python test suite passes 497/497 with temporary PyXtal/Phonopy dependencies and an external-program stub; no real Gaussian/VASP/Multiwfn calculations were run.
+
+### 9003537 (2026-08-11)
+
+feat(docker): 生产就绪优化（方案B完成）
+
 ### d0c0495 (2026-07-07)
 
 Add HPC head-node guard for Shell+SSHContext, bump version to 2.3.3

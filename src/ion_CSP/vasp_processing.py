@@ -10,10 +10,12 @@ import json
 import yaml
 import shutil
 import logging
+import numpy as np
 from pathlib import Path
 import importlib.resources
 from ase.atoms import Atoms
 from ase.io import ParseError
+from ase.data import vdw_radii, atomic_numbers
 from datetime import datetime
 from typing import Optional, Tuple
 from dpdispatcher import Task, Submission
@@ -38,6 +40,7 @@ class VaspProcessing:
         self.for_vasp_opt_dir.mkdir(parents=True, exist_ok=True)
         self.vasp_optimized_dir.mkdir(parents=True, exist_ok=True)
         self.param_dir = importlib.resources.files("ion_CSP.param")
+        self._vdw_warned_elements = set()  # track warned elements for fallback radii
 
 
     def dpdisp_vasp_optimization_tasks(
@@ -323,28 +326,6 @@ class VaspProcessing:
             return None, float("-inf"), float("inf")
 
 
-    def _load_config(self):
-        """
-        Load configuration from config.yaml file.
-
-        Returns:
-            tuple: (species_json, ion_numbers) or ([], []) if config not found
-        """
-        config_path = self.base_dir / "config.yaml"
-        species_json = []
-        ion_numbers = []
-
-        if config_path.exists():
-            with open(config_path, "r") as file:
-                config = yaml.safe_load(file)
-            if config and "gen_opt" in config:
-                species_json = [
-                    os.path.splitext(f)[0] + ".json" for f in config["gen_opt"]["species"]
-                ]
-                ion_numbers = config["gen_opt"]["ion_numbers"]
-
-        return species_json, ion_numbers
-
 
     def _read_structure_properties(self, folder: Path, relaxation: bool):
         """
@@ -433,44 +414,73 @@ class VaspProcessing:
         }
 
 
-    def _calculate_packing_coefficient(self, atoms, species_json, ion_numbers, relaxation: bool, final_atoms=None):
+    def _atom_vdw_radius(self, symbol: str) -> float:
         """
-        Calculate packing coefficient for a structure.
+        Helper: 获取元素的 van der Waals 半径(Å)，无数据时用 1.5 fallback 并记录警告。
+        """
+        try:
+            r = vdw_radii[atomic_numbers[symbol]]
+            if np.isnan(r):
+                raise KeyError
+            return r
+        except (KeyError, IndexError):
+            if symbol not in self._vdw_warned_elements:
+                logging.warning(f"No vdW radius for {symbol}, using fallback 1.5 Å")
+                self._vdw_warned_elements.add(symbol)
+            return 1.5
+
+
+    def _calculate_packing_coefficient(self, atoms, relaxation: bool, final_atoms=None):
+        """
+        计算 Kitaigorodskii 堆积系数：vdW 球体并集体积 / 晶胞体积。
+        用网格法直接从晶胞原子算，不再依赖 config 的 species/ion_numbers —— 解决了
+        分子/分母离子数不匹配和 Multiwfn 0.001 面体积过大两问题。
 
         Args:
-            atoms: Fine optimization atoms object
-            species_json: List of species JSON files
-            ion_numbers: List of ion numbers
-            relaxation: Whether final relaxation was performed
-            final_atoms: Final relaxation atoms object (if applicable)
+            atoms: Fine 优化的 Atoms 对象
+            relaxation: 是否有 final relaxation
+            final_atoms: Final relaxation 的 Atoms 对象（可选）
 
         Returns:
-            tuple: (fine_PC, final_PC)
+            tuple: (fine_PC, final_PC)，无效时返回 (False, False)
         """
-        fine_PC = False
+        def _vdw_union_volume(a):
+            if a is None or len(a) == 0:
+                return None
+            cell_vol = a.get_volume()
+            if cell_vol <= 0:
+                return None
+            # 网格分辨率 0.15 Å (相对误差 ~1%, 约 30万格点)
+            cell = a.get_cell()
+            spacing = 0.15
+            n_grid = np.ceil(cell.lengths() / spacing).astype(int)
+            # 生成分数坐标网格
+            frac = np.mgrid[0:n_grid[0], 0:n_grid[1], 0:n_grid[2]].astype(float)
+            for i in range(3):
+                frac[i] /= n_grid[i]
+            frac = frac.reshape(3, -1).T  # (N_pts, 3)
+            # 转笛卡尔坐标
+            cart = frac @ cell
+            # 对每原子判断格点是否在 vdW 球内(最小镜像约定)
+            inside = np.zeros(len(cart), dtype=bool)
+            for sym, pos in zip(a.get_chemical_symbols(), a.get_positions()):
+                r_vdw = self._atom_vdw_radius(sym)
+                delta = cart - pos
+                # 最小镜像（假设正交晶胞近似）
+                frac_delta = delta @ np.linalg.inv(cell)
+                frac_delta -= np.round(frac_delta)
+                delta_mic = frac_delta @ cell
+                dist_sq = (delta_mic ** 2).sum(axis=1)
+                inside |= (dist_sq <= r_vdw ** 2)
+            vol_vdw = inside.sum() / len(inside) * cell_vol
+            return vol_vdw
+
+        fine_vol = _vdw_union_volume(atoms)
+        fine_PC = round(fine_vol / atoms.get_volume(), 3) if fine_vol else False
         final_PC = False
-
-        if species_json and ion_numbers:
-            try:
-                molecular_volumes = 0
-                for json_file, count in zip(species_json, ion_numbers):
-                    with open(self.base_dir / json_file, "r") as file:
-                        property = json.load(file)
-                    molecular_volume = float(property["volume"])
-                    molecular_volumes += molecular_volume * count
-
-                fine_volume = atoms.get_volume() if atoms is not None else None
-                if fine_volume:
-                    fine_PC = round(molecular_volumes / fine_volume, 3)
-
-                if relaxation and final_atoms is not None:
-                    final_volume = final_atoms.get_volume()
-                    if final_volume:
-                        final_PC = round(molecular_volumes / final_volume, 3)
-            except (FileNotFoundError, TypeError, ZeroDivisionError):
-                fine_PC = False
-                final_PC = False
-
+        if relaxation and final_atoms is not None:
+            final_vol = _vdw_union_volume(final_atoms)
+            final_PC = round(final_vol / final_atoms.get_volume(), 3) if final_vol else False
         return fine_PC, final_PC
 
 
@@ -595,7 +605,6 @@ class VaspProcessing:
             relaxation: Whether to read final relaxation results
         """
         data_rows = []
-        species_json, ion_numbers = self._load_config()
 
         for folder in self.vasp_optimized_dir.iterdir():
             if not folder.is_dir():
@@ -611,7 +620,7 @@ class VaspProcessing:
 
             # Calculate packing coefficient
             fine_PC, final_PC = self._calculate_packing_coefficient(
-                props["fine_atoms"], species_json, ion_numbers, relaxation, props["final_atoms"]
+                props["fine_atoms"], relaxation, props["final_atoms"]
             )
 
             row = {

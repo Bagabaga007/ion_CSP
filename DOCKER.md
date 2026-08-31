@@ -29,7 +29,12 @@ docker run -it --rm \
 进入容器后：
 - 运行交互菜单：`bash scripts/CLI.sh`
 - 直接运行工作流：`python -m ion_CSP.run.main_CSP /app/data/your_workdir`
-- 使用命令行工具：`ion-csp --help`
+- 使用交互式任务管理器：`ion-csp`
+
+> Docker 镜像只安装 Python 工作流及其开源依赖，不包含 Gaussian、
+> Multiwfn 或 VASP。使用 EE/CSP 完整工作流时，需在容器中另行提供这些
+> 程序，或通过 `dpdispatcher` 把 Gaussian/VASP 任务提交到已安装相应软件的
+> 计算节点。Multiwfn 和 Phonopy 由主工作流进程直接调用，必须在容器 PATH 中可用。
 
 **直接运行特定工作流：**
 ```bash

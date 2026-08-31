@@ -222,6 +222,8 @@ class EmpiricalEstimation:
                         f"Folder '{folder}': {len(needs_processing)} ion(s) need Multiwfn processing: {needs_processing}"
                     )
                 (self.gaussian_result_dir / folder).mkdir(parents=True, exist_ok=True)
+                # 私有方法在文件夹无 .fchk 时会自行跳过（预优化离子已复制完成），
+                # 故此处无条件调用，保持单一代码路径。
                 self._multiwfn_process_fchk_to_json(folder)
 
     def _multiwfn_process_fchk_to_json(self, folder: str):
@@ -236,7 +238,12 @@ class EmpiricalEstimation:
         folder_path = self.gaussian_dir / folder
         fchk_files = list(folder_path.glob("*.fchk"))
         if not fchk_files:
-            raise FileNotFoundError("No availible Gaussian .fchk file to process")
+            # 文件夹无 .fchk 属正常情况（如全部为预优化离子，已由复制处理完），
+            # 记录并返回，不再抛异常中断整个评估流程。
+            logging.info(
+                f"Folder '{folder}': no .fchk files to process, skipping Multiwfn."
+            )
+            return
         fchk_files.sort()
         bad_files = []
         for fchk_file in fchk_files:
@@ -448,9 +455,12 @@ class EmpiricalEstimation:
         folder_path = self.gaussian_dir / folder
         log_files = list(folder_path.glob("*.log"))
         if not log_files:
-            raise FileNotFoundError(
-                f"No availible Gaussian .log file to process in {folder}"
+            # 文件夹无 .log 属正常情况（如全部为预优化离子，已复制好 .gjf），
+            # 记录并返回，不再抛异常中断整个评估流程。
+            logging.info(
+                f"Folder '{folder}': no .log files to process, skipping log-to-gjf."
             )
+            return
         log_files.sort()
         bad_files = []
         for log_file in log_files:
@@ -584,7 +594,13 @@ class EmpiricalEstimation:
         """
         Evaluate the priority of ion crystal combinations based on nitrogen content and generate .csv files
         """
-        atomic_masses = {"H": 1.008, "C": 12.01, "N": 14.01, "O": 16.00}
+        atomic_masses = {
+            "H": 1.008,
+            "B": 10.81,
+            "C": 12.01,
+            "N": 14.01,
+            "O": 16.00,
+        }
         # 获取所有 .gjf 文件
         combinations = self._generate_combinations(suffix=".gjf")
         nitrogen_contents = []
@@ -835,7 +851,9 @@ class EmpiricalEstimation:
         shutil.copy(str(source_path), str(target_path))
         logging.info(f"Copied {source_path.name} to {combo_path}")
 
-    def make_combo_dir(self, target_dir: Path, num_combos: int, ion_numbers: List[int]):
+    def make_combo_dir(
+        self, target_dir: Path | str, num_combos: int, ion_numbers: List[int]
+    ):
         """
         Create a combo_n folder based on the .csv file and copy the corresponding .gjf structure file.
 
@@ -854,9 +872,13 @@ class EmpiricalEstimation:
             raise FileNotFoundError(
                 f"CSV file {csv_file} does not exist in the Gaussian optimized directory."
             )
-        target_path = (
-            target_dir if target_dir else self.base_dir / f"2_{self.sort_by}_combos"
-        )
+        if target_dir:
+            target_path = Path(target_dir).expanduser()
+            if not target_path.is_absolute():
+                target_path = self.base_dir / target_path
+            target_path = target_path.resolve()
+        else:
+            target_path = self.base_dir / f"2_{self.sort_by}_combos"
         target_path.mkdir(parents=True, exist_ok=True)
 
         with csv_file.open(mode="r", newline="") as file:

@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 from ion_CSP.run.main_EE import (
     main,
+    setup_ion_links,
     convertion_task,
     estimation_task,
     combination_task,
@@ -72,6 +73,101 @@ def test_main_all_tasks_successful(
 
     # 验证 StatusLogger 被正确调用
     assert mock_logger.call_count >= 3  # 至少3个任务
+
+
+@patch("ion_CSP.run.main_EE.StatusLogger")
+@patch("ion_CSP.run.main_EE.convertion_task")
+@patch("ion_CSP.run.main_EE.setup_ion_links")
+@patch("ion_CSP.run.main_EE.estimation_task")
+@patch("ion_CSP.run.main_EE.combination_task")
+def test_main_links_database_after_conversion(
+    mock_combination,
+    mock_estimation,
+    mock_setup_links,
+    mock_convertion,
+    mock_logger,
+    mock_work_dir,
+    mock_config,
+):
+    """数据库链接必须在转换后、估算前创建。"""
+    call_order = []
+    logger_instance = MagicMock()
+    logger_instance.is_successful.return_value = False
+    mock_logger.return_value = logger_instance
+    mock_convertion.side_effect = lambda *args: call_order.append("conversion")
+    mock_setup_links.side_effect = lambda *args: call_order.append("linking")
+    mock_estimation.side_effect = lambda *args: call_order.append("estimation")
+
+    main(mock_work_dir, mock_config)
+
+    assert call_order[:3] == ["conversion", "linking", "estimation"]
+
+
+def test_setup_ion_links_skips_folder_with_local_ions(tmp_path):
+    """项目自有离子存在时，不混入中央库离子。"""
+    database_dir = tmp_path / "database"
+    source_folder = database_dir / "3_For_CSP_module" / "charge_1"
+    source_folder.mkdir(parents=True)
+    (source_folder / "database.gjf").write_text("database")
+    work_dir = tmp_path / "work"
+    target_folder = work_dir / "charge_1"
+    target_folder.mkdir(parents=True)
+    (target_folder / "local.gjf").write_text("local")
+    config = {
+        "convert_SMILES": {"database_dir": str(database_dir)},
+        "empirical_estimate": {"folders": ["charge_1"]},
+    }
+
+    setup_ion_links(work_dir, config)
+
+    assert not (target_folder / "database.gjf").exists()
+
+
+def test_setup_ion_links_skips_project_input_charge(tmp_path):
+    """新项目转换产物尚未复制到根目录时，也不能链接同电荷数据库。"""
+    database_dir = tmp_path / "database"
+    source_folder = database_dir / "3_For_CSP_module" / "charge_1"
+    source_folder.mkdir(parents=True)
+    (source_folder / "database.gjf").write_text("database")
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    (work_dir / "ions.csv").write_text(
+        "Refcode,SMILES,Charge\nBN6+,B,1\n", encoding="utf-8"
+    )
+    config = {
+        "convert_SMILES": {
+            "csv_file": "ions.csv",
+            "database_dir": str(database_dir),
+        },
+        "empirical_estimate": {"folders": ["charge_1"]},
+    }
+
+    setup_ion_links(work_dir, config)
+
+    assert not (work_dir / "charge_1").exists()
+
+
+def test_setup_ion_links_replaces_broken_symlink(tmp_path):
+    """重复运行时自动修复目标目录中的失效软链接。"""
+    database_dir = tmp_path / "database"
+    source_folder = database_dir / "3_For_CSP_module" / "charge_-1"
+    source_folder.mkdir(parents=True)
+    source_file = source_folder / "ion.gjf"
+    source_file.write_text("ion")
+    work_dir = tmp_path / "work"
+    target_folder = work_dir / "charge_-1"
+    target_folder.mkdir(parents=True)
+    target_file = target_folder / "ion.gjf"
+    target_file.symlink_to(tmp_path / "missing.gjf")
+    config = {
+        "convert_SMILES": {"database_dir": str(database_dir)},
+        "empirical_estimate": {"folders": ["charge_-1"]},
+    }
+
+    setup_ion_links(work_dir, config)
+
+    assert target_file.is_symlink()
+    assert target_file.resolve() == source_file.resolve()
 
 
 @patch("ion_CSP.run.main_EE.StatusLogger")

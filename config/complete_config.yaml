@@ -5,6 +5,7 @@ convert_SMILES:
   group_screen: '[N+](=O)[O-]'  # 对于官能团SMILES码的筛选
   group_screen_invert: False    # 对官能团的反选与否，默认为否
   group_name: 'nitro'           # 自定义官能团的名字
+  database_dir: ''              # 中央预优化离子库路径；留空表示禁用复用/自动链接
   machine: '/your/cpu/machine/config/path'       # 进行Gaussian优化计算的机器参数
   resources: '/your/cpu/resources/config/path'   # 进行Gaussian优化计算的资源参数
   nodes: 2                                       # 占用CPU节点数
@@ -14,7 +15,8 @@ empirical_estimate:
   ratios: [2, 1]               # 要用于经验公式预测密度的离子配比
   sort_by: 'density'           # 对离子组合的排序依据，目前只有密度（density）、氮含量（nitrogen）氮碳比（NC_ratio）
   make_combo_dir: True         # 是否根据密度排序生成对应组合文件夹（包含gjf文件）
-  target_dir: '../2_density_combos'     # 生成组合文件夹的目标目录
+  # 留空使用默认目录；相对路径会按 EE 工作目录解析
+  target_dir: ''
   num_combos: 50              # 要生成文件夹的组合个数
   ion_numbers: [4, 2]          # 在对应的文件夹中生成config.yaml中的gen_opt所需的参数
   update: True                 # 默认每次运行都会更新组合文件夹
@@ -22,6 +24,11 @@ empirical_estimate:
 gen_opt:
   num_per_group: 10                             # 每个空间群要生成的晶体结构数量
   space_groups_limit: 15                         # 空间群搜索的限制
+  mlp_backend: 'deepmd'                          # 可选 deepmd、dpa4、dpa4_ion_ft 或 mattersim
+  mlp_python: 'python'                           # DPA4/MatterSim 建议使用独立 Python 3.12 环境
+  mlp_model: 'model.pt'                          # 本地模型文件或官方预训练模型名
+  mlp_device:                                    # 例如 cuda；留空由后端自动选择
+  mlp_workers: 0                                 # 0=自动；DPA4/MatterSim 必须设为 1
   machine: '/your/gpu/machine/config/path'       # 进行机器学习势优化计算的机器参数，建议GPU
   resources: '/your/gpu/resources/config/path'   # 进行机器学习势优化计算的资源参数
   nodes: 1  # 占用GPU节点数

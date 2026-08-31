@@ -74,29 +74,14 @@ def crystal_generator(tmp_path: Path):
     # 创建模拟的离子组分文件
     _ = create_ion_files(tmp_path)
 
-    # 创建模拟的 mlp_opt.py 和 model.pt（模拟 importlib.resources）
-    mlp_opt_file = tmp_path / "mlp_opt.py"
-    mlp_opt_file.write_text("print('MLP optimization script')", encoding="utf-8")
-
-    model_file = tmp_path / "model.pt"
-    model_file.write_text("dummy model content", encoding="utf-8")
-
-    # 创建一个 mock 的 importlib.resources.files
-    with patch("importlib.resources.files") as mock_resources:
-        # 模拟 mlp_opt.py 和 model.pt 的路径
-        mock_resources.side_effect = (
-            lambda pkg: tmp_path if pkg == "ion_CSP" else tmp_path / "model"
-        )
-
-        # 创建 CrystalGenerator 实例
-        crystal_generator = CrystalGenerator(
-            work_dir=tmp_path,
-            ion_numbers=SAMPLE_ION_NUMBERS,
-            species=SAMPLE_SPECIES,
-        )
-        crystal_generator.POSCAR_dir.mkdir(exist_ok=True)
-        crystal_generator.group_counts = [1, 2, 1, 1]
-        yield crystal_generator
+    crystal_generator = CrystalGenerator(
+        work_dir=tmp_path,
+        ion_numbers=SAMPLE_ION_NUMBERS,
+        species=SAMPLE_SPECIES,
+    )
+    crystal_generator.POSCAR_dir.mkdir(exist_ok=True)
+    crystal_generator.group_counts = [1, 2, 1, 1]
+    yield crystal_generator
 
 
 # ==================== 测试 __init__ ====================
@@ -113,6 +98,16 @@ def test_crystal_generator_init(crystal_generator: CrystalGenerator, tmp_path: P
     assert cg.POSCAR_dir == tmp_path / "1_generated/POSCAR_Files"
     assert cg.POSCAR_dir.exists()
     assert cg.primitive_cell_dir == tmp_path / "1_generated/primitive_cell"
+
+
+def test_crystal_generator_uses_module_relative_runtime_files(
+    crystal_generator: CrystalGenerator,
+):
+    package_dir = Path(__import__("ion_CSP.gen_opt", fromlist=[""]).__file__).parent
+    assert crystal_generator.mlp_opt_file == package_dir / "mlp_opt.py"
+    assert crystal_generator.model_file == package_dir / "model" / "model.pt"
+    assert crystal_generator.mlp_opt_file.is_file()
+    assert crystal_generator.model_file.is_file()
 
 
 # ==================== 测试 _sequentially_read_files ====================
@@ -624,10 +619,13 @@ Direct
         mock_atoms.get_number_of_atoms.return_value = 99  # 不等于 self.cell_atoms
         mock_atoms.__len__.return_value = 99
         with patch("ase.io.read", return_value=mock_atoms):
-            # 6. 执行方法
-            crystal_generator._single_phonopy_processing(filename)
+            # 6. 执行方法，返回值应为 True（表示因原子数不匹配而删除）
+            deleted = crystal_generator._single_phonopy_processing(filename)
 
-    # 7. 验证 CSV 文件被正确更新
+    # 7. 验证返回值：原子数不匹配时返回 True
+    assert deleted is True
+
+    # 8. 验证 CSV 文件被正确更新
     with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         rows = list(reader)
@@ -637,9 +635,10 @@ Direct
     assert rows[1][2] == "0"  # 空间群1未变
     assert rows[3][2] == "0"  # 空间群3未变
 
-    # 8. 验证日志
-    assert "Deleted POSCAR_6 due to atom number mismatch" in caplog.text
-    assert mock_run.called_once()
+    # 9. 验证目标文件被删除，且逐条 "Deleted" 日志已移除（改为调用方汇总）
+    assert not (crystal_generator.primitive_cell_dir / filename).exists()
+    assert "due to atom number mismatch" not in caplog.text
+    mock_run.assert_called_once()
     assert "Phonopy execution failed" not in caplog.text  # 因为 run 被 mock 成功
 
 
@@ -688,8 +687,8 @@ Direct
         mock_atoms.get_number_of_atoms.return_value = 99
         mock_atoms.__len__.return_value = 99
         with patch("ase.io.read", return_value=mock_atoms):
-            # 6. 执行方法 —— 不应抛出异常
-            crystal_generator._single_phonopy_processing(filename)
+            # 6. 执行方法 —— 不应抛出异常，返回 True（已删除）
+            deleted = crystal_generator._single_phonopy_processing(filename)
 
     # 7. 验证：CSV 文件未被修改（因为没有空间群2的行）
     with open(csv_path, "r", encoding="utf-8") as f:
@@ -698,14 +697,14 @@ Direct
     assert rows[1][2] == "0"  # 空间群1的 Bad_num 未变
     assert rows[1][3] == "None"  # 空间群1的 Exception 未变
 
-    # 8. 验证日志：仍记录删除
-    assert "Deleted POSCAR_6 due to atom number mismatch" in caplog.text
-    # 但不应有“更新 CSV”的日志，因为未找到对应空间群
+    # 8. 验证返回值为 True（文件被删除），逐条删除日志已移除
+    assert deleted is True
+    assert "due to atom number mismatch" not in caplog.text
 
 
 # ==================== 测试 phonopy_processing ====================
 def test_phonopy_processing_success(crystal_generator: CrystalGenerator, caplog):
-    """测试 phonopy_processing 成功路径"""
+    """测试 phonopy_processing 成功路径（无结构被删除，不触发汇总 warning）"""
     caplog.set_level(logging.INFO)
     # 创建 POSCAR 文件
     for i in range(3):
@@ -713,14 +712,41 @@ def test_phonopy_processing_success(crystal_generator: CrystalGenerator, caplog)
             "dummy", encoding="utf-8"
         )
 
+    # 全部返回 False：无原子数不匹配
     with patch(
-        "ion_CSP.gen_opt.CrystalGenerator._single_phonopy_processing"
+        "ion_CSP.gen_opt.CrystalGenerator._single_phonopy_processing",
+        return_value=False,
     ) as mock_single:
         crystal_generator.phonopy_processing()
 
     # 验证
     assert mock_single.call_count == 3
     assert ("The phonopy processing has been completed!!") in caplog.text
+    # 无删除时不应有汇总 warning
+    assert "due to atom number mismatch" not in caplog.text
+
+
+def test_phonopy_processing_with_deletions(crystal_generator: CrystalGenerator, caplog):
+    """测试 phonopy_processing 部分结构原子数不匹配被删除时的汇总日志"""
+    caplog.set_level(logging.INFO)
+    for i in range(3):
+        (crystal_generator.POSCAR_dir / f"POSCAR_{i}").write_text(
+            "dummy", encoding="utf-8"
+        )
+
+    # 前两个返回 True（删除），第三个 False
+    with patch(
+        "ion_CSP.gen_opt.CrystalGenerator._single_phonopy_processing",
+        side_effect=[True, True, False],
+    ) as mock_single:
+        crystal_generator.phonopy_processing()
+
+    assert mock_single.call_count == 3
+    # 汇总一条 warning，而非逐条
+    assert "Deleted 2/3 POSCAR files due to atom number mismatch" in caplog.text
+    assert "details recorded in generation.csv" in caplog.text
+    # 完成日志显示剩余数量
+    assert "The phonopy processing has been completed!! 1" in caplog.text
 
 
 # ==================== 测试 dpdisp_mlp_tasks ====================
@@ -957,107 +983,33 @@ def test_dpdisp_mlp_tasks_remote_exception(
     mock_sub.assert_called_once()
     mock_run.assert_called_once()
     mock_task.assert_called()
-    mock_rmtree.assert_called()
+    # 异常路径下 aborted=True，finally 跳过输出回收与清理，因此不应调用 rmtree
+    mock_rmtree.assert_not_called()
+
+
 
 
 
 # ==================== 测试 _terminate_tasks 私有函数 ====================
-def test_terminate_tasks_sshcontext_success(
-    caplog, crystal_generator: CrystalGenerator
-):
-    """测试 SSHContext 模式下，remote_profile 完整，命令成功执行"""
-    caplog.set_level(logging.INFO)
-    crystal_generator._job_id = "test-job-123"
+# 说明：新实现不再依赖自定义的 DPDISPATCHER_JOB_ID 环境变量（dpdispatcher 从不注入
+# 该变量），改为「dpdispatcher 官方 kill 接口 + 按 cmdline/cwd 兜底匹配 mlp_opt.py」。
+
+
+def _make_submission(context_type, remote_root="/workplace/yz/autodpgen", belonging_tasks=None, remote_profile=None):
+    """构造一个模拟的 submission，供 _terminate_tasks 测试复用"""
     mock_submission = MagicMock()
-    mock_submission.machine.serialize.return_value = {
-        "context_type": "SSHContext",
-        "remote_profile": {"hostname": "192.168.1.10", "username": "user"},
-    }
-    crystal_generator._submission = mock_submission
-
-    # 模拟 ssh 命令成功
-    with patch(
-        "subprocess.run", return_value=MagicMock(returncode=0, stderr="", stdout="")
-    ):
-        crystal_generator._terminate_tasks()
-
-    # 验证三条日志：启动、成功
-    assert len(caplog.records) == 2
-    assert caplog.records[0].levelname == "INFO"
-    assert (
-        caplog.records[0].message
-        == f"Terminating remote tasks on 192.168.1.10 with JOB_ID={crystal_generator._job_id}..."
-    )
-    assert caplog.records[1].levelname == "INFO"
-    assert (
-        caplog.records[1].message
-        == "Remote termination command executed successfully on 192.168.1.10"
-    )
-
-
-def test_terminate_tasks_localcontext_success(
-    caplog, crystal_generator: CrystalGenerator
-):
-    """测试 LocalContext 模式下成功杀死匹配的进程"""
-    caplog.set_level(logging.INFO)
-    crystal_generator._job_id = "test-job-123"
-    mock_submission = MagicMock()
-    mock_submission.machine.serialize.return_value = {"context_type": "LocalContext"}
-    crystal_generator._submission = mock_submission
-
-    # 模拟两个进程：一个匹配，一个不匹配
-    proc1 = MagicMock()
-    proc1.pid = 123
-    proc1.info = {
-        "pid": 123,
-        "name": "python",
-        "environ": {"DPDISPATCHER_JOB_ID": "test-job-123"},
-    }
-    proc1.terminate.return_value = None
-    proc1.wait.return_value = None
-    proc1.is_running.return_value = False
-
-    proc2 = MagicMock()
-    proc2.pid = 456
-    proc2.info = {
-        "pid": 456,
-        "name": "python",
-        "environ": {"DPDISPATCHER_JOB_ID": "other-job"},
-    }
-
-    with patch("psutil.process_iter", return_value=[proc1, proc2]):
-        crystal_generator._terminate_tasks()
-
-    # 验证日志：应有两条 INFO
-    assert len(caplog.records) == 2
-    assert caplog.records[0].levelname == "INFO"
-    assert (
-        caplog.records[0].message
-        == f"Terminating local tasks with JOB_ID={crystal_generator._job_id}..."
-    )
-    assert caplog.records[1].levelname == "INFO"
-    assert (
-        caplog.records[1].message
-        == f"Killing local process 123 (JOB_ID={crystal_generator._job_id})"
-    )
-
-
-def test_terminate_tasks_no_job_id(caplog, crystal_generator: CrystalGenerator):
-    """测试 _job_id 不存在或为空时，不执行任何操作"""
-    caplog.set_level(logging.INFO)
-    crystal_generator._job_id = None
-    crystal_generator._terminate_tasks()
-    assert len(caplog.records) == 0  # 无任何日志
-
-    crystal_generator._job_id = ""
-    crystal_generator._terminate_tasks()
-    assert len(caplog.records) == 0  # 仍无日志
+    serialized = {"context_type": context_type}
+    if remote_profile is not None:
+        serialized["remote_profile"] = remote_profile
+    mock_submission.machine.serialize.return_value = serialized
+    mock_submission.machine.context.remote_root = remote_root
+    mock_submission.belonging_tasks = belonging_tasks if belonging_tasks is not None else []
+    return mock_submission
 
 
 def test_terminate_tasks_no_submission(caplog, crystal_generator: CrystalGenerator):
-    """测试 _submission 不存在或为 None 时，不执行任何操作"""
+    """_submission 为 None 或不存在时，直接返回，无任何日志"""
     caplog.set_level(logging.INFO)
-    crystal_generator._job_id = "test-job-123"
     crystal_generator._submission = None
     crystal_generator._terminate_tasks()
     assert len(caplog.records) == 0
@@ -1070,220 +1022,392 @@ def test_terminate_tasks_no_submission(caplog, crystal_generator: CrystalGenerat
 def test_terminate_tasks_serialize_raises_attribute_error(
     caplog, crystal_generator: CrystalGenerator
 ):
-    """测试 self._submission.machine.serialize() 抛出 AttributeError"""
+    """machine.serialize() 抛 AttributeError 时记录错误并返回"""
     caplog.set_level(logging.ERROR)
-    crystal_generator._job_id = "test-job-123"
     mock_submission = MagicMock()
-    mock_submission.machine.serialize.side_effect = AttributeError(
-        "No machine attribute"
-    )
+    mock_submission.machine.serialize.side_effect = AttributeError("No machine attribute")
     crystal_generator._submission = mock_submission
 
     crystal_generator._terminate_tasks()
 
-    # 验证只有一条 ERROR 日志
     assert len(caplog.records) == 1
     assert caplog.records[0].levelname == "ERROR"
-    assert (
-        caplog.records[0].message
-        == "Cannot retrieve machine information for termination."
-    )
+    assert caplog.records[0].message == "Cannot retrieve machine information for termination."
 
 
-def test_terminate_tasks_localcontext_timeout_expired(
-    caplog, crystal_generator: CrystalGenerator
-):
-    """测试 LocalContext 模式下 proc.wait() 超时，应调用 proc.kill()"""
+def test_terminate_tasks_dpdispatcher_kill_success(caplog, crystal_generator):
+    """dpdispatcher 官方 kill 接口成功终止有 job_id 的 task"""
     caplog.set_level(logging.INFO)
-    crystal_generator._job_id = "test-job-123"
-    mock_submission = MagicMock()
-    mock_submission.machine.serialize.return_value = {"context_type": "LocalContext"}
-    crystal_generator._submission = mock_submission
+    task = MagicMock()
+    task.job_id = "12345"
+    task.task_hash = "abc123"
+    submission = _make_submission("LocalContext", belonging_tasks=[task])
+    crystal_generator._submission = submission
 
+    with patch("psutil.process_iter", return_value=[]):
+        crystal_generator._terminate_tasks()
+
+    submission.machine.kill.assert_called_once_with(task)
+    assert "Killed task abc123 (job_id: 12345)" in caplog.text
+
+
+def test_terminate_tasks_dpdispatcher_kill_task_without_job_id(caplog, crystal_generator):
+    """task 没有 job_id 时应跳过，不调用 machine.kill"""
+    caplog.set_level(logging.INFO)
+    task = MagicMock()
+    task.job_id = ""  # 空 job_id
+    submission = _make_submission("LocalContext", belonging_tasks=[task])
+    crystal_generator._submission = submission
+
+    with patch("psutil.process_iter", return_value=[]):
+        crystal_generator._terminate_tasks()
+
+    submission.machine.kill.assert_not_called()
+
+
+def test_terminate_tasks_dpdispatcher_kill_task_raises(caplog, crystal_generator):
+    """单个 task kill 抛异常时记录 warning，不中断流程"""
+    caplog.set_level(logging.WARNING)
+    task = MagicMock()
+    task.job_id = "12345"
+    task.task_hash = "abc123"
+    submission = _make_submission("LocalContext", belonging_tasks=[task])
+    submission.machine.kill.side_effect = RuntimeError("kill failed")
+    crystal_generator._submission = submission
+
+    with patch("psutil.process_iter", return_value=[]):
+        crystal_generator._terminate_tasks()
+
+    assert "Failed to kill task abc123: kill failed" in caplog.text
+
+
+def test_terminate_tasks_dpdispatcher_kill_outer_exception(caplog, crystal_generator):
+    """遍历 belonging_tasks 本身抛异常时记录 warning"""
+    caplog.set_level(logging.WARNING)
+    submission = _make_submission("LocalContext")
+    # 让 belonging_tasks 迭代时抛异常
+    type(submission).belonging_tasks = property(
+        lambda self: (_ for _ in ()).throw(RuntimeError("iter boom"))
+    )
+    crystal_generator._submission = submission
+
+    with patch("psutil.process_iter", return_value=[]):
+        crystal_generator._terminate_tasks()
+
+    assert "dpdispatcher kill failed: iter boom" in caplog.text
+
+
+# -------------------- LocalContext 兜底进程匹配 --------------------
+def _make_proc(pid, cmdline, cwd):
+    """构造模拟进程对象"""
     proc = MagicMock()
-    proc.pid = 123
-    proc.info = {
-        "pid": 123,
-        "name": "python",
-        "environ": {"DPDISPATCHER_JOB_ID": "test-job-123"},
-    }
-    proc.terminate.return_value = None
-    proc.wait.side_effect = psutil.TimeoutExpired(seconds=5)  # 模拟超时
-    proc.kill.return_value = None
-    proc.is_running.return_value = False  # kill 后不再运行
+    proc.pid = pid
+    proc.info = {"pid": pid, "name": "python", "cmdline": cmdline, "cwd": cwd}
+    return proc
+
+
+def test_terminate_tasks_local_kills_matching_process(caplog, crystal_generator):
+    """LocalContext：命令行含 mlp_opt.py 且 cwd 匹配 remote_root 的进程被终止"""
+    caplog.set_level(logging.INFO)
+    root = "/workplace/yz/autodpgen"
+    submission = _make_submission("LocalContext", remote_root=root)
+    crystal_generator._submission = submission
+
+    match = _make_proc(123, ["python", "mlp_opt.py"], f"{root}/pop0")
+    match.wait.return_value = None
+    # 不匹配：cwd 在别处
+    no_match_cwd = _make_proc(456, ["python", "mlp_opt.py"], "/other/dir/pop0")
+    # 不匹配：命令行无 mlp_opt.py
+    no_match_cmd = _make_proc(789, ["python", "other.py"], f"{root}/pop1")
+
+    with patch("psutil.process_iter", return_value=[match, no_match_cwd, no_match_cmd]):
+        crystal_generator._terminate_tasks()
+
+    match.terminate.assert_called_once()
+    match.wait.assert_called_once_with(timeout=5)
+    no_match_cwd.terminate.assert_not_called()
+    no_match_cmd.terminate.assert_not_called()
+    assert "Killed residual process 123: python mlp_opt.py" in caplog.text
+
+
+def test_terminate_tasks_local_timeout_then_kill(caplog, crystal_generator):
+    """LocalContext：proc.wait() 超时后调用 proc.kill()"""
+    caplog.set_level(logging.INFO)
+    root = "/workplace/yz/autodpgen"
+    submission = _make_submission("LocalContext", remote_root=root)
+    crystal_generator._submission = submission
+
+    proc = _make_proc(123, ["python", "mlp_opt.py"], f"{root}/pop0")
+    proc.wait.side_effect = psutil.TimeoutExpired(seconds=5)
 
     with patch("psutil.process_iter", return_value=[proc]):
         crystal_generator._terminate_tasks()
 
-    # 验证：应有两条日志：启动 + 杀死
-    assert len(caplog.records) == 2
-    assert caplog.records[0].levelname == "INFO"
-    assert (
-        caplog.records[0].message
-        == f"Terminating local tasks with JOB_ID={crystal_generator._job_id}..."
-    )
-    assert caplog.records[1].levelname == "INFO"
-    assert (
-        caplog.records[1].message
-        == f"Killing local process 123 (JOB_ID={crystal_generator._job_id})"
-    )
-
-    # 验证行为：terminate 被调用，wait 抛异常，kill 被调用
     proc.terminate.assert_called_once()
     proc.wait.assert_called_once_with(timeout=5)
     proc.kill.assert_called_once()
 
 
-def test_terminate_tasks_localcontext_psutil_exceptions(
-    caplog, crystal_generator: CrystalGenerator
-):
-    """测试 LocalContext 中遇到 psutil 异常时，不崩溃，不记录错误"""
+def test_terminate_tasks_local_cmdline_none(caplog, crystal_generator):
+    """LocalContext：cmdline 为 None（僵尸/内核进程）时安全跳过"""
     caplog.set_level(logging.INFO)
-    crystal_generator._job_id = "test-job-123"
-    mock_submission = MagicMock()
-    mock_submission.machine.serialize.return_value = {"context_type": "LocalContext"}
-    crystal_generator._submission = mock_submission
+    root = "/workplace/yz/autodpgen"
+    submission = _make_submission("LocalContext", remote_root=root)
+    crystal_generator._submission = submission
 
-    # 模拟一个进程，但访问 environ 时抛出异常
-    proc = MagicMock()
-    proc.info = {
-        "pid": 123,
-        "name": "python",
-        "environ": {"DPDISPATCHER_JOB_ID": "test-job-123"},
-    }
-    proc.terminate.side_effect = psutil.NoSuchProcess(123)
-    proc.wait.side_effect = psutil.AccessDenied()
-    proc.is_running.side_effect = psutil.ZombieProcess(123)
+    proc = _make_proc(123, None, f"{root}/pop0")
 
     with patch("psutil.process_iter", return_value=[proc]):
         crystal_generator._terminate_tasks()
 
-    # 验证：只记录了启动日志，没有 error，没有 warning
-    assert len(caplog.records) == 1
-    assert caplog.records[0].levelname == "INFO"
-    assert (
-        caplog.records[0].message
-        == f"Terminating local tasks with JOB_ID={crystal_generator._job_id}..."
-    )
+    proc.terminate.assert_not_called()
+    assert "No residual mlp_opt.py processes found." in caplog.text
 
 
-def test_terminate_tasks_sshcontext_missing_remote_profile(
-    caplog, crystal_generator: CrystalGenerator
-):
-    """测试 SSHContext 但 remote_profile 缺失 hostname 或 username"""
-    caplog.set_level(logging.WARNING)
-    crystal_generator._job_id = "test-job-123"
-    mock_submission = MagicMock()
-    mock_submission.machine.serialize.return_value = {
-        "context_type": "SSHContext",
-        "remote_profile": {},  # 缺少 hostname 和 username
-    }
-    crystal_generator._submission = mock_submission
-
-    crystal_generator._terminate_tasks()
-
-    # 验证只有一条 WARNING
-    assert len(caplog.records) == 1
-    assert caplog.records[0].levelname == "WARNING"
-    assert (
-        caplog.records[0].message
-        == "Cannot terminate remote tasks: missing remote_profile"
-    )
-
-
-def test_terminate_tasks_sshcontext_command_failed(
-    caplog, crystal_generator: CrystalGenerator
-):
-    """测试 SSHContext 中 pkill 命令执行失败（非零返回码）"""
+def test_terminate_tasks_local_cwd_none(caplog, crystal_generator):
+    """LocalContext：cwd 为 None 时安全跳过"""
     caplog.set_level(logging.INFO)
-    crystal_generator._job_id = "test-job-123"
-    mock_submission = MagicMock()
-    mock_submission.machine.serialize.return_value = {
-        "context_type": "SSHContext",
-        "remote_profile": {"hostname": "192.168.1.10", "username": "user"},
-    }
-    crystal_generator._submission = mock_submission
+    root = "/workplace/yz/autodpgen"
+    submission = _make_submission("LocalContext", remote_root=root)
+    crystal_generator._submission = submission
 
-    # 模拟 ssh 命令失败
-    mock_result = MagicMock()
-    mock_result.returncode = 1
-    mock_result.stderr = "Permission denied"
-    mock_result.stdout = ""
+    proc = _make_proc(123, ["python", "mlp_opt.py"], None)
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch("psutil.process_iter", return_value=[proc]):
         crystal_generator._terminate_tasks()
 
-    # 验证两条日志：启动 + 失败警告
-    assert len(caplog.records) == 2
-    assert caplog.records[0].levelname == "INFO"
-    assert (
-        caplog.records[0].message
-        == f"Terminating remote tasks on 192.168.1.10 with JOB_ID={crystal_generator._job_id}..."
-    )
-    assert caplog.records[1].levelname == "WARNING"
-    assert caplog.records[1].message == "Remote termination failed: Permission denied"
+    proc.terminate.assert_not_called()
+    assert "No residual mlp_opt.py processes found." in caplog.text
 
 
-def test_terminate_tasks_sshcontext_subprocess_exception(
-    caplog, crystal_generator: CrystalGenerator
-):
-    """测试 SSHContext 中 subprocess.run 抛出异常（如 ssh 命令不存在）"""
-    caplog.set_level(logging.INFO)  # 必须设为 INFO，才能捕获启动日志
-    crystal_generator._job_id = "test-job-123"
-    mock_submission = MagicMock()
-    mock_submission.machine.serialize.return_value = {
-        "context_type": "SSHContext",
-        "remote_profile": {"hostname": "192.168.1.10", "username": "user"},
-    }
-    crystal_generator._submission = mock_submission
+def test_terminate_tasks_local_psutil_exception(caplog, crystal_generator):
+    """LocalContext：访问进程属性抛 psutil 异常时不崩溃"""
+    caplog.set_level(logging.INFO)
+    root = "/workplace/yz/autodpgen"
+    submission = _make_submission("LocalContext", remote_root=root)
+    crystal_generator._submission = submission
 
-    # 模拟 subprocess.run 抛出 OSError（如 ssh 未安装）
-    with patch(
-        "subprocess.run",
-        side_effect=OSError("[Errno 2] No such file or directory: 'ssh'"),
-    ):
+    proc = _make_proc(123, ["python", "mlp_opt.py"], f"{root}/pop0")
+    proc.terminate.side_effect = psutil.NoSuchProcess(123)
+
+    with patch("psutil.process_iter", return_value=[proc]):
         crystal_generator._terminate_tasks()
 
-    # 验证：应有两条日志
-    assert len(caplog.records) == 2
+    # 异常被吞掉，killed_count 仍为 0
+    assert "No residual mlp_opt.py processes found." in caplog.text
 
-    # 第一条：启动日志（INFO）
-    assert caplog.records[0].levelname == "INFO"
-    assert (
-        caplog.records[0].message
-        == f"Terminating remote tasks on 192.168.1.10 with JOB_ID={crystal_generator._job_id}..."
+
+def test_terminate_tasks_local_no_residual(caplog, crystal_generator):
+    """LocalContext：没有任何匹配进程时记录 'No residual'"""
+    caplog.set_level(logging.INFO)
+    submission = _make_submission("LocalContext")
+    crystal_generator._submission = submission
+
+    with patch("psutil.process_iter", return_value=[]):
+        crystal_generator._terminate_tasks()
+
+    assert "No residual mlp_opt.py processes found." in caplog.text
+
+
+# -------------------- SSHContext 远程终止 --------------------
+def test_terminate_tasks_ssh_success(caplog, crystal_generator):
+    """SSHContext：ssh 命令返回码 0，记录执行成功"""
+    caplog.set_level(logging.INFO)
+    submission = _make_submission(
+        "SSHContext",
+        remote_profile={"hostname": "192.168.1.10", "username": "user"},
     )
+    crystal_generator._submission = submission
 
-    # 第二条：错误日志（ERROR）
-    assert caplog.records[1].levelname == "ERROR"
-    assert (
-        "Failed to execute remote termination: [Errno 2] No such file or directory: 'ssh'"
-        in caplog.records[1].message
+    with patch("subprocess.run", return_value=MagicMock(returncode=0, stderr="")):
+        crystal_generator._terminate_tasks()
+
+    assert "Terminating remote mlp_opt.py tasks on 192.168.1.10..." in caplog.text
+    assert "Remote termination command executed." in caplog.text
+
+
+def test_terminate_tasks_ssh_returncode_1_no_process(caplog, crystal_generator):
+    """SSHContext：返回码 1（无匹配进程）也视为正常执行"""
+    caplog.set_level(logging.INFO)
+    submission = _make_submission(
+        "SSHContext",
+        remote_profile={"hostname": "192.168.1.10", "username": "user"},
     )
+    crystal_generator._submission = submission
+
+    with patch("subprocess.run", return_value=MagicMock(returncode=1, stderr="")):
+        crystal_generator._terminate_tasks()
+
+    assert "Remote termination command executed." in caplog.text
 
 
-def test_terminate_tasks_unknown_context_type(
-    caplog, crystal_generator: CrystalGenerator
-):
-    """测试未知 context_type（如 DockerContext）"""
+def test_terminate_tasks_ssh_nonzero_returncode(caplog, crystal_generator):
+    """SSHContext：其他非零返回码记录 warning"""
+    caplog.set_level(logging.INFO)
+    submission = _make_submission(
+        "SSHContext",
+        remote_profile={"hostname": "192.168.1.10", "username": "user"},
+    )
+    crystal_generator._submission = submission
+
+    with patch("subprocess.run", return_value=MagicMock(returncode=255, stderr="ssh error")):
+        crystal_generator._terminate_tasks()
+
+    assert "Remote termination exit code 255: ssh error" in caplog.text
+
+
+def test_terminate_tasks_ssh_missing_remote_profile(caplog, crystal_generator):
+    """SSHContext：remote_profile 缺 hostname/username 时 warning 并返回"""
     caplog.set_level(logging.WARNING)
-    crystal_generator._job_id = "test-job-123"
-    mock_submission = MagicMock()
-    mock_submission.machine.serialize.return_value = {
-        "context_type": "DockerContext",
-        "remote_profile": {},
-    }
-    crystal_generator._submission = mock_submission
+    submission = _make_submission("SSHContext", remote_profile={})
+    crystal_generator._submission = submission
 
     crystal_generator._terminate_tasks()
 
-    # 验证只有一条 WARNING
-    assert len(caplog.records) == 1
-    assert caplog.records[0].levelname == "WARNING"
-    assert (
-        caplog.records[0].message
-        == "Unknown context_type: DockerContext, cannot terminate tasks"
+    assert "Cannot terminate remote tasks: missing remote_profile" in caplog.text
+
+
+def test_terminate_tasks_ssh_timeout(caplog, crystal_generator):
+    """SSHContext：ssh 命令超时记录 error"""
+    caplog.set_level(logging.ERROR)
+    submission = _make_submission(
+        "SSHContext",
+        remote_profile={"hostname": "192.168.1.10", "username": "user"},
     )
+    crystal_generator._submission = submission
+
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="ssh", timeout=10)):
+        crystal_generator._terminate_tasks()
+
+    assert "Remote termination command timed out." in caplog.text
+
+
+def test_terminate_tasks_ssh_generic_exception(caplog, crystal_generator):
+    """SSHContext：ssh 命令抛其他异常记录 error"""
+    caplog.set_level(logging.ERROR)
+    submission = _make_submission(
+        "SSHContext",
+        remote_profile={"hostname": "192.168.1.10", "username": "user"},
+    )
+    crystal_generator._submission = submission
+
+    with patch("subprocess.run", side_effect=OSError("ssh not found")):
+        crystal_generator._terminate_tasks()
+
+    assert "Failed to execute remote termination: ssh not found" in caplog.text
+
+
+def test_terminate_tasks_unknown_context(caplog, crystal_generator):
+    """未知 context_type 记录 warning"""
+    caplog.set_level(logging.WARNING)
+    submission = _make_submission("DockerContext")
+    crystal_generator._submission = submission
+
+    with patch("psutil.process_iter", return_value=[]):
+        crystal_generator._terminate_tasks()
+
+    assert "Unknown context_type: DockerContext, cannot terminate tasks" in caplog.text
+
+
+# ==================== 测试 _recover_optimized_outputs 私有函数 ====================
+def _prepare_recover_env(cg, nodes, present_indices, all_indices, parent=""):
+    """在 primitive_cell 下构造 pop 目录、POSCAR 及部分 CONTCAR/OUTCAR"""
+    cg.primitive_cell_dir.mkdir(parents=True, exist_ok=True)
+    dpdisp_base = cg.primitive_cell_dir
+    for pop in range(nodes):
+        task_dir = dpdisp_base / f"{parent}pop{pop}"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        for i in all_indices:
+            if i % nodes == pop:
+                (task_dir / f"POSCAR_{i}").write_text("poscar", encoding="utf-8")
+                if i in present_indices:
+                    (task_dir / f"CONTCAR_{i}").write_text("contcar", encoding="utf-8")
+                    (task_dir / f"OUTCAR_{i}").write_text("outcar", encoding="utf-8")
+    return dpdisp_base
+
+
+def test_recover_optimized_outputs_all_present(crystal_generator, caplog):
+    """全部输出文件存在时，记录 'Recovered N' 且无 warning"""
+    caplog.set_level(logging.INFO)
+    all_idx = [0, 1, 2]
+    dpdisp_base = _prepare_recover_env(crystal_generator, 1, all_idx, all_idx)
+
+    crystal_generator._recover_optimized_outputs(dpdisp_base, "", 1)
+
+    optimized_dir = crystal_generator.base_dir / "2_mlp_optimized"
+    assert len(list(optimized_dir.glob("CONTCAR_*"))) == 3
+    assert len(list(optimized_dir.glob("OUTCAR_*"))) == 3
+    assert "Recovered 3 optimized structures." in caplog.text
+    assert "have no CONTCAR/OUTCAR output" not in caplog.text
+
+
+def test_recover_optimized_outputs_some_missing(crystal_generator, caplog):
+    """部分输出缺失时，聚合为一条 warning 摘要"""
+    caplog.set_level(logging.INFO)
+    all_idx = [0, 1, 2, 3]
+    present = [0, 2]  # 缺 1, 3
+    dpdisp_base = _prepare_recover_env(crystal_generator, 1, present, all_idx)
+
+    crystal_generator._recover_optimized_outputs(dpdisp_base, "", 1)
+
+    assert "Recovered 2 optimized structures" in caplog.text
+    assert "2 POSCAR files have no CONTCAR/OUTCAR output" in caplog.text
+    assert "check dpdispatcher.log" in caplog.text
+    # 缺失文件不再逐条 ERROR
+    missing_errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(missing_errors) == 0
+
+
+def test_recover_optimized_outputs_many_missing_truncated(crystal_generator, caplog):
+    """缺失超过 10 个时，摘要显示前 10 个并提示 'and X more'"""
+    caplog.set_level(logging.WARNING)
+    all_idx = list(range(15))  # 0..14 全缺
+    dpdisp_base = _prepare_recover_env(crystal_generator, 1, [], all_idx)
+
+    crystal_generator._recover_optimized_outputs(dpdisp_base, "", 1)
+
+    assert "15 POSCAR files have no CONTCAR/OUTCAR output" in caplog.text
+    assert "and 5 more" in caplog.text
+
+
+# ==================== 测试 dpdisp_mlp_tasks 的 SystemExit 中断路径 ====================
+def test_dpdisp_mlp_tasks_system_exit(crystal_generator: CrystalGenerator, tmp_path):
+    """
+    测试收到 SIGTERM/SIGINT（StatusLogger 信号处理器抛 SystemExit）时：
+    - 调用 _terminate_tasks() 终止子进程
+    - 跳过输出回收（不产生海量 Missing 日志）
+    - 重新抛出 SystemExit
+    """
+    primitive_cell_dir = crystal_generator.base_dir / "1_generated" / "primitive_cell"
+    primitive_cell_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(4):
+        (primitive_cell_dir / f"POSCAR_{i}").write_text("dummy poscar")
+    # 准备 forward 文件（fixture 将其指向 tmp_path/mlp_opt.py 与 tmp_path/model/model.pt）
+    crystal_generator.mlp_opt_file = crystal_generator.base_dir / "mlp_opt.py"
+    crystal_generator.model_file = crystal_generator.base_dir / "model.pt"
+    crystal_generator.mlp_opt_file.write_text("# dummy")
+    crystal_generator.model_file.write_text("model weights")
+
+    with patch("dpdispatcher.Submission") as mock_sub_class:
+        mock_sub = MagicMock()
+        mock_sub_class.return_value = mock_sub
+        # 模拟信号处理器：run_submission 抛 SystemExit
+        mock_sub.run_submission.side_effect = SystemExit(0)
+
+        with patch.object(crystal_generator, "_terminate_tasks") as mock_terminate, \
+             patch.object(crystal_generator, "_recover_optimized_outputs") as mock_recover, \
+             patch("ion_CSP.gen_opt.machine_resources_prep") as mock_prep, \
+             patch("dpdispatcher.Task"):
+            mock_prep.return_value = (MagicMock(), MagicMock(), "test_parent")
+
+            with pytest.raises(SystemExit):
+                crystal_generator.dpdisp_mlp_tasks(
+                    machine_path="m.yaml", resources_path="r.yaml"
+                )
+
+            # 验证：终止被调用，回收被跳过（aborted=True）
+            mock_terminate.assert_called_once()
+            mock_recover.assert_not_called()
 
 
 # ==================== 测试 _get_available_gpus 私有函数 ====================

@@ -1,4 +1,6 @@
 import logging
+import csv
+from pathlib import Path
 from ion_CSP.convert_SMILES import SmilesProcessing
 from ion_CSP.empirical_estimate import EmpiricalEstimation
 from ion_CSP.log_and_time import StatusLogger
@@ -13,6 +15,9 @@ DEFAULT_CONFIG = {
         "group_screen": "",  # 默认官能团筛选为空
         "group_name": "",  # 默认分组名称
         "group_screen_invert": False,  # 默认不进行反向筛选
+        # 中央离子库路径：命中的离子(规范化SMILES+电荷)直接复用其优化产物，跳过Gaussian。
+        # 设为空字符串则禁用去重(向后兼容)。
+        "database_dir": "",
     },
     "empirical_estimate": {
         "folders": [],  # 默认文件夹列表
@@ -27,9 +32,83 @@ DEFAULT_CONFIG = {
 }
 
 
+def setup_ion_links(work_dir: str, config: dict):
+    """
+    自动创建到 Database_Ions 的软链接，避免复制离子文件。
+    只链接 config["empirical_estimate"]["folders"] 中指定的 charge 文件夹。
+
+    智能判断逻辑：
+    - 如果目标文件夹已有非软链接文件（项目自己的离子），跳过链接
+    - 如果目标文件夹不存在或为空，创建软链接到 Database_Ions
+    """
+    database_dir = config.get("convert_SMILES", {}).get("database_dir", "")
+    if not database_dir:
+        logging.info("database_dir not configured, skipping automatic ion linking")
+        return
+
+    database_path = Path(database_dir) / "3_For_CSP_module"
+    if not database_path.exists():
+        logging.warning(f"Database path not found: {database_path}, skipping ion linking")
+        return
+
+    folders = config.get("empirical_estimate", {}).get("folders", [])
+    work_path = Path(work_dir)
+    project_charge_folders = set()
+    csv_name = config.get("convert_SMILES", {}).get("csv_file", "")
+    csv_path = work_path / csv_name
+    if csv_name and csv_path.is_file():
+        try:
+            with csv_path.open(newline="", encoding="utf-8") as csv_file:
+                for row in csv.DictReader(csv_file):
+                    project_charge_folders.add(f"charge_{int(row['Charge'])}")
+        except (KeyError, TypeError, ValueError, OSError) as error:
+            logging.warning(
+                f"Unable to determine project charge folders from {csv_path}: {error}"
+            )
+
+    for folder in folders:
+        target_folder = work_path / folder
+        source_folder = database_path / folder
+
+        if folder in project_charge_folders:
+            logging.info(
+                f"{folder} contains project input ions, skipping database linking"
+            )
+            continue
+
+        if not source_folder.exists():
+            logging.warning(f"Database folder not found: {source_folder}, skipping")
+            continue
+
+        # 智能判断：如果目标文件夹已存在且有非软链接的 gjf 文件，说明是项目自己的离子
+        if target_folder.exists():
+            gjf_files = list(target_folder.glob("*.gjf"))
+            if gjf_files and any(not f.is_symlink() for f in gjf_files):
+                logging.info(f"{folder} already has local ions ({len(gjf_files)} files), skipping linking")
+                continue
+
+        # 创建软链接
+        target_folder.mkdir(parents=True, exist_ok=True)
+        linked_count = 0
+        for source_file in source_folder.glob("*"):
+            if not source_file.is_file():
+                continue
+            target_file = target_folder / source_file.name
+            if target_file.is_symlink() and not target_file.exists():
+                target_file.unlink()
+            if target_file.exists() or target_file.is_symlink():
+                continue
+            target_file.symlink_to(source_file.resolve())
+            linked_count += 1
+
+        if linked_count > 0:
+            logging.info(f"✓ Linked {folder} from Database_Ions: {linked_count} files (symlink)")
+
+
 @log_and_time
 def main(work_dir, config):
     logging.info(f"Using config: {config}")
+
     tasks = {
         "0_convertion": lambda: convertion_task(work_dir, config),
         "0_estimation": lambda: estimation_task(work_dir, config),
@@ -45,6 +124,9 @@ def main(work_dir, config):
             except Exception:
                 task_logger.set_failure()
                 raise
+        if task_name == "0_convertion":
+            # 转换后再链接，避免新项目的自有电荷目录被数据库离子预先占用。
+            setup_ion_links(work_dir, config)
 
     if config["empirical_estimate"]["update"]:
         task_logger = StatusLogger(work_dir=work_dir, task_name="0_update_combo")
@@ -64,6 +146,10 @@ def convertion_task(work_dir, config):
     )
     # 根据电荷进行分组创建文件夹并将SMILES码转换为对应的结构文件
     convertion.charge_group()
+    # 复用中央离子库中已优化的离子(规范化SMILES+电荷匹配)，避免重复 Gaussian 计算
+    convertion.reuse_from_database(
+        database_dir=config["convert_SMILES"].get("database_dir", "")
+    )
     if config["convert_SMILES"]["screen"]:
         # 根据提供的官能团和电荷进行筛选, 在本数据集中硝基的SMILES码为[N+](=O)[O-]
         convertion.screen(

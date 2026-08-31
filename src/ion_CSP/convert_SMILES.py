@@ -202,6 +202,99 @@ class SmilesProcessing:
         logging.info(generation_message)
 
 
+    @staticmethod
+    def _canonical_smiles(smiles: str):
+        """
+        Private helper: 用 RDKit 计算规范化 SMILES 作为离子唯一键。非法返回 None。
+        """
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        return Chem.MolToSmiles(mol)
+
+
+    def _build_database_index(self, database_dir: Path) -> dict:
+        """
+        Private method:
+        从中央离子库构建 {(canonical_smiles, charge): (gjf_path, json_path)} 索引，
+        用于避免对已有离子重复做 Gaussian 计算。
+
+        仅索引「有源 CSV」且「优化后产物(gjf+json)齐全」的离子；charge_1/2 无 CSV，
+        暂不参与。数据库不存在或无可用条目时返回空 dict。
+        """
+        database_dir = Path(database_dir)
+        csv_dir = database_dir / "1_CSV_Database"
+        product_dir = database_dir / "3_For_CSP_module"
+        index = {}
+        if not csv_dir.is_dir():
+            logging.info(f"Database index: no CSV dir at {csv_dir}, skipping reuse.")
+            return index
+        for csv_file in sorted(csv_dir.glob("charge_*.csv")):
+            group = csv_file.stem  # 如 charge_-1
+            try:
+                df = pd.read_csv(csv_file)
+            except Exception as e:
+                logging.warning(f"Database index: cannot read {csv_file}: {e}")
+                continue
+            if "SMILES" not in df.columns or "Charge" not in df.columns:
+                continue
+            id_col = "Refcode" if "Refcode" in df.columns else (
+                "Number" if "Number" in df.columns else None
+            )
+            if id_col is None:
+                continue
+            for _, row in df.iterrows():
+                canon = self._canonical_smiles(str(row["SMILES"]))
+                if canon is None:
+                    continue
+                refcode = str(row[id_col])
+                gjf = product_dir / group / f"{refcode}.gjf"
+                jsn = product_dir / group / f"{refcode}.json"
+                if gjf.exists() and jsn.exists():
+                    index[(canon, int(row["Charge"]))] = (gjf, jsn)
+        logging.info(
+            f"Database index built: {len(index)} reusable ions from {database_dir}"
+        )
+        return index
+
+
+    def reuse_from_database(self, database_dir: str):
+        """
+        在 charge_group() 之后、dpdisp_gaussian_tasks() 之前调用。
+        对 self.df 中每个离子，按「规范化 SMILES + 电荷」查中央库；命中则把库中
+        优化后 gjf + json 复制到 converted_dir/charge_N/{basename}.{gjf,json}，
+        使其被现有「gjf+json 即预优化」逻辑自动跳过 Gaussian，estimate 也直接复用。
+
+        :params database_dir: 中央离子库根目录；为空则不做任何事(向后兼容)
+        :return: (reused, need_calc) 两个 basename 列表
+        """
+        reused, need_calc = [], []
+        if not database_dir:
+            return reused, need_calc
+        index = self._build_database_index(Path(database_dir))
+        if not index:
+            return reused, need_calc
+        for _, row in self.df.iterrows():
+            canon = self._canonical_smiles(str(row["SMILES"]))
+            charge = int(row["Charge"])
+            basename = str(row[self.base_name])
+            hit = index.get((canon, charge)) if canon is not None else None
+            if hit is None:
+                need_calc.append(basename)
+                continue
+            gjf_src, json_src = hit
+            dst_dir = self.converted_dir / f"charge_{charge}"
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(str(gjf_src), str(dst_dir / f"{basename}.gjf"))
+            shutil.copyfile(str(json_src), str(dst_dir / f"{basename}.json"))
+            reused.append(basename)
+        logging.info(
+            f"Database reuse: {len(reused)} ion(s) reused from database "
+            f"(skipping Gaussian), {len(need_calc)} ion(s) need Gaussian optimization."
+        )
+        return reused, need_calc
+
+
     def screen(
         self,
         charge_screen: int = 0,

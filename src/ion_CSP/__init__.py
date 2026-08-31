@@ -1,8 +1,8 @@
 __author__ = "Ze Yang"
 __contact__ = "yangze1995007@163.com"
 __license__ = "MIT"
-__version__ = "2.3.3"
-__date__ = "2026-07-07"
+__version__ = "2.3.4"
+__date__ = "2026-08-31"
 
 
 try:

@@ -168,16 +168,21 @@ def test_multiwfn_process_fchk_to_json_success(estimator: EmpiricalEstimation):
         mock_single.assert_any_call(folder_path / "test2.fchk")
 
 
-def test_multiwfn_process_fchk_to_json_no_fchk_files(estimator: EmpiricalEstimation):
-    """测试当文件夹中无 .fchk 文件时，抛出 FileNotFoundError"""
+def test_multiwfn_process_fchk_to_json_no_fchk_files(
+    estimator: EmpiricalEstimation, caplog
+):
+    """测试当文件夹中无 .fchk 文件时，跳过处理而非抛异常（预优化离子已复制完成）"""
+    caplog.set_level("INFO")
     folder = "empty_folder"
     folder_path = estimator.gaussian_dir / folder
     folder_path.mkdir(parents=True, exist_ok=True)  # 创建空文件夹
 
-    with pytest.raises(
-        FileNotFoundError, match="No availible Gaussian .fchk file to process"
-    ):
+    with patch.object(estimator, "_single_multiwfn_fchk_to_json") as mock_single:
+        # 不应抛异常
         estimator._multiwfn_process_fchk_to_json(folder)
+        # 不应调用单文件处理
+        mock_single.assert_not_called()
+    assert "no .fchk files to process" in caplog.text
 
 
 def test_multiwfn_process_fchk_to_json_copy_json_file(
@@ -521,17 +526,20 @@ def test_gaussian_log_to_optimized_gjf_success(estimator: EmpiricalEstimation, c
         assert expected_log in caplog.text
 
 
-def test_gaussian_log_to_optimized_gjf_no_log_files(estimator: EmpiricalEstimation):
-    """测试当文件夹中无 .log 文件时，抛出 FileNotFoundError"""
+def test_gaussian_log_to_optimized_gjf_no_log_files(
+    estimator: EmpiricalEstimation, caplog
+):
+    """测试当文件夹中无 .log 文件时，跳过处理而非抛异常（预优化离子已复制好 .gjf）"""
+    caplog.set_level("INFO")
     folder = "empty_folder"
     folder_path = estimator.gaussian_dir / folder
     folder_path.mkdir(parents=True, exist_ok=True)
 
-    with pytest.raises(
-        FileNotFoundError,
-        match=f"No availible Gaussian .log file to process in {folder}",
-    ):
+    with patch.object(estimator, "_single_multiwfn_log_to_gjf") as mock_single:
+        # 不应抛异常
         estimator._gaussian_log_to_optimized_gjf(folder)
+        mock_single.assert_not_called()
+    assert "no .log files to process" in caplog.text
 
 
 def test_gaussian_log_to_optimized_gjf_skip_if_target_exists(
@@ -1152,6 +1160,21 @@ gen_opt:
     assert generated_config["gen_opt"]["ion_numbers"] == [1, 1]
 
 
+def test_make_combo_dir_accepts_relative_string_target(
+    estimator: EmpiricalEstimation,
+):
+    estimator.density_csv.parent.mkdir(parents=True, exist_ok=True)
+    estimator.density_csv.write_text(
+        "Component 1,Component 2,Pred_Density\n", encoding="utf-8"
+    )
+
+    estimator.make_combo_dir(
+        "relative_combos", num_combos=0, ion_numbers=[]
+    )
+
+    assert (estimator.base_dir / "relative_combos").is_dir()
+
+
 def test_make_combo_dir_no_csv(estimator: EmpiricalEstimation, tmp_path: Path):
     # 不创建任何 CSV 文件，触发 FileNotFoundError
     with pytest.raises(
@@ -1399,6 +1422,30 @@ def test_multiwfn_process_all_folders_with_pre_optimized(
     assert "need Multiwfn processing" in caplog.text
     assert "B" in caplog.text
     mock_process.assert_called_once_with(folder)
+
+
+def test_multiwfn_process_all_pre_optimized_no_fchk_skips(
+    estimator: EmpiricalEstimation, caplog
+):
+    """文件夹全部为预优化离子（无 .fchk）时，整条链路 no-op：复制 json、私有方法自行跳过、不抛异常"""
+    caplog.set_level("INFO")
+    folder = "cation_1"
+    estimator.folders = [folder]
+    folder_path = estimator.base_dir / folder
+    folder_path.mkdir(parents=True, exist_ok=True)
+    # 仅预优化离子：.gjf + .json，均无 .fchk
+    (folder_path / "A.gjf").write_text("gjf", encoding="utf-8")
+    (folder_path / "A.json").write_text("{}", encoding="utf-8")
+
+    # 不 patch 私有方法，走真实 no-op 路径；仅确保不会调用底层单文件处理
+    with patch.object(estimator, "_single_multiwfn_fchk_to_json") as mock_single:
+        estimator.multiwfn_process_fchk_to_json()
+        mock_single.assert_not_called()
+
+    # 预优化离子已复制到 Optimized 目录，且私有方法记录了跳过日志
+    assert (estimator.gaussian_result_dir / folder / "A.json").exists()
+    assert "no .fchk files to process" in caplog.text
+    assert "no .fchk files to process" in caplog.text
 
 
 def test_gaussian_log_to_optimized_gjf_all_folders_with_pre_optimized(

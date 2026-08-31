@@ -16,28 +16,53 @@ os.environ["OMP_NUM_THREADS"] = "3"
 
 import sys
 import time
+import argparse
 import shutil
 import numpy as np
 import multiprocessing
 from ase.optimize import LBFGS
 from ase.io.vasp import read_vasp
-from ase.constraints import UnitCellFilter
-from deepmd.calculator import DP
+try:
+    from ase.filters import UnitCellFilter
+except ImportError:
+    from ase.constraints import UnitCellFilter
 
 
 base_dir = os.path.dirname(__file__)
 pool = None  # 用于KeyboardInterrupt处理中终止进程池
 
 
-def get_mlp_calc(relative_path='./model.pt'):
+def get_mlp_calc(relative_path="./model.pt", backend="deepmd", device=None):
     """
     Get the MLP calculator for ASE.
     This function initializes the DP calculator with a model file located in the same directory as this script.
     """
-    # 根据脚本位置确定model.pt文件的位置, 减少错误发生
-    file_path = os.path.join(base_dir, relative_path)
-    calc = DP(file_path)
-    return calc
+    backend = backend.lower()
+    if backend == "deepmd":
+        from deepmd.calculator import DP
+
+        file_path = os.path.join(base_dir, relative_path)
+        return DP(file_path)
+    if backend in {"dpa4", "dpa4_ion_ft"}:
+        from deepmd.calculator import DP
+
+        model_path = relative_path
+        local_model_path = os.path.join(base_dir, relative_path)
+        if os.path.isfile(local_model_path):
+            model_path = local_model_path
+        return DP(model_path)
+    if backend == "mattersim":
+        from mattersim.forcefield import MatterSimCalculator
+
+        model_path = relative_path
+        local_model_path = os.path.join(base_dir, relative_path)
+        if os.path.isfile(local_model_path):
+            model_path = local_model_path
+        kwargs = {"load_path": model_path}
+        if device:
+            kwargs["device"] = device
+        return MatterSimCalculator(**kwargs)
+    raise ValueError(f"Unsupported MLP backend: {backend}")
 
 
 def get_element_num(elements):
@@ -167,7 +192,14 @@ def get_indexes():
     return indexes
 
 
-def run_opt(index: int, output_dir=None): 
+def run_opt(
+    index: int,
+    output_dir=None,
+    backend="deepmd",
+    model_path="./model.pt",
+    device=None,
+    calculator=None,
+):
     """
     Using the ASE & MLP to Optimize Configures
     :params
@@ -191,7 +223,9 @@ def run_opt(index: int, output_dir=None):
     # 因此 kbar 与 eV/A^3 的转换关系为 1 kbar = 0.1 / 160.2177 = 6.2415*10e-4 eV/A^3
     aim_stress = pstress / 10.0 / 160.2177
     atoms = read_vasp('POSCAR_'+str(index)) 
-    atoms.calc = get_mlp_calc()
+    atoms.calc = calculator or get_mlp_calc(
+        relative_path=model_path, backend=backend, device=device
+    )
     ucf = UnitCellFilter(atoms, scalar_pressure=aim_stress)
     # 选择LBFGS优化器进行结构优化
     opt = LBFGS(ucf)
@@ -217,11 +251,33 @@ def run_opt(index: int, output_dir=None):
     print(f'{_cwd} is done, time: {stop-start}')
 
 
-def main():
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(description="Optimize POSCAR files with an ASE MLP calculator.")
+    parser.add_argument(
+        "--backend",
+        choices=("deepmd", "dpa4", "dpa4_ion_ft", "mattersim"),
+        default="deepmd",
+    )
+    parser.add_argument("--model", default="./model.pt")
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--workers", type=int, default=0)
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
     """
     Main function to run the optimization in parallel.
     It initializes a multiprocessing pool and maps the run_opt function to the indexes of POSCAR files.
     """
+    options = _parse_args([] if argv is None else argv)
+    gpu_backends = {"dpa4", "dpa4_ion_ft", "mattersim"}
+    workers = options.workers or (1 if options.backend in gpu_backends else 8)
+    if workers < 1:
+        raise ValueError("workers must be a positive integer")
+    if options.backend in gpu_backends and workers != 1:
+        raise ValueError(
+            f"{options.backend} currently requires workers=1 to reuse one GPU model"
+        )
     total_start = time.time()
     # 不再注册信号处理器 - 让父进程的StatusLogger统一处理
     # 子进程会自动继承父进程的信号处理行为
@@ -236,12 +292,42 @@ def main():
 
     try:
         # 初始化进程池
-        ctx = multiprocessing.get_context("spawn")
-        global pool
-        pool = ctx.Pool(8)
-        # 映射优化任务到进程池
-        print(f"Starting optimization for {len(indexes)} structures...")
-        pool.map(func=run_opt, iterable=indexes)
+        print(
+            f"Starting optimization for {len(indexes)} structures with "
+            f"backend={options.backend}, workers={workers}..."
+        )
+        if workers == 1:
+            calculator = get_mlp_calc(
+                relative_path=options.model,
+                backend=options.backend,
+                device=options.device,
+            )
+            for index in indexes:
+                run_opt(
+                    index,
+                    backend=options.backend,
+                    model_path=options.model,
+                    device=options.device,
+                    calculator=calculator,
+                )
+        else:
+            ctx = multiprocessing.get_context("spawn")
+            global pool
+            pool = ctx.Pool(workers)
+            if (
+                options.backend == "deepmd"
+                and options.model == "./model.pt"
+                and options.device is None
+            ):
+                pool.map(func=run_opt, iterable=indexes)
+            else:
+                pool.starmap(
+                    run_opt,
+                    [
+                        (index, None, options.backend, options.model, options.device)
+                        for index in indexes
+                    ],
+                )
         print("All optimizations completed successfully.")
     except KeyboardInterrupt:
         # 捕获KeyboardInterrupt，优雅地关闭进程池
@@ -255,7 +341,19 @@ def main():
     except (MemoryError, OSError, PermissionError) as e:
         print("Falling back to serial execution due to resource constraints:", e)
         for index in indexes:
-            run_opt(index)
+            if (
+                options.backend == "deepmd"
+                and options.model == "./model.pt"
+                and options.device is None
+            ):
+                run_opt(index)
+            else:
+                run_opt(
+                    index,
+                    backend=options.backend,
+                    model_path=options.model,
+                    device=options.device,
+                )
         print("All optimizations completed successfully in serial mode.")
     except Exception as e:
         # worker 抛回的异常或池初始化失败都应向上传播，避免把失败的优化误报为成功
@@ -273,4 +371,4 @@ def main():
 
 
 if __name__=='__main__':
-    main()
+    main(sys.argv[1:])

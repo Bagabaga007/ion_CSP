@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ion_CSP"
-dynamic = ["version"]
+version = "2.3.4"
 keywords = ["Ion_Crystal, Crystal_Structure_Prediction"]
 authors = [
     {name = "Ze Yang", email = "yangze1995007@163.com"}
@@ -24,8 +24,11 @@ dependencies = [
     "torch==2.5.0",
     "dpdispatcher==0.6.7",
     "numpy==1.26.4",
+    "pandas==2.2.3",
     "paramiko==3.5.1",
+    "psutil==7.0.0",
     "pyxtal==1.0.4",
+    "PyYAML==6.0.2",
     "phonopy==2.34.1",
     "rdkit==2024.3.3",
     "pytest==8.3.4",

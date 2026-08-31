@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 import pytest
 import numpy as np
 from io import StringIO
@@ -12,7 +13,7 @@ sys.modules["deepmd"] = MagicMock()
 sys.modules["deepmd.calculator"] = MagicMock()
 sys.modules["deepmd.calculator"].DP = MagicMock()
 
-from ion_CSP.mlp_opt import (get_element_num, write_CONTCAR, write_OUTCAR,
+from ion_CSP.mlp_opt import (get_mlp_calc, get_element_num, write_CONTCAR, write_OUTCAR,
                              get_indexes, run_opt, main)
 
 
@@ -57,6 +58,61 @@ def test_get_element_num():
     unique_elements, element_count = get_element_num(elements)
     assert unique_elements == ["H", "O", "C"]
     assert element_count == {"H": 2, "O": 2, "C": 1}
+
+
+def test_get_mlp_calc_mattersim(monkeypatch):
+    calculator_class = MagicMock()
+    forcefield_module = MagicMock()
+    forcefield_module.MatterSimCalculator = calculator_class
+    monkeypatch.setitem(sys.modules, "mattersim", MagicMock())
+    monkeypatch.setitem(sys.modules, "mattersim.forcefield", forcefield_module)
+
+    get_mlp_calc(
+        relative_path="MatterSim-v1.0.0-5M.pth",
+        backend="mattersim",
+        device="cuda",
+    )
+
+    calculator_class.assert_called_once_with(
+        load_path="MatterSim-v1.0.0-5M.pth",
+        device="cuda",
+    )
+
+
+def test_get_mlp_calc_dpa4(monkeypatch):
+    calculator_class = MagicMock()
+    calculator_module = MagicMock()
+    calculator_module.DP = calculator_class
+    monkeypatch.setitem(sys.modules, "deepmd", MagicMock())
+    monkeypatch.setitem(sys.modules, "deepmd.calculator", calculator_module)
+
+    get_mlp_calc(
+        relative_path="DPA4-Nano-OMat24-v20260805",
+        backend="dpa4",
+    )
+
+    calculator_class.assert_called_once_with("DPA4-Nano-OMat24-v20260805")
+
+
+def test_get_mlp_calc_dpa4_ion_ft(monkeypatch):
+    calculator_class = MagicMock()
+    calculator_module = MagicMock()
+    calculator_module.DP = calculator_class
+    monkeypatch.setitem(sys.modules, "deepmd", MagicMock())
+    monkeypatch.setitem(sys.modules, "deepmd.calculator", calculator_module)
+
+    get_mlp_calc(
+        relative_path="/models/dpa4_ion_ft.pt",
+        backend="dpa4_ion_ft",
+        device="cuda",
+    )
+
+    calculator_class.assert_called_once_with("/models/dpa4_ion_ft.pt")
+
+
+def test_get_mlp_calc_rejects_unknown_backend():
+    with pytest.raises(ValueError, match="Unsupported MLP backend"):
+        get_mlp_calc(backend="unknown")
 
 
 # ==================== 测试 write_CONTCAR 函数 ====================
@@ -515,7 +571,7 @@ with patch('ion_CSP.mlp_opt.get_indexes', return_value=[]):
         [sys.executable, str(test_script)],
         capture_output=True,
         text=True,
-        cwd="/workplace/yz/ion_CSP"
+        cwd=str(Path(__file__).resolve().parents[2])
     )
 
     # 验证脚本成功执行

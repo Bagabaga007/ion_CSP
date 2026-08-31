@@ -141,8 +141,8 @@ pytest -m system
 
 测试过程中会在以下位置创建临时的 `logs/` 文件夹：
 
-- 项目根目录：`/workplace/yz/ion_CSP/logs/`
-- 测试目录：`/workplace/yz/ion_CSP/tests/logs/`
+- 项目根目录：项目根目录下的 `logs/`
+- 测试目录：项目根目录下的 `tests/logs/`
 
 **自动清理**：
 
@@ -216,7 +216,9 @@ jobs:
       - run: pytest -m system --run-slow
 ```
 
-## 当前测试统计
+## 当前测试统计（V2.3.0 历史基线）
+
+> 本节数字来自 V2.3.0 测试报告，不代表当前工作树的最新收集结果；最新修复和验证记录见 CHANGELOG.md。
 
 - **总测试数**：420个
 - **整体覆盖率**：99.39%

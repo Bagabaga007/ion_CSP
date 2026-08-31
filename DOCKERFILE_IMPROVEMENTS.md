@@ -11,7 +11,7 @@
    - **修复**: 改为 `python -m ion_CSP.run.main_CSP`（已修改 scripts/CLI.sh）
 
 3. ✅ **pyproject.toml 打包配置错误**: `[tool.setuptools.package-dir] src = "src"`
-   - **修复**: 改为 `[tool.setuptools.packages.find] where = ["src"]`
+   - **修复**: 改为显式 `[tool.setuptools] packages = ["ion_CSP", "ion_CSP.run"]`
 
 ### 性能与实用性
 4. ✅ **依赖重复安装**: requirements.txt（Line 21）+ pyproject.toml（Line 64）
@@ -82,7 +82,7 @@ docker run -it --rm \
 # 3. 在容器内
 bash scripts/CLI.sh  # 交互菜单
 # 或
-ion-csp --help       # CLI 工具
+ion-csp              # 交互式任务管理器
 ```
 
 详见 `DOCKER.md`。

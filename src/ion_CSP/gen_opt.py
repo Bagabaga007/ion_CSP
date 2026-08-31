@@ -10,6 +10,7 @@ import csv
 import time
 import uuid
 import signal
+import shlex
 import shutil
 import psutil
 import logging
@@ -18,7 +19,6 @@ from typing import List
 from ase.io import read
 from pathlib import Path
 from pyxtal import pyxtal
-import importlib.resources
 from pyxtal.msg import Comp_CompatibilityError, Symm_CompatibilityError
 
 from ion_CSP.log_and_time import redirect_dpdisp_logging, machine_resources_prep
@@ -39,11 +39,9 @@ class CrystalGenerator:
         # 设置dpdispatcher日志文件存放路径
         dpdisp_log_path = self.base_dir / "dpdispatcher.log"
         redirect_dpdisp_logging(dpdisp_log_path)
-        # 获取mlp_opt.py和model.pt文件的路径
-        self.mlp_opt_file = importlib.resources.files("ion_CSP").joinpath("mlp_opt.py")
-        self.model_file = importlib.resources.files("ion_CSP.model").joinpath(
-            "model.pt"
-        )
+        package_dir = Path(__file__).resolve().parent
+        self.mlp_opt_file = package_dir / "mlp_opt.py"
+        self.model_file = package_dir / "model" / "model.pt"
         # 记录离子晶体的组成信息
         self.ion_numbers = ion_numbers
         self.species = species
@@ -112,7 +110,6 @@ class CrystalGenerator:
         group_counts, group_exceptions = [], []
         total_count = 0  # 用于给生成的POSCAR文件计数
         for space_group in range(1, space_groups + 1):
-            logging.info(f"Space group: {space_group}")
             group_count, exception_message = 0, "None"
             # 参数num_per_group确定对每个空间群所要生成的POSCAR结构文件个数
             for i in range(num_per_group):
@@ -143,7 +140,12 @@ class CrystalGenerator:
                     break
             group_counts.append(group_count)
             group_exceptions.append(exception_message)
-            logging.info(f" {group_count} POSCAR generated.")
+            # 每 20 个空间群汇总一次进度，避免逐群刷屏（明细见 generation.csv）
+            if space_group % 20 == 0 or space_group == space_groups:
+                logging.info(
+                    f"Progress: space groups 1-{space_group}/{space_groups} processed, "
+                    f"{total_count} POSCAR generated so far."
+                )
         # 写入排序后的 .csv 文件
         self.generation_csv_file = self.generation_dir / "generation.csv"
         with self.generation_csv_file.open(
@@ -183,13 +185,15 @@ class CrystalGenerator:
         raise ValueError(f"POSCAR {poscar_index} not found in any space group")
 
 
-    def _single_phonopy_processing(self, filename: str):
+    def _single_phonopy_processing(self, filename: str) -> bool:
         """
         Private method:
         Process a single POSCAR file using phonopy to generate symmetric primitive cells and conventional cells.
 
         :params
             filename: The name of the POSCAR file to be processed.
+
+        :return: True if the file was deleted due to an atom number mismatch, otherwise False.
         """
         try:
             # 按顺序将生成的 POSCAR_n 文件复制为无数字后缀的 POSCAR 文件以供 phonopy 使用
@@ -232,7 +236,10 @@ class CrystalGenerator:
                     writer.writerows(rows)
                 # 删除原子数不匹配的POSCAR
                 dst_path.unlink()
-                logging.warning(f"Deleted {filename} due to atom number mismatch")
+                # 逐条 WARNING 会在大批量生成时刷爆日志，明细已记入 generation.csv，
+                # 此处仅返回标志由调用方汇总统计。
+                return True
+            return False
 
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             # 新增：捕获phonopy执行错误
@@ -250,17 +257,37 @@ class CrystalGenerator:
             self.POSCAR_dir, prefix_name="POSCAR_"
         )
         # 开始对每个 POSCAR 文件进行 phonopy 处理
-        logging.info("Start running phonopy processing ...")
+        total_files = len(POSCAR_file_index_pairs)
+        logging.info(f"Start running phonopy processing for {total_files} POSCAR files ...")
+        deleted_count = 0
         for _, filename in POSCAR_file_index_pairs:
-            self._single_phonopy_processing(filename=filename)
+            if self._single_phonopy_processing(filename=filename):
+                deleted_count += 1
+        # 汇总原子数不匹配而删除的结构数量（明细见 generation.csv 的 Bad_num / Exception 列）
+        if deleted_count:
+            logging.warning(
+                f"Deleted {deleted_count}/{total_files} POSCAR files due to atom number "
+                f"mismatch (details recorded in generation.csv)."
+            )
         # 在 phonopy 成功进行对称化处理后，删除 1_generated/POSCAR_Files 文件夹以节省空间
         logging.info(
-            "The phonopy processing has been completed!!\nThe symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder."
+            f"The phonopy processing has been completed!! {total_files - deleted_count} "
+            "symmetrized primitive cells have been saved in POSCAR format to the primitive_cell folder."
         )
         shutil.rmtree(self.POSCAR_dir)
 
 
-    def dpdisp_mlp_tasks(self, machine_path: str, resources_path: str, nodes: int = 1):
+    def dpdisp_mlp_tasks(
+        self,
+        machine_path: str,
+        resources_path: str,
+        nodes: int = 1,
+        backend: str = "deepmd",
+        python_executable: str = "python",
+        model: str = "model.pt",
+        device: str = None,
+        workers: int = 0,
+    ):
         """
         Based on the dpdispatcher module, prepare and submit files for optimization on remote server or local machine.
 
@@ -269,9 +296,6 @@ class CrystalGenerator:
             resources: The resources configuration file for dpdispatcher, can be in JSON or YAML format.
             nodes: The number of nodes to be used for optimization, default is 1.
         """
-        # 生成唯一任务ID（防止多用户冲突）
-        self._job_id = str(uuid.uuid4())  # 例如：a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8
-
         # 读取machine和resources的参数
         machine, resources, parent = machine_resources_prep(
             machine_path=machine_path, resources_path=resources_path
@@ -288,7 +312,22 @@ class CrystalGenerator:
 
         # 准备dpdispatcher运行所需的文件，将其复制到primitive_cell文件夹中
         dpdisp_base = self.primitive_cell_dir
-        self.required_files = [self.mlp_opt_file, self.model_file]
+        backend = backend.lower()
+        if backend not in {"deepmd", "dpa4", "dpa4_ion_ft", "mattersim"}:
+            raise ValueError(f"Unsupported MLP backend: {backend}")
+        model_argument = model
+        self.required_files = [self.mlp_opt_file]
+        if backend == "deepmd":
+            self.required_files.append(self.model_file)
+            model_argument = "model.pt"
+        else:
+            model_path = Path(model)
+            bundled_model_path = self.mlp_opt_file.parent / "model" / model_path.name
+            if not model_path.is_file() and bundled_model_path.is_file():
+                model_path = bundled_model_path
+        if backend != "deepmd" and model_path.is_file():
+            self.required_files.append(model_path)
+            model_argument = model_path.name
         for file in self.required_files:
             shutil.copy(str(file), str(dpdisp_base))
         # 依次读取primitive_cell文件夹中的所有POSCAR文件和对应的序号
@@ -307,7 +346,7 @@ class CrystalGenerator:
         task_list = []
         for pop in range(nodes):
             remote_task_dir = f"{parent}pop{pop}"
-            forward_files = ["mlp_opt.py", "model.pt"]
+            forward_files = [file.name for file in self.required_files]
             backward_files = ["log", "err"]
 
             # 将mlp_opt.py和model.pt复制一份到task_dir下
@@ -332,8 +371,20 @@ class CrystalGenerator:
                     str(task_dir / f"ori_{poscar_name}"),
                 )
 
+            command_parts = [
+                python_executable,
+                "mlp_opt.py",
+                "--backend",
+                backend,
+                "--model",
+                model_argument,
+            ]
+            if device:
+                command_parts.extend(["--device", device])
+            if workers:
+                command_parts.extend(["--workers", str(workers)])
             task = Task(
-                command="python mlp_opt.py",
+                command=" ".join(shlex.quote(part) for part in command_parts),
                 task_work_path=remote_task_dir,
                 forward_files=forward_files,
                 backward_files=backward_files,
@@ -350,61 +401,100 @@ class CrystalGenerator:
 
 
         # 执行提交（阻塞直到任务完成）
+        # aborted 标志区分「正常结束」与「被信号/异常中断」：
+        # 被 kill 时若仍遍历数万个结构去回收不存在的 CONTCAR/OUTCAR，会瞬间刷出
+        # 数万行 "Missing output files" ERROR 撑爆日志（曾达 18MB），且毫无意义。
+        # 使用 try/except/else：回收逻辑放在 else 中，仅在提交成功（无异常）时执行。
+        # 所有中断/异常分支都会终止子进程并重新抛出，从而跳过回收，避免海量无效日志。
         try:
             logging.info("Submitting tasks to dpdispatcher...")
             self._submission.run_submission()
         except KeyboardInterrupt:
-            # 捕获KeyboardInterrupt，终止任务后重新抛出让StatusLogger处理
+            # 捕获 KeyboardInterrupt，终止任务后重新抛出让 StatusLogger 处理
             logging.info("Received KeyboardInterrupt, terminating tasks...")
             self._terminate_tasks()
-            raise  # 重新抛出，让StatusLogger的信号处理器处理状态更新
+            raise  # 重新抛出，让 StatusLogger 的信号处理器处理状态更新
+        except SystemExit:
+            # StatusLogger 的信号处理器（SIGINT/SIGTERM）会调用 sys.exit()，抛出
+            # SystemExit。它属于 BaseException，不会被下面的 except Exception 捕获，
+            # 需单独处理，否则会执行无意义的输出回收并刷爆日志。
+            logging.warning(
+                "Submission interrupted by termination signal, terminating tasks "
+                "and skipping output recovery."
+            )
+            self._terminate_tasks()
+            raise
         except Exception as e:
             logging.error(f"Submission failed with error: {e}")
             self._terminate_tasks()
             raise
-        finally:
-            # 创建用于存放优化后文件的 mlp_optimized 目录
-            optimized_dir = self.base_dir / "2_mlp_optimized"
-            optimized_dir.mkdir(exist_ok=True)
-            for pop in range(nodes):
-                # 从传回 primitive_cell 目录下的 pop 文件夹中将结果文件取到 mlp_optimized 目录
-                task_dir = dpdisp_base / f"{parent}pop{pop}"
-                # 按照给定的 POSCAR 结构文件按顺序读取 CONTCAR 和 OUTCAR 文件并复制
-                task_file_index_pairs = self._sequentially_read_files(
-                    task_dir, prefix_name="POSCAR_"
-                )
-                for index, _ in task_file_index_pairs:
-                    try:
-                        shutil.copyfile(
-                            str(task_dir / f"CONTCAR_{index}"),
-                            str(optimized_dir / f"CONTCAR_{index}"),
-                        )
-                        shutil.copyfile(
-                            str(task_dir / f"OUTCAR_{index}"),
-                            str(optimized_dir / f"OUTCAR_{index}"),
-                        )
-                    except FileNotFoundError as e:
-                        logging.error(
-                            f"Missing output files for POSCAR_{index} in {task_dir}: {e}"
-                        )
-                        continue
-                # 在成功完成机器学习势优化后，删除 1_generated/primitive_cell/{parent}/pop{n} 文件夹以节省空间
-                shutil.rmtree(task_dir)
+        else:
+            # 仅在提交正常结束时回收优化结果
+            self._recover_optimized_outputs(dpdisp_base, parent, nodes)
             if machine.serialize()["context_type"] == "SSHContext":
-                # 如果调用远程服务器，则删除data级目录
+                # 如果调用远程服务器，则删除 data 级目录
                 shutil.rmtree(dpdisp_base / parent, ignore_errors=True)
-        # 完成后删除不必要的运行文件以节省空间，并记录优化完成的信息
-        for file in ["mlp_opt.py", "model.pt"]:
-            (dpdisp_base / file).unlink(missing_ok=True)
-        logging.info("Batch optimization completed!!!")
-        # 清理内部引用
-        self._submission = None
+            # 完成后删除不必要的运行文件以节省空间
+            for file in self.required_files:
+                (dpdisp_base / file.name).unlink(missing_ok=True)
+            logging.info("Batch optimization completed!!!")
+            # 清理内部引用
+            self._submission = None
+
+
+    def _recover_optimized_outputs(self, dpdisp_base: Path, parent: str, nodes: int):
+        """
+        Private method:
+        Collect CONTCAR/OUTCAR outputs from each pop task directory into 2_mlp_optimized.
+        Missing outputs are aggregated into a single summary log instead of one error per
+        file, which previously bloated the log to tens of thousands of lines on failure.
+        """
+        # 创建用于存放优化后文件的 mlp_optimized 目录
+        optimized_dir = self.base_dir / "2_mlp_optimized"
+        optimized_dir.mkdir(exist_ok=True)
+        recovered, missing = 0, []
+        for pop in range(nodes):
+            # 从传回 primitive_cell 目录下的 pop 文件夹中将结果文件取到 mlp_optimized 目录
+            task_dir = dpdisp_base / f"{parent}pop{pop}"
+            # 按照给定的 POSCAR 结构文件按顺序读取 CONTCAR 和 OUTCAR 文件并复制
+            task_file_index_pairs = self._sequentially_read_files(
+                task_dir, prefix_name="POSCAR_"
+            )
+            for index, _ in task_file_index_pairs:
+                try:
+                    shutil.copyfile(
+                        str(task_dir / f"CONTCAR_{index}"),
+                        str(optimized_dir / f"CONTCAR_{index}"),
+                    )
+                    shutil.copyfile(
+                        str(task_dir / f"OUTCAR_{index}"),
+                        str(optimized_dir / f"OUTCAR_{index}"),
+                    )
+                    recovered += 1
+                except FileNotFoundError:
+                    missing.append(index)
+                    continue
+            # 在成功完成机器学习势优化后，删除 pop 文件夹以节省空间
+            shutil.rmtree(task_dir)
+        # 汇总回收结果，缺失文件只记一条摘要并给出排查提示
+        if missing:
+            preview = ", ".join(f"POSCAR_{i}" for i in missing[:10])
+            more = f" (and {len(missing) - 10} more)" if len(missing) > 10 else ""
+            logging.warning(
+                f"Recovered {recovered} optimized structures; {len(missing)} POSCAR files "
+                f"have no CONTCAR/OUTCAR output: {preview}{more}. "
+                "The optimization jobs likely failed or produced no output — "
+                "check dpdispatcher.log and the remote task logs."
+            )
+        else:
+            logging.info(f"Recovered {recovered} optimized structures.")
 
 
     def _terminate_tasks(self):
-        """精准终止当前任务，不误杀他人的任务"""
-        if not hasattr(self, "_job_id") or not self._job_id:
-            return
+        """
+        终止当前 submission 的所有任务：先调用 dpdispatcher 官方接口，
+        再兜底查找可能残留的 mlp_opt.py 进程（通过工作目录匹配，避免误杀）。
+        """
         if not hasattr(self, "_submission") or self._submission is None:
             return
 
@@ -415,58 +505,80 @@ class CrystalGenerator:
             return
         context_type = machine_info.get("context_type", "LocalContext")
 
+        # 1. 优先调用 dpdispatcher 的官方 kill 接口（针对记录的 job_id）
+        try:
+            logging.info("Terminating tasks via dpdispatcher.Submission...")
+            for task in self._submission.belonging_tasks:
+                if hasattr(task, "job_id") and task.job_id:
+                    try:
+                        self._submission.machine.kill(task)
+                        logging.info(f"Killed task {task.task_hash} (job_id: {task.job_id})")
+                    except Exception as e:
+                        logging.warning(f"Failed to kill task {task.task_hash}: {e}")
+        except Exception as e:
+            logging.warning(f"dpdispatcher kill failed: {e}")
+
+        # 2. 兜底：查找本地残留的 mlp_opt.py 进程（工作目录匹配）
         if context_type == "LocalContext":
-            # 本地：只杀带 DPDISPATCHER_JOB_ID 的进程
-            logging.info(f"Terminating local tasks with JOB_ID={self._job_id}...")
-            for proc in psutil.process_iter(["pid", "name", "environ"]):
+            remote_root = str(self._submission.machine.context.remote_root)
+            logging.info(f"Checking for residual mlp_opt.py processes in {remote_root}...")
+            killed_count = 0
+            for proc in psutil.process_iter(["pid", "name", "cmdline", "cwd"]):
                 try:
-                    env = proc.info["environ"]
-                    if env and env.get("DPDISPATCHER_JOB_ID") == self._job_id:
+                    cmdline = proc.info.get("cmdline")
+                    cwd = proc.info.get("cwd")
+                    # 匹配：命令行含 mlp_opt.py，且工作目录以 remote_root 开头
+                    if (
+                        cmdline
+                        and any("mlp_opt.py" in arg for arg in cmdline)
+                        and cwd
+                        and cwd.startswith(remote_root)
+                    ):
                         proc.terminate()
                         try:
                             proc.wait(timeout=5)
                         except psutil.TimeoutExpired:
                             proc.kill()
-                        logging.info(
-                            f"Killing local process {proc.pid} (JOB_ID={self._job_id})"
-                        )
+                        logging.info(f"Killed residual process {proc.pid}: {' '.join(cmdline)}")
+                        killed_count += 1
                 except (
                     psutil.NoSuchProcess,
                     psutil.AccessDenied,
                     psutil.ZombieProcess,
                 ):
                     pass
+            if killed_count == 0:
+                logging.info("No residual mlp_opt.py processes found.")
 
         elif context_type == "SSHContext":
-            # 远程：只杀带 DPDISPATCHER_JOB_ID 的进程
+            # 远程：通过 ssh 执行 pkill，匹配工作目录下的 mlp_opt.py
             remote_profile = machine_info.get("remote_profile", {})
             hostname = remote_profile.get("hostname")
             username = remote_profile.get("username")
             if not hostname or not username:
                 logging.warning("Cannot terminate remote tasks: missing remote_profile")
                 return
-
-            # 使用 pkill -f 匹配环境变量，而非命令行
-            # 用 argv 列表调用，避免把 hostname/username 交给本地 shell 解释造成命令注入
-            remote_cmd = f'pkill -f "DPDISPATCHER_JOB_ID={self._job_id}"'
-            cmd = ["ssh", f"{username}@{hostname}", remote_cmd]
-            logging.info(
-                f"Terminating remote tasks on {hostname} with JOB_ID={self._job_id}..."
+            remote_root = self._submission.machine.context.remote_root
+            # pkill -f 匹配命令行中的 mlp_opt.py，限定工作目录（pwdx + grep 预过滤）
+            remote_cmd = (
+                f'for pid in $(pgrep -f mlp_opt.py); do '
+                f'  [[ $(pwdx $pid 2>/dev/null) == *"{remote_root}"* ]] && kill -9 $pid; '
+                f'done'
             )
+            cmd = ["ssh", f"{username}@{hostname}", remote_cmd]
+            logging.info(f"Terminating remote mlp_opt.py tasks on {hostname}...")
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                if result.returncode == 0:
-                    logging.info(
-                        f"Remote termination command executed successfully on {hostname}"
-                    )
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0 or result.returncode == 1:  # 1 = no matching process
+                    logging.info("Remote termination command executed.")
                 else:
-                    logging.warning(f"Remote termination failed: {result.stderr}")
+                    logging.warning(f"Remote termination exit code {result.returncode}: {result.stderr}")
+            except subprocess.TimeoutExpired:
+                logging.error("Remote termination command timed out.")
             except Exception as e:
                 logging.error(f"Failed to execute remote termination: {e}")
         else:
-            logging.warning(
-                f"Unknown context_type: {context_type}, cannot terminate tasks"
-            )
+            logging.warning(f"Unknown context_type: {context_type}, cannot terminate tasks")
 
 
 def _get_available_gpus(memory_percent_threshold=40):

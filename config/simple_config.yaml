@@ -1,5 +1,6 @@
 convert_SMILES:
   csv_file: 'ions.csv'         # 离子数据集csv文件名
+  database_dir: ''             # 中央预优化离子库路径；留空表示禁用复用/自动链接
   machine: '/your/cpu/machine/config/path'       # 进行Gaussian优化计算的机器参数
   resources: '/your/cpu/resources/config/path'   # 进行Gaussian优化计算的资源参数
   nodes: 2                                       # 占用CPU节点数
@@ -7,15 +8,22 @@ convert_SMILES:
 empirical_estimate:
   folders: ['charge_-1', 'charge_2']  # 工作目录下存放各离子的文件夹名
   ratios: [2, 1]               # 要用于经验公式预测密度的离子配比
-  sort_by: 'nitrogen'          # 对离子组合的排序依据，目前只有密度（density）与氮含量（nitrogen）
+  sort_by: 'nitrogen'          # 可选 density、nitrogen 或 NC_ratio
+  make_combo_dir: True         # 为排序靠前的组合创建 combo_n 目录
+  num_combos: 20               # 要生成的 combo_n 目录数量
   ion_numbers: [4, 2]          # 在对应的文件夹中生成config.yaml中的gen_opt所需的参数
+  update: True                 # 每次运行 EE 时更新组合目录
 
 gen_opt:
   machine: '/your/gpu/machine/config/path'       # 进行机器学习势优化计算的机器参数，建议GPU
   resources: '/your/gpu/resources/config/path'   # 进行机器学习势优化计算的资源参数
   nodes: 1                                       # 占用GPU节点数
 
+read_mlp_density:
+  n_screen: 2                                    # 送入 VASP 的候选结构数量
+
 vasp_processing:
   machine: '/your/cpu/machine/config/path'       # 进行VASP分步优化计算的机器参数
   resources: '/your/cpu/resources/config/path'   # 进行VASP分步优化计算的资源参数
   nodes: 2                                       # 占用CPU节点数
+  molecules_prior: True                          # 优先保留离子结构未改变的晶体

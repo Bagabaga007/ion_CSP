@@ -919,10 +919,10 @@ Direct
 
 
 @patch("ion_CSP.vasp_processing.identify_molecules")
-def test_read_vaspout_save_csv_packing_coefficient_exception(
+def test_read_vaspout_save_csv_packing_coefficient_from_cell(
     mock_identify, vasp_processor: VaspProcessing, caplog
 ):
-    """测试堆积系数计算异常（缺少 JSON 文件）"""
+    """fine 结构不可读时 PC 为 False；PC 不再依赖 JSON（删掉 JSON 也不报错）"""
     caplog.set_level(logging.INFO)
 
     mock_identify.return_value = (
@@ -931,7 +931,7 @@ def test_read_vaspout_save_csv_packing_coefficient_exception(
         [{"C": 1, "H": 4}],
     )
 
-    # 删除 JSON 文件（但保留 config.yaml）
+    # 删除 JSON 文件（新算法不需要，PC 仍应正常计算）
     (vasp_processor.base_dir / "N2O.json").unlink()
     (vasp_processor.base_dir / "H2O.json").unlink()
 
@@ -988,13 +988,12 @@ Direct
       1.00000      0.00000      0.00000         0.000000      0.000000      0.000000
 """, encoding="utf-8")
 
-    # 应该能正常运行，PC 值为 False
+    # 删掉 JSON 也应正常运行（新算法不依赖 JSON），fine 结构不可读则 PC 为 False
     vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=False)
 
     csv_file = vasp_processor.base_dir / "vasp_density_energy.csv"
     assert csv_file.exists()
 
-    # 验证 CSV 中 PC 值为 False
     import csv
     with csv_file.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -1602,21 +1601,47 @@ Direct
                 assert any("Final_Density" in record.message for record in caplog.records)
 
 
-def test_calculate_packing_coefficient_empty_species(vasp_processor: VaspProcessing):
-    """Test _calculate_packing_coefficient with empty species_json"""
+def test_calculate_packing_coefficient_none_and_empty(vasp_processor: VaspProcessing):
+    """atoms 为 None 或空原子时返回 False（vdW 并集体积无法计算）"""
     from ase import Atoms
-    atoms = Atoms('H2', positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
-
+    # None atoms
     fine_PC, final_PC = vasp_processor._calculate_packing_coefficient(
-        atoms=atoms,
-        final_atoms=atoms,
-        species_json=None,
-        ion_numbers=None,
-        relaxation=True
+        None, relaxation=False
     )
-
+    assert fine_PC is False and final_PC is False
+    # 空原子晶胞
+    empty = Atoms(cell=[10, 10, 10], pbc=True)
+    fine_PC, _ = vasp_processor._calculate_packing_coefficient(empty, relaxation=False)
     assert fine_PC is False
+
+
+def test_calculate_packing_coefficient_single_atom(vasp_processor: VaspProcessing):
+    """单原子在大晶胞中：PC ≈ (4/3πr³)/V_cell，且严格 <1"""
+    from ase import Atoms
+    # 单个 C 原子(vdW半径1.7Å)在 20³ 晶胞
+    atoms = Atoms("C", positions=[[10, 10, 10]], cell=[20, 20, 20], pbc=True)
+    fine_PC, final_PC = vasp_processor._calculate_packing_coefficient(
+        atoms, relaxation=False
+    )
+    import math
+    expected = (4 / 3 * math.pi * 1.7 ** 3) / 8000
+    assert abs(fine_PC - round(expected, 3)) < 0.01  # 网格法近似
+    assert 0 < fine_PC < 1
     assert final_PC is False
+
+
+def test_calculate_packing_coefficient_overlap_not_double_counted(
+    vasp_processor: VaspProcessing,
+):
+    """两原子重叠时按并集算，不重复计体积（union < 两球体积之和）"""
+    from ase import Atoms
+    import math
+    # 两个 C 原子相距 0.5Å（远小于 2×1.7），球体严重重叠
+    atoms = Atoms("C2", positions=[[10, 10, 10], [10.5, 10, 10]],
+                  cell=[20, 20, 20], pbc=True)
+    fine_PC, _ = vasp_processor._calculate_packing_coefficient(atoms, relaxation=False)
+    two_spheres = 2 * (4 / 3 * math.pi * 1.7 ** 3) / 8000
+    assert fine_PC < two_spheres  # 并集体积明显小于两球之和
 
 
 def test_write_csv_file_existing_file(vasp_processor: VaspProcessing):
@@ -1781,36 +1806,19 @@ group_size: 1
 
 
 def test_calculate_packing_coefficient_with_final_volume(vasp_processor: VaspProcessing):
-    """Test _calculate_packing_coefficient with non-zero final volume"""
-    # Create config file
-    config_path = vasp_processor.base_dir / "config.yaml"
-    config_path.write_text("""
-gen_opt:
-  species: ["H2.gjf"]
-  ion_numbers: [1]
-""", encoding="utf-8")
-
-    # Create H2.json file with correct key
-    json_path = vasp_processor.base_dir / "H2.json"
-    json_path.write_text('{"volume": 10.0}', encoding="utf-8")
-
-    # Create mock Atoms objects
+    """relaxation=True 时同时算 fine 与 final PC，均为 (0,1) 内的浮点，且更大晶胞 PC 更小"""
     from ase import Atoms
-    fine_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
-    final_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[12, 12, 12], pbc=True)
-
-    species_json = ["H2.json"]
-    ion_numbers = [1]
+    fine_atoms = Atoms("C2", positions=[[0, 0, 0], [3, 0, 0]], cell=[10, 10, 10], pbc=True)
+    final_atoms = Atoms("C2", positions=[[0, 0, 0], [3, 0, 0]], cell=[12, 12, 12], pbc=True)
 
     fine_PC, final_PC = vasp_processor._calculate_packing_coefficient(
-        fine_atoms, species_json, ion_numbers, relaxation=True, final_atoms=final_atoms
+        fine_atoms, relaxation=True, final_atoms=final_atoms
     )
 
-    # Both should be calculated
-    assert fine_PC is not False
-    assert final_PC is not False
-    assert isinstance(fine_PC, float)
-    assert isinstance(final_PC, float)
+    assert isinstance(fine_PC, float) and 0 < fine_PC < 1
+    assert isinstance(final_PC, float) and 0 < final_PC < 1
+    # 更大晶胞(体积大)→ 堆积系数更小
+    assert final_PC < fine_PC
 
 
 @patch("dpdispatcher.Submission.run_submission")
@@ -1866,22 +1874,36 @@ group_size: 1
 
 
 def test_calculate_packing_coefficient_zero_final_volume(vasp_processor: VaspProcessing):
-    """final_volume 为 0 时跳过 final_PC 计算（覆盖 line 466 False 分支）"""
+    """final_atoms 体积为 0 时跳过 final_PC（保持 False），fine 正常"""
     from ase import Atoms
     from unittest.mock import MagicMock
 
-    (vasp_processor.base_dir / "H2.json").write_text('{"volume": 10.0}', encoding="utf-8")
-    fine_atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]], cell=[10, 10, 10], pbc=True)
-    # final_atoms 体积为 0 → if final_volume 为 False
+    fine_atoms = Atoms("C", positions=[[5, 5, 5]], cell=[10, 10, 10], pbc=True)
+    # final_atoms 体积为 0 → 返回 None → final_PC 保持 False
     final_atoms = MagicMock()
     final_atoms.get_volume.return_value = 0
+    final_atoms.__len__.return_value = 1
 
     fine_PC, final_PC = vasp_processor._calculate_packing_coefficient(
-        fine_atoms, ["H2.json"], [1], relaxation=True, final_atoms=final_atoms
+        fine_atoms, relaxation=True, final_atoms=final_atoms
     )
 
-    assert isinstance(fine_PC, float)  # fine 体积正常，计算出结果
-    assert final_PC is False           # final 体积为 0，保持 False
+    assert isinstance(fine_PC, float)
+    assert final_PC is False
+
+
+def test_atom_vdw_radius_fallback(vasp_processor: VaspProcessing, caplog):
+    """无 vdW 半径的元素回退到 1.5 Å 并只警告一次；覆盖 NaN 与越界两种缺失"""
+    caplog.set_level(logging.WARNING)
+    # 已知元素返回真实半径
+    assert vasp_processor._atom_vdw_radius("C") > 0
+    # NaN 半径元素(Fe 在 ase.vdw_radii 中为 NaN) → 回退
+    assert vasp_processor._atom_vdw_radius("Fe") == 1.5
+    # 越界元素(Og, 原子序数超出 vdw_radii 长度) → 回退
+    assert vasp_processor._atom_vdw_radius("Og") == 1.5
+    # 重复调用同一元素不重复警告
+    vasp_processor._atom_vdw_radius("Fe")
+    assert caplog.text.count("Fe, using fallback") == 1
 
 
 def test_log_max_densities_empty_rows(vasp_processor: VaspProcessing, caplog):

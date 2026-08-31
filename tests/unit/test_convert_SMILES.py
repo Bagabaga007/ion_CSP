@@ -92,7 +92,7 @@ CCO,abc,REF001"""
     csv_path.write_text(csv_data, encoding="utf-8")
 
     with pytest.raises(
-        Exception, match=r"Column 'Charge' must be numeric. Got: object"
+        Exception, match=r"Column 'Charge' must be numeric"
     ):
         SmilesProcessing(smiles_processor.base_dir, csv_path.name)
 
@@ -927,6 +927,143 @@ def test_dpdisp_gaussian_tasks_all_jobs_succeed(
     assert "jobs failed in folder" not in caplog.text
     mock_run.assert_called_once()
 
+
+
+# ==================== 测试数据库复用（_build_database_index / reuse_from_database）====
+
+def _make_database(root: Path, group: str, refcode: str, smiles: str, charge: int,
+                   with_products: bool = True, id_col: str = "Refcode"):
+    """在 root 下构造一个最小中央离子库：CSV + 3_For_CSP_module 产物"""
+    csv_dir = root / "1_CSV_Database"
+    prod_dir = root / "3_For_CSP_module" / group
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    prod_dir.mkdir(parents=True, exist_ok=True)
+    csv = csv_dir / f"{group}.csv"
+    csv.write_text(f"SMILES,{id_col},Charge\n{smiles},{refcode},{charge}\n", encoding="utf-8")
+    if with_products:
+        (prod_dir / f"{refcode}.gjf").write_text("opt gjf", encoding="utf-8")
+        (prod_dir / f"{refcode}.json").write_text("{}", encoding="utf-8")
+    return root
+
+
+def test_canonical_smiles_valid_and_invalid(smiles_processor: SmilesProcessing):
+    """规范化：合法 SMILES 的不同等价写法归一，非法返回 None"""
+    a = smiles_processor._canonical_smiles("[O-]C=O")
+    b = smiles_processor._canonical_smiles("C(=O)[O-]")  # 等价的另一种写法
+    assert a is not None and a == b
+    assert smiles_processor._canonical_smiles("not_a_smiles") is None
+
+
+def test_build_database_index_bad_csv_and_missing_columns(
+    smiles_processor: SmilesProcessing, tmp_path: Path
+):
+    """索引健壮性：坏CSV、缺SMILES/Charge列、缺标识列、非法SMILES 均安全跳过"""
+    db = tmp_path / "DB"
+    csv_dir = db / "1_CSV_Database"
+    (db / "3_For_CSP_module").mkdir(parents=True)
+    csv_dir.mkdir(parents=True)
+    # 1) 缺 SMILES/Charge 列
+    (csv_dir / "charge_5.csv").write_text("Foo,Bar\n1,2\n", encoding="utf-8")
+    # 2) 有 SMILES/Charge 但无 Refcode/Number 标识列
+    (csv_dir / "charge_7.csv").write_text("SMILES,Charge\nCCO,7\n", encoding="utf-8")
+    # 3) 合法列但 SMILES 非法（canon None → 跳过）
+    (csv_dir / "charge_2.csv").write_text(
+        "SMILES,Refcode,Charge\nnot_smiles,Z,2\n", encoding="utf-8"
+    )
+    index = smiles_processor._build_database_index(db)
+    assert index == {}
+
+
+def test_build_database_index_unreadable_csv(
+    smiles_processor: SmilesProcessing, tmp_path: Path, caplog
+):
+    """CSV 读取抛异常时记录 warning 并跳过该文件"""
+    db = tmp_path / "DB"
+    csv_dir = db / "1_CSV_Database"
+    (db / "3_For_CSP_module").mkdir(parents=True)
+    csv_dir.mkdir(parents=True)
+    (csv_dir / "charge_9.csv").write_text("SMILES,Refcode,Charge\nCCO,X,9\n", encoding="utf-8")
+    with patch("pandas.read_csv", side_effect=ValueError("boom")):
+        index = smiles_processor._build_database_index(db)
+    assert index == {}
+    assert "cannot read" in caplog.text
+
+
+def test_build_database_index_success(smiles_processor: SmilesProcessing, tmp_path: Path):
+    """正常构建索引：产物齐全的离子被纳入，键为(canonical_smiles, charge)"""
+    db = _make_database(tmp_path / "DB", "charge_-1", "REF004", "[O-]C=O", -1)
+    index = smiles_processor._build_database_index(db)
+    canon = smiles_processor._canonical_smiles("[O-]C=O")
+    assert (canon, -1) in index
+    gjf, jsn = index[(canon, -1)]
+    assert gjf.name == "REF004.gjf" and jsn.name == "REF004.json"
+
+
+def test_build_database_index_no_csv_dir(smiles_processor: SmilesProcessing, tmp_path: Path):
+    """数据库无 CSV 目录：返回空索引并记录"""
+    index = smiles_processor._build_database_index(tmp_path / "missing_db")
+    assert index == {}
+
+
+def test_build_database_index_missing_products(
+    smiles_processor: SmilesProcessing, tmp_path: Path
+):
+    """产物缺失(仅CSV无gjf/json)：不纳入索引"""
+    db = _make_database(tmp_path / "DB", "charge_-1", "REF004", "[O-]C=O", -1,
+                        with_products=False)
+    index = smiles_processor._build_database_index(db)
+    assert index == {}
+
+
+def test_build_database_index_number_id_column(
+    smiles_processor: SmilesProcessing, tmp_path: Path
+):
+    """标识列为 Number 时也能定位产物"""
+    db = _make_database(tmp_path / "DB", "charge_3", "137", "[NH3+]C", 3, id_col="Number")
+    index = smiles_processor._build_database_index(db)
+    canon = smiles_processor._canonical_smiles("[NH3+]C")
+    assert (canon, 3) in index
+
+
+def test_reuse_from_database_empty_dir(smiles_processor: SmilesProcessing):
+    """database_dir 为空：直接返回，不做任何事(向后兼容)"""
+    reused, need = smiles_processor.reuse_from_database("")
+    assert reused == [] and need == []
+
+
+def test_reuse_from_database_hit_and_miss(
+    smiles_processor: SmilesProcessing, tmp_path: Path
+):
+    """命中(SMILES+电荷符)复制gjf+json；未命中记入 need_calc"""
+    # fixture 的 df 含 [O-]C=O(charge -1, REF004)。库里放它 → 应命中
+    db = _make_database(tmp_path / "DB", "charge_-1", "DBREF", "[O-]C=O", -1)
+    reused, need = smiles_processor.reuse_from_database(str(db))
+    assert "REF004" in reused
+    # 复用文件已落到 converted_dir/charge_-1
+    dst = smiles_processor.converted_dir / "charge_-1"
+    assert (dst / "REF004.gjf").exists() and (dst / "REF004.json").exists()
+    # 其它离子未命中
+    assert "REF001" in need
+
+
+def test_reuse_from_database_charge_mismatch(
+    smiles_processor: SmilesProcessing, tmp_path: Path
+):
+    """SMILES 相同但电荷不符：不复用"""
+    # 库里把 [O-]C=O 标为 charge -2（与 df 里的 -1 不符）
+    db = _make_database(tmp_path / "DB", "charge_-2", "DBREF", "[O-]C=O", -2)
+    reused, need = smiles_processor.reuse_from_database(str(db))
+    assert "REF004" not in reused
+    assert "REF004" in need
+
+
+def test_reuse_from_database_empty_index(
+    smiles_processor: SmilesProcessing, tmp_path: Path
+):
+    """DB 存在但无可用条目：返回空，不复制"""
+    (tmp_path / "DB" / "1_CSV_Database").mkdir(parents=True)
+    reused, need = smiles_processor.reuse_from_database(str(tmp_path / "DB"))
+    assert reused == [] and need == []
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--cov=ion_CSP.convert_SMILES"])

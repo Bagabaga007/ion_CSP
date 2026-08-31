@@ -1,10 +1,10 @@
-# 基于分子/离子构型的晶体结构设计软件 V2.3
+# 基于分子/离子构型的晶体结构设计软件 V2.3.4
 
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](https://github.com/Bagabaga007/ion_CSP)
+[![Version](https://img.shields.io/badge/version-2.3.4-blue.svg)](https://github.com/Bagabaga007/ion_CSP)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-420%20passed-brightgreen.svg)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-99.39%25-brightgreen.svg)](htmlcov/)
+
+> 测试徽章和下方统计是 V2.3.0 的历史基线；V2.3.4 的修复和验证记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 项目概述
 
@@ -32,11 +32,11 @@
 - 基于Python 3.11+的面向对象架构
 - 集成psutil进程管理
 - 结构化日志记录系统
-- **工业级测试覆盖**（420个测试，99.39%覆盖率）
+- **测试分层基线**（V2.3.0：420个测试，99.39%覆盖率；当前状态见 CHANGELOG）
 
 ## 📊 质量保证
 
-### 测试统计
+### 测试统计（V2.3.0 历史基线）
 
 | 测试层级 | 测试数量 | 覆盖率 | 状态 |
 | ------- | -------- | ----- | ---- |
@@ -62,19 +62,23 @@
 | 组件        | 最低版本 |
 |-------------|----------|
 | Python      | 3.11     |
-| psutil      | 5.9      |
+| psutil      | 7.0.0    |
 | Docker      | 20.10    |
 | ase         | 3.23.0   |
 | deepmd-kit  | 3.0.1    |
 | torch       | 2.5.0    |
 | dpdispatcher| 0.6.7    |
 | numpy       | 1.26.4   |
+| pandas      | 2.2.3    |
 | paramiko    | 3.5.1    |
+| PyYAML      | 6.0.2    |
 | pyxtal      | 1.0.4    |
-| phonopy     | 2.28.0   |
+| phonopy     | 2.34.1   |
 | rdkit       | 2024.03.3|
 | pytest      | 8.3.4    |
 | pytest-cov  | 6.2.1    |
+
+> Python 依赖不包含 Gaussian、Multiwfn 或 VASP。完整 EE/CSP 工作流还要求这些程序在本机或相应计算节点上可用。
 
 ### 安装步骤
 
@@ -167,12 +171,30 @@ pytest tests/system/      # 系统测试
 
 ## 📚 文档
 
-- [测试报告](docs/TEST_REPORT.md) - 完整的测试实施报告
+- [完整使用指南](docs/usage.md) - 与 V2.3.4 源码一致的 EE/CSP 配置和运行说明
+- [Docker 指南](DOCKER.md) - CPU/GPU 容器构建与外部程序限制
+- [EE 自动离子库链接](AUTO_LINKING_GUIDE.md) - 中央预优化离子库复用说明
+- [DPA4 后端](DPA4_BACKEND.md) / [MatterSim 后端](MATTERSIM_BACKEND.md) - 通用元素 MLP 配置
+- [测试报告](docs/TEST_REPORT.md) - V2.3.0 历史测试快照
 - [测试说明](tests/README.md) - 测试分层和运行指南
 - [CSP使用示例](docs/example_usage_CSP.py) - CSP模块使用示例
 - [EE使用示例](docs/example_usage_EE.py) - EE模块使用示例
 
 ## 🔄 版本历史
+
+### V2.3.4 (2026-08-31)
+
+- 统一当前文档与源码实际使用方式：YAML 配置、固定 config.yaml、正确入口和输出目录。
+- 修正命令行/Python API 示例、Docker 外部程序说明和 machine/resources 配置说明。
+- 修复字符串 target_dir 的相对路径解析，并补充回归测试。
+- 将 pandas、PyYAML、psutil 等源码直接使用的依赖加入项目和 Conda 配置。
+- 在隔离的 PyXtal/Phonopy 环境与 Multiwfn 替身下验证完整测试：497 passed。
+
+### V2.3.3 (2026-07-07)
+
+- 增加对 `Shell + SSHContext` 直接在远程主机运行重计算任务的警告
+- 改进任务终止、日志和断点续跑稳定性
+- 将包内版本更新为 2.3.3
 
 ### V2.3.0 (2026-03-05)
 
@@ -268,11 +290,11 @@ This software enables efficient crystal structure design from molecular/ion conf
 - Object-oriented architecture with Python 3.11+
 - Integrated process management via psutil
 - Structured logging system
-- **Industrial-grade test coverage** (420 tests, 99.39% coverage)
+- **Test baseline** (V2.3.0: 420 tests, 99.39% coverage; see CHANGELOG for current status)
 
 ## Quality Assurance
 
-### Test Statistics
+### Test Statistics (V2.3.0 historical baseline)
 
 | Test Level | Count | Coverage | Status |
 | ---------- | ----- | -------- | ------ |
@@ -298,16 +320,18 @@ See [docs/TEST_REPORT.md](docs/TEST_REPORT.md) for detailed test report.
 | Component   | Min Version |
 |-------------|-------------|
 | Python      | 3.11        |
-| psutil      | 5.9         |
+| psutil      | 7.0.0       |
 | Docker      | 20.10       |
 | ase         | 3.23.0      |
 | deepmd-kit  | 3.0.1       |
 | torch       | 2.5.0       |
 | dpdispatcher| 0.6.7       |
 | numpy       | 1.26.4      |
+| pandas      | 2.2.3       |
 | paramiko    | 3.5.1       |
+| PyYAML      | 6.0.2       |
 | pyxtal      | 1.0.4       |
-| phonopy     | 2.28.0      |
+| phonopy     | 2.34.1      |
 | rdkit       | 2024.03.3   |
 | pytest      | 8.3.4       |
 | pytest-cov  | 6.2.1       |
@@ -375,7 +399,10 @@ pytest tests/system/      # System tests
 
 ## Documentation
 
-- [Test Report](docs/TEST_REPORT.md) - Complete test implementation report
+- [Complete Usage Guide](docs/usage.md) - EE/CSP configuration and execution matching V2.3.4
+- [Docker Guide](DOCKER.md) - CPU/GPU containers and external-program requirements
+- [DPA4 Backend](DPA4_BACKEND.md) / [MatterSim Backend](MATTERSIM_BACKEND.md) - universal-element MLP configuration
+- [Test Report](docs/TEST_REPORT.md) - V2.3.0 historical test snapshot
 - [Test Guide](tests/README.md) - Test layering and execution guide
 - [CSP Examples](docs/example_usage_CSP.py) - CSP module usage examples
 - [EE Examples](docs/example_usage_EE.py) - EE module usage examples
