@@ -36,12 +36,9 @@ invalid_smiles,0,REF005,5"""
     with patch("importlib.resources.files") as mock_files:
         mock_files.return_value = param_dir
 
-        # 5. 模拟日志重定向
-        with patch("ion_CSP.convert_SMILES.redirect_dpdisp_logging"):
-
-            # 6. 创建实例 —— 它会自动创建 converted_dir 和 gaussian_optimized_dir
-            sp = SmilesProcessing(base_dir, "test.csv")
-            yield sp
+        # 5. 创建实例 —— 它会自动创建 converted_dir 和 gaussian_optimized_dir
+        sp = SmilesProcessing(base_dir, "test.csv")
+        yield sp
 
 
 # ==================== 测试初始化 ====================
@@ -52,6 +49,7 @@ def test_initialization_success(smiles_processor: SmilesProcessing):
     assert len(sp.df) == 5
     assert list(sp.df["Refcode"]) == ["REF001", "REF002", "REF003", "REF004", "REF005"]
     assert len(sp.grouped) == 3  # 三个电荷组: -1, 0, 1
+    assert not (sp.base_dir / "dpdispatcher.log").exists()
 
 
 def test_initialization_sort_by_number_when_refcode_missing(
@@ -144,6 +142,44 @@ def test_convert_SMILES_charge_mismatch(smiles_processor: SmilesProcessing, capl
     assert "REF001: charge wrong! calculated 0 and given 1" in caplog.text
     # 不应写入被错误分组的结构文件
     assert not (dir_path / "REF001.gjf").exists()
+
+
+def test_convert_SMILES_adds_smiles_bond_constraints(
+    smiles_processor: SmilesProcessing,
+):
+    result_flag, _ = smiles_processor._convert_SMILES(
+        dir_path=smiles_processor.converted_dir / "charge_0",
+        smiles="CCO",
+        basename="CONSTRAINTS",
+        charge=0,
+    )
+
+    assert result_flag is True
+    content = (
+        smiles_processor.converted_dir / "charge_0" / "CONSTRAINTS.gjf"
+    ).read_text(encoding="utf-8")
+    assert "opt=(MaxCycles=100,ModRedundant)" in content
+    assert "B 1 2 F" in content
+    assert content.count("\nB ") == 8
+
+
+def test_convert_SMILES_can_disable_smiles_bond_constraints(
+    smiles_processor: SmilesProcessing,
+):
+    result_flag, _ = smiles_processor._convert_SMILES(
+        dir_path=smiles_processor.converted_dir / "charge_0",
+        smiles="CCO",
+        basename="NO_CONSTRAINTS",
+        charge=0,
+        preserve_topology=False,
+    )
+
+    assert result_flag is True
+    content = (
+        smiles_processor.converted_dir / "charge_0" / "NO_CONSTRAINTS.gjf"
+    ).read_text(encoding="utf-8")
+    assert "ModRedundant" not in content
+    assert "\nB " not in content
 
 
 def test_convert_SMILES_multiplicity_radical(smiles_processor: SmilesProcessing):

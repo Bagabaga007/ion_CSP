@@ -1,7 +1,6 @@
 import pytest
-import logging
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
+import os
+from unittest.mock import patch, MagicMock
 from ion_CSP.run.main_EE import (
     main,
     setup_ion_links,
@@ -170,6 +169,80 @@ def test_setup_ion_links_replaces_broken_symlink(tmp_path):
     assert target_file.resolve() == source_file.resolve()
 
 
+def test_setup_ion_links_uses_relative_symlinks(tmp_path):
+    database_dir = tmp_path / "database"
+    source = database_dir / "3_For_CSP_module/charge_-1/ion.gjf"
+    source.parent.mkdir(parents=True)
+    source.write_text("ion", encoding="utf-8")
+    work = tmp_path / "work"
+    config = {
+        "convert_SMILES": {"database_dir": str(database_dir)},
+        "empirical_estimate": {"folders": ["charge_-1"]},
+    }
+
+    stats = setup_ion_links(work, config)
+
+    target = work / "charge_-1/ion.gjf"
+    assert target.is_symlink()
+    assert not os.path.isabs(os.readlink(target))
+    assert target.resolve() == source.resolve()
+    assert stats["linked"] == 1
+
+
+def test_setup_ion_links_migrates_identical_database_copies(tmp_path):
+    database_dir = tmp_path / "database"
+    source = database_dir / "3_For_CSP_module/charge_1/ion.gjf"
+    source.parent.mkdir(parents=True)
+    source.write_text("same", encoding="utf-8")
+    work = tmp_path / "work"
+    target = work / "charge_1/ion.gjf"
+    target.parent.mkdir(parents=True)
+    target.write_text("same", encoding="utf-8")
+    config = {
+        "convert_SMILES": {
+            "database_dir": str(database_dir),
+            "migrate_database_copies": True,
+        },
+        "empirical_estimate": {"folders": ["charge_1"]},
+    }
+
+    stats = setup_ion_links(work, config)
+
+    assert target.is_symlink()
+    assert target.resolve() == source.resolve()
+    assert stats["migrated_copies"] == 1
+
+
+def test_setup_ion_links_removes_database_links_from_project_charge(tmp_path):
+    database_dir = tmp_path / "Database_Ions"
+    source = database_dir / "3_For_CSP_module/charge_1/database.gjf"
+    source.parent.mkdir(parents=True)
+    source.write_text("database", encoding="utf-8")
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "ions.csv").write_text(
+        """Refcode,SMILES,Charge
+N8+,N,1
+""", encoding="utf-8"
+    )
+    target = work / "charge_1/database.gjf"
+    target.parent.mkdir()
+    target.symlink_to(source)
+    config = {
+        "convert_SMILES": {
+            "csv_file": "ions.csv",
+            "database_dir": str(database_dir),
+        },
+        "empirical_estimate": {"folders": ["charge_1"]},
+    }
+
+    stats = setup_ion_links(work, config)
+
+    assert not target.exists()
+    assert not target.is_symlink()
+    assert stats["removed_project_links"] == 1
+
+
 @patch("ion_CSP.run.main_EE.StatusLogger")
 @patch("ion_CSP.run.main_EE.convertion_task")
 @patch("ion_CSP.run.main_EE.combination_task")
@@ -221,7 +294,9 @@ def test_convertion_task_without_screen(mock_smiles, mock_work_dir, mock_config)
 
     # 验证 SmilesProcessing 被正确初始化
     mock_smiles.assert_called_once_with(
-        work_dir=mock_work_dir, csv_file=mock_config["convert_SMILES"]["csv_file"]
+        work_dir=mock_work_dir,
+        csv_file=mock_config["convert_SMILES"]["csv_file"],
+        preserve_topology=True,
     )
 
     # 验证 charge_group 被调用
@@ -422,7 +497,6 @@ def test_main_entry_point(mock_main, mock_merge, mock_get_config):
     mock_merge.return_value = {"merged": "config"}
 
     # 导入并执行 __main__ 块
-    import ion_CSP.run.main_EE as main_ee_module
 
     # 模拟 __main__ 执行
     work_dir, config = mock_get_config()
@@ -446,6 +520,7 @@ def test_default_config_structure():
 
     # 验证 convert_SMILES 配置
     assert "csv_file" in DEFAULT_CONFIG["convert_SMILES"]
+    assert "preserve_smiles_topology" in DEFAULT_CONFIG["convert_SMILES"]
     assert "screen" in DEFAULT_CONFIG["convert_SMILES"]
     assert DEFAULT_CONFIG["convert_SMILES"]["screen"] is False
 

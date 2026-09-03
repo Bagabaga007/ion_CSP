@@ -1,10 +1,13 @@
 import logging
 import csv
+import filecmp
+import os
 from pathlib import Path
 from ion_CSP.convert_SMILES import SmilesProcessing
 from ion_CSP.empirical_estimate import EmpiricalEstimation
 from ion_CSP.log_and_time import StatusLogger
 from ion_CSP.log_and_time import log_and_time, merge_config, get_work_dir_and_config
+from ion_CSP.topology_validation import validate_project_ion_topologies
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -18,6 +21,9 @@ DEFAULT_CONFIG = {
         # 中央离子库路径：命中的离子(规范化SMILES+电荷)直接复用其优化产物，跳过Gaussian。
         # 设为空字符串则禁用去重(向后兼容)。
         "database_dir": "",
+        "migrate_database_copies": True,
+        "preserve_smiles_topology": True,
+        "validate_topology": True,
     },
     "empirical_estimate": {
         "folders": [],  # 默认文件夹列表
@@ -32,29 +38,59 @@ DEFAULT_CONFIG = {
 }
 
 
-def setup_ion_links(work_dir: str, config: dict):
-    """
-    自动创建到 Database_Ions 的软链接，避免复制离子文件。
-    只链接 config["empirical_estimate"]["folders"] 中指定的 charge 文件夹。
+def _is_database_symlink(path: Path, database_path: Path) -> bool:
+    """Return whether a symlink represents a Database_Ions entry."""
+    if not path.is_symlink():
+        return False
+    try:
+        raw_target = os.readlink(path)
+    except OSError:
+        return False
+    if "Database_Ions/3_For_CSP_module/" in raw_target.replace("\\", "/"):
+        return True
+    try:
+        resolved = (path.parent / raw_target).resolve(strict=False)
+        return resolved.is_relative_to(database_path.resolve())
+    except (OSError, ValueError):
+        return False
 
-    智能判断逻辑：
-    - 如果目标文件夹已有非软链接文件（项目自己的离子），跳过链接
-    - 如果目标文件夹不存在或为空，创建软链接到 Database_Ions
+
+def _create_relative_symlink(source: Path, target: Path):
+    """Create a relocatable relative symlink."""
+    relative_target = os.path.relpath(source.resolve(), start=target.parent.resolve())
+    target.symlink_to(relative_target)
+
+
+def setup_ion_links(work_dir: str, config: dict):
+    """Create and repair relocatable Database_Ions views.
+
+    Project-input charge folders retain local files and have stale database links
+    removed. Pairing charge folders are synchronized with relative symlinks.
+    Byte-identical legacy copies are migrated when migrate_database_copies is true.
     """
-    database_dir = config.get("convert_SMILES", {}).get("database_dir", "")
+    convert_config = config.get("convert_SMILES", {})
+    database_dir = convert_config.get("database_dir", "")
+    stats = {
+        "linked": 0,
+        "repaired": 0,
+        "migrated_copies": 0,
+        "removed_project_links": 0,
+        "removed_stale_links": 0,
+        "conflicts": 0,
+    }
     if not database_dir:
         logging.info("database_dir not configured, skipping automatic ion linking")
-        return
+        return stats
 
-    database_path = Path(database_dir) / "3_For_CSP_module"
+    database_path = Path(database_dir).resolve() / "3_For_CSP_module"
     if not database_path.exists():
         logging.warning(f"Database path not found: {database_path}, skipping ion linking")
-        return
+        return stats
 
     folders = config.get("empirical_estimate", {}).get("folders", [])
-    work_path = Path(work_dir)
+    work_path = Path(work_dir).resolve()
     project_charge_folders = set()
-    csv_name = config.get("convert_SMILES", {}).get("csv_file", "")
+    csv_name = convert_config.get("csv_file", "")
     csv_path = work_path / csv_name
     if csv_name and csv_path.is_file():
         try:
@@ -66,43 +102,116 @@ def setup_ion_links(work_dir: str, config: dict):
                 f"Unable to determine project charge folders from {csv_path}: {error}"
             )
 
+    migrate_copies = bool(convert_config.get("migrate_database_copies", True))
     for folder in folders:
         target_folder = work_path / folder
         source_folder = database_path / folder
 
         if folder in project_charge_folders:
+            if target_folder.exists():
+                for target_file in list(target_folder.iterdir()):
+                    if _is_database_symlink(target_file, database_path):
+                        target_file.unlink()
+                        stats["removed_project_links"] += 1
+                if not any(target_folder.iterdir()):
+                    target_folder.rmdir()
             logging.info(
-                f"{folder} contains project input ions, skipping database linking"
+                "%s is a project-input charge folder; removed %d stale database "
+                "link(s) and preserved local files",
+                folder,
+                stats["removed_project_links"],
             )
             continue
 
-        if not source_folder.exists():
+        if not source_folder.is_dir():
             logging.warning(f"Database folder not found: {source_folder}, skipping")
             continue
 
-        # 智能判断：如果目标文件夹已存在且有非软链接的 gjf 文件，说明是项目自己的离子
-        if target_folder.exists():
-            gjf_files = list(target_folder.glob("*.gjf"))
-            if gjf_files and any(not f.is_symlink() for f in gjf_files):
-                logging.info(f"{folder} already has local ions ({len(gjf_files)} files), skipping linking")
-                continue
-
-        # 创建软链接
         target_folder.mkdir(parents=True, exist_ok=True)
-        linked_count = 0
-        for source_file in source_folder.glob("*"):
-            if not source_file.is_file():
-                continue
-            target_file = target_folder / source_file.name
-            if target_file.is_symlink() and not target_file.exists():
-                target_file.unlink()
-            if target_file.exists() or target_file.is_symlink():
-                continue
-            target_file.symlink_to(source_file.resolve())
-            linked_count += 1
+        source_files = {
+            source_file.name: source_file
+            for source_file in source_folder.iterdir()
+            if source_file.is_file()
+        }
 
-        if linked_count > 0:
-            logging.info(f"✓ Linked {folder} from Database_Ions: {linked_count} files (symlink)")
+        # A pairing folder containing any genuinely local GJF is a local dataset,
+        # not a database view. Preserve it as a unit and do not mix sources.
+        local_gjfs = [
+            path for path in target_folder.glob("*.gjf") if not path.is_symlink()
+        ]
+        has_genuine_local_ions = any(
+            path.name not in source_files
+            or not filecmp.cmp(path, source_files[path.name], shallow=False)
+            for path in local_gjfs
+        )
+        if has_genuine_local_ions:
+            logging.info(
+                "%s contains genuine local ions; preserving the folder without "
+                "adding database links",
+                folder,
+            )
+            continue
+
+        for target_file in list(target_folder.iterdir()):
+            if (
+                target_file.name not in source_files
+                and _is_database_symlink(target_file, database_path)
+            ):
+                target_file.unlink()
+                stats["removed_stale_links"] += 1
+
+        for name, source_file in source_files.items():
+            target_file = target_folder / name
+            if target_file.is_symlink():
+                if not target_file.exists():
+                    target_file.unlink()
+                    stats["repaired"] += 1
+                try:
+                    already_correct = (
+                        target_file.exists()
+                        and target_file.resolve() == source_file.resolve()
+                        and not os.path.isabs(os.readlink(target_file))
+                    )
+                except OSError:
+                    already_correct = False
+                if already_correct:
+                    continue
+                if not target_file.is_symlink():
+                    pass
+                elif _is_database_symlink(target_file, database_path):
+                    target_file.unlink()
+                    stats["repaired"] += 1
+                elif target_file.is_symlink():
+                    stats["conflicts"] += 1
+                    logging.warning("Preserving non-database symlink conflict: %s", target_file)
+                    continue
+            elif target_file.exists():
+                if (
+                    migrate_copies
+                    and target_file.is_file()
+                    and filecmp.cmp(target_file, source_file, shallow=False)
+                ):
+                    target_file.unlink()
+                    stats["migrated_copies"] += 1
+                else:
+                    stats["conflicts"] += 1
+                    logging.warning("Preserving local file conflict: %s", target_file)
+                    continue
+
+            _create_relative_symlink(source_file, target_file)
+            stats["linked"] += 1
+
+        logging.info(
+            "Synchronized %s from Database_Ions: linked=%d repaired=%d "
+            "migrated=%d stale_removed=%d conflicts=%d",
+            folder,
+            stats["linked"],
+            stats["repaired"],
+            stats["migrated_copies"],
+            stats["removed_stale_links"],
+            stats["conflicts"],
+        )
+    return stats
 
 
 @log_and_time
@@ -142,7 +251,11 @@ def main(work_dir, config):
 def convertion_task(work_dir, config):
     # 给定与脚本同目录的csv文件名
     convertion = SmilesProcessing(
-        work_dir=work_dir, csv_file=config["convert_SMILES"]["csv_file"]
+        work_dir=work_dir,
+        csv_file=config["convert_SMILES"]["csv_file"],
+        preserve_topology=config["convert_SMILES"].get(
+            "preserve_smiles_topology", True
+        ),
     )
     # 根据电荷进行分组创建文件夹并将SMILES码转换为对应的结构文件
     convertion.charge_group()
@@ -183,6 +296,13 @@ def estimation_task(work_dir, config):
 
 
 def combination_task(work_dir, config):
+    if config.get("convert_SMILES", {}).get("validate_topology", False):
+        validate_project_ion_topologies(
+            work_dir=work_dir,
+            config=config,
+            quarantine=True,
+            raise_on_no_valid=True,
+        )
     # 在工作目录下准备 Gaussian 优化处理后具有 .gjf、.fchk 和 .log 文件的文件夹, 并提供对应的离子配比
     combination = EmpiricalEstimation(
         work_dir=work_dir,

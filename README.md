@@ -188,7 +188,7 @@ pytest tests/system/      # 系统测试
 - 修正命令行/Python API 示例、Docker 外部程序说明和 machine/resources 配置说明。
 - 修复字符串 target_dir 的相对路径解析，并补充回归测试。
 - 将 pandas、PyYAML、psutil 等源码直接使用的依赖加入项目和 Conda 配置。
-- 在隔离的 PyXtal/Phonopy 环境与 Multiwfn 替身下验证完整测试：497 passed。
+- 在隔离的 PyXtal/Phonopy 环境与 Multiwfn 替身下验证完整测试：521 passed。
 
 ### V2.3.3 (2026-07-07)
 

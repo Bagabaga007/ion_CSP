@@ -1,6 +1,9 @@
 convert_SMILES:
   csv_file: 'ions.csv'         # 离子数据集csv文件名
   database_dir: ''             # 中央预优化离子库路径；留空表示禁用复用/自动链接
+  migrate_database_copies: True  # 将与中央库完全相同的旧副本迁移为相对软链接
+  validate_topology: True         # 组合前验证 Gaussian 优化后邻接图与原始 SMILES 一致
+  preserve_smiles_topology: True  # Gaussian 输入中冻结原始 SMILES 的每条键长
   machine: '/your/cpu/machine/config/path'       # 进行Gaussian优化计算的机器参数
   resources: '/your/cpu/resources/config/path'   # 进行Gaussian优化计算的资源参数
   nodes: 2                                       # 占用CPU节点数

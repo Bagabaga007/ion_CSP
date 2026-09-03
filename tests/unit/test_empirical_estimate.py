@@ -12,12 +12,14 @@ from ion_CSP.empirical_estimate import EmpiricalEstimation
 @pytest.fixture
 def estimator(tmp_path: Path):
     """每个测试都获得一个全新的、干净的 estimator 实例"""
-    return EmpiricalEstimation(
+    instance = EmpiricalEstimation(
         work_dir=tmp_path / "test_work_dir",
         folders=["cation_1", "anion_1"],
         ratios=[1, 1],
         sort_by="density",
     )
+    instance.multiwfn_path = "/usr/local/bin/Multiwfn"
+    return instance
 
 
 # ==================== 测试初始化参数校验 ====================
@@ -45,15 +47,17 @@ def test_check_multiwfn_executable_found():
         est = EmpiricalEstimation(
             work_dir=Path("/tmp"), folders=["a"], ratios=[1], sort_by="density"
         )
-        assert est.multiwfn_path == "/usr/local/bin/Multiwfn"
+        assert est.multiwfn_path is None
+        assert est._check_multiwfn_executable() == "/usr/local/bin/Multiwfn"
 
 
 def test_check_multiwfn_executable_not_found():
     with patch("shutil.which", return_value=None):
+        estimator = EmpiricalEstimation(
+            work_dir=Path("/tmp"), folders=["a"], ratios=[1], sort_by="density"
+        )
         with pytest.raises(FileNotFoundError, match="No detected Multiwfn executable"):
-            EmpiricalEstimation(
-                work_dir=Path("/tmp"), folders=["a"], ratios=[1], sort_by="density"
-            )
+            estimator._check_multiwfn_executable()
 
 
 # ==================== 测试 _multiwfn_cmd_build 私有函数 ====================
@@ -738,6 +742,33 @@ def test_generate_combinations_gjf(estimator: EmpiricalEstimation):
         assert all(f.suffix == ".gjf" for f in combo)
 
 
+def test_generate_combinations_excludes_mixed_and_wrong_ion_types(
+    estimator: EmpiricalEstimation, caplog
+):
+    cation_dir = estimator.gaussian_result_dir / "cation_1"
+    anion_dir = estimator.gaussian_result_dir / "anion_1"
+    cation_dir.mkdir(parents=True)
+    anion_dir.mkdir()
+    for folder, stem, ion_type in (
+        (cation_dir, "cation", "cation"),
+        (cation_dir, "wrong_anion", "anion"),
+        (anion_dir, "anion", "anion"),
+        (anion_dir, "mixed", "mixed_ion"),
+    ):
+        (folder / f"{stem}.gjf").write_text("# test", encoding="utf-8")
+        (folder / f"{stem}.json").write_text(
+            json.dumps({"ion_type": ion_type}), encoding="utf-8"
+        )
+
+    with caplog.at_level("WARNING"):
+        combinations = estimator._generate_combinations(".gjf")
+
+    assert len(combinations) == 1
+    names = {path.name for path in combinations[0]}
+    assert names == {"cation.gjf", "anion.gjf"}
+    assert "Excluded 1 mixed-ion or ion-type-mismatched" in caplog.text
+
+
 def test_generate_combinations_missing_suffix_files(estimator: EmpiricalEstimation):
     """测试当某个文件夹中无指定后缀文件时，抛出 FileNotFoundError"""
     # 创建目录结构
@@ -1372,7 +1403,7 @@ def test_copy_pre_optimized_ions(estimator: EmpiricalEstimation, caplog):
     for base in (estimator.gaussian_dir / folder, estimator.gaussian_result_dir / folder):
         assert (base / "A.gjf").exists()
         assert (base / "A.json").exists()
-    assert "pre-optimized ion(s) copied directly" in caplog.text
+    assert "pre-optimized ion(s) copied or linked" in caplog.text
 
 
 def test_copy_pre_optimized_ions_missing_src_and_existing_dst(

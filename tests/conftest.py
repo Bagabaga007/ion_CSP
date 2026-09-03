@@ -40,3 +40,22 @@ def cleanup_logs_folder():
     tests_logs_dir = tests_dir / "logs"
     if tests_logs_dir.exists() and tests_logs_dir.is_dir():
         shutil.rmtree(tests_logs_dir, ignore_errors=True)
+
+    # dpdispatcher creates cwd/dpdispatcher.log at import time. Remove only the
+    # test-only default file; logs containing remote paths or job IDs are real
+    # execution evidence and must be preserved.
+    dpdispatcher_log = project_root / "dpdispatcher.log"
+    if dpdispatcher_log.is_file():
+        expected_line = (
+            "LOG INIT:dpdispatcher log direct to "
+            f"{dpdispatcher_log.resolve()}"
+        )
+        lines = [
+            line.strip()
+            for line in dpdispatcher_log.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+            if line.strip()
+        ]
+        if not lines or all(line == expected_line for line in lines):
+            dpdispatcher_log.unlink()

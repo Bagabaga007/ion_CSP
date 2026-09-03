@@ -157,8 +157,15 @@ class ReadMlpDensity:
                 logging.warning(
                     f"Only {len(valid_sorted_list)} ionic crystals with original ions found, which is less than the requested {n_screen} structures to save."
                 )
-                raise ValueError(
-                    f"Only {len(valid_sorted_list)} ionic crystals with original ions found, which is less than the requested {n_screen} structures to save."
+                if not valid_sorted_list:
+                    raise ValueError(
+                        "No ionic crystals with original ions were found after MLP "
+                        "optimization."
+                    )
+                logging.warning(
+                    "Continuing with all %d valid structures instead of failing the "
+                    "workflow.",
+                    len(valid_sorted_list),
                 )
         # 设置排序结果保存目录
         if sort_by == "density":

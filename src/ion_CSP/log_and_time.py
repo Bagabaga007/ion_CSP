@@ -7,9 +7,39 @@ import inspect
 import logging
 import argparse
 import functools
+from contextlib import contextmanager
 from pathlib import Path
-from dpdispatcher.dlog import dlog
-from dpdispatcher import Machine, Resources
+
+_DEFAULT_DPDISPATCHER_LOG = (Path.cwd() / "dpdispatcher.log").resolve()
+_DEFAULT_DPDISPATCHER_LOG_PREEXISTED = _DEFAULT_DPDISPATCHER_LOG.exists()
+
+# These imports are intentionally delayed until after the pre-import file check.
+from dpdispatcher.dlog import dlog  # noqa: E402
+from dpdispatcher import Machine, Resources  # noqa: E402
+
+
+def _detach_default_dpdispatcher_log():
+    """Remove dpdispatcher's import-time handler for cwd/dpdispatcher.log."""
+    default_path = _DEFAULT_DPDISPATCHER_LOG
+    for handler in list(dlog.handlers):
+        if not isinstance(handler, logging.FileHandler):
+            continue
+        try:
+            handler_path = Path(handler.baseFilename).resolve()
+        except (AttributeError, OSError):
+            continue
+        if handler_path != default_path:
+            continue
+        dlog.removeHandler(handler)
+        handler.close()
+        try:
+            if not _DEFAULT_DPDISPATCHER_LOG_PREEXISTED and default_path.exists():
+                default_path.unlink()
+        except OSError:
+            pass
+
+
+_detach_default_dpdispatcher_log()
 
 
 def log_and_time(func):
@@ -285,6 +315,7 @@ def redirect_dpdisp_logging(custom_log_path):
     for handler in list(dlog.handlers):
         if isinstance(handler, logging.FileHandler):
             dlog.removeHandler(handler)
+            handler.close()
     # 创建新文件处理器并继承原始格式
     new_handler = logging.FileHandler(custom_log_path)
     # 复制原始处理器的格式
@@ -299,6 +330,19 @@ def redirect_dpdisp_logging(custom_log_path):
     # 添加新处理器
     dlog.addHandler(new_handler)
     dlog.info(f"LOG INIT:dpdispatcher log direct to {custom_log_path}")
+    return new_handler
+
+
+@contextmanager
+def dpdisp_logging(custom_log_path):
+    """Route dpdispatcher logs for one submission and close them afterward."""
+    handler = redirect_dpdisp_logging(custom_log_path)
+    try:
+        yield
+    finally:
+        if handler in dlog.handlers:
+            dlog.removeHandler(handler)
+        handler.close()
 
 
 def get_work_dir_and_config():

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,7 +11,7 @@ authors = [
 ]
 description = "Crystal Structure Design Software Based on Molecular/Ionic Configuration."
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -24,6 +24,7 @@ dependencies = [
     "torch==2.5.0",
     "dpdispatcher==0.6.7",
     "numpy==1.26.4",
+    "networkx>=3.0",
     "pandas==2.2.3",
     "paramiko==3.5.1",
     "psutil==7.0.0",
@@ -36,10 +37,16 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["ion_CSP", "ion_CSP.run"]
 package-dir = {"" = "src"}
+include-package-data = true
 
-[tool.setuptools_scm]
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ion_CSP*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+ion_CSP = ["param/*", "model/*.pt", "model/options/*"]
 
 [project.scripts]
 ion-csp = "ion_CSP.task_manager:main"

@@ -1,213 +1,107 @@
-# EE 自动软链接功能使用指南
+# EE 中央离子库相对软链接与拓扑门禁
 
-## 功能说明
+## 当前行为
 
-**已实现**：main_EE.py 现在会自动创建到 Database_Ions 的软链接，无需手动复制离子文件。
+EE 主流程在 SMILES 转换之后调用
+ion_CSP.run.main_EE.setup_ion_links。该函数为配对电荷目录建立到
+Database_Ions/3_For_CSP_module/charge_* 的相对软链接。
 
-### 智能判断逻辑
+相对链接随整个 results 目录迁移时仍然有效，不再绑定某台服务器上的
+/workplace/yz 或其他绝对根路径。
 
-1. **项目自有离子**：如果 `charge_X/` 文件夹已有非软链接的 gjf 文件，认为是项目自己的离子（如 N8、N10），**不会链接**
-2. **需要配对离子**：如果文件夹不存在或为空，自动从 Database_Ions 创建软链接
-3. **节省空间**：软链接只占几 KB，实际数据仍在 Database_Ions
+## 配置
 
-### 示例
-
-#### N10+（阳离子配阴离子）
-
-```
-N10+_1val_single_salt/
-├── charge_1/           # N10 自己（convert_SMILES 生成）→ 不链接
-│   ├── N10.gjf
-│   └── N10.json
-└── charge_-1/          # 需要阴离子配对 → 自动软链接
-    ├── 1000.gjf -> /path/to/Database_Ions/3_For_CSP_module/charge_-1/1000.gjf
-    ├── 1001.gjf -> ...
-    └── ... (581 个软链接)
-```
-
-#### N8-（阴离子配阳离子）
-
-```
-N8-_1val_single_salt/
-├── charge_-1/          # N8 自己 → 不链接
-│   ├── N8-_1.gjf
-│   └── N8-_2.gjf
-└── charge_1/           # 需要阳离子配对 → 自动软链接
-    ├── 1000.gjf -> /path/to/Database_Ions/3_For_CSP_module/charge_1/1000.gjf
-    └── ... (3080 个软链接)
-```
-
----
-
-## 使用方法
-
-### 无需任何改动！
-
-保持现有 config.yaml 格式：
-
-```yaml
 convert_SMILES:
-  csv_file: 'N10_ions.csv'
-  database_dir: '/path/to/Database_Ions'  # 必须配置
 
-empirical_estimate:
-  folders: ['charge_1', 'charge_-1']  # 会自动链接缺失的文件夹
-  ratios: [1, 1]
-  ion_numbers: [2, 2]
-  make_combo_dir: True
-  num_combos: 50
-  sort_by: 'NC_ratio'
-```
+- database_dir：中央 Database_Ions 根目录。
+- migrate_database_copies：为 true 时，把与中央库逐字节相同的旧普通副本迁移为软链接。
+- validate_topology：为 true 时，组合生成前比较原始 SMILES 与 Gaussian 优化后 GJF 的元素标记邻接图。
 
-运行 main_EE 时，会在日志中看到：
+推荐配置：
 
-```
-2026-08-13 17:00:00 - INFO - ✓ Linked charge_-1 from Database_Ions: 581 files (symlink)
-2026-08-13 17:00:00 - INFO - charge_1 already has local ions (1 files), skipping linking
-```
+    convert_SMILES:
+      csv_file: ions.csv
+      database_dir: /absolute/path/to/results/Database_Ions
+      migrate_database_copies: true
+      validate_topology: true
 
----
+## 项目输入和数据库配对目录
 
-## 测试验证
+CSV 中出现的电荷目录被视为项目输入目录。例如 N8+ CSV 只有 charge_1：
 
-### 步骤 1：清理旧的硬拷贝（可选）
+- charge_1：只允许项目自己的 N8+；历史数据库链接会被移除。
+- charge_-1：同步中央库阴离子的相对软链接。
 
-如果之前手动复制过离子文件，可以清理：
+N8- 则相反：
 
-```bash
-cd /path/to/N10+_1val_single_salt
-rm -rf charge_-1  # 删除硬拷贝
-rm -f workflow_status.yaml  # 清理状态，重新运行 EE
-```
+- charge_-1：项目输入。
+- charge_1：数据库配对阳离子。
 
-### 步骤 2：运行 main_EE
+如果配对目录含有与中央库不同的本地 GJF，整个目录会作为本地数据集保留，
+不会混入数据库链接。如果普通文件与中央库逐字节相同，则可以安全迁移为链接。
 
-```bash
-cd /path/to/N10+_1val_single_salt
-/path/to/conda/envs/ion_CSP/bin/python -m ion_CSP.run.main_EE $(pwd)
-```
+## 自愈规则
 
-### 步骤 3：验证软链接
+每次运行 setup_ion_links 时会：
 
-```bash
-# 检查 charge_-1 是否是软链接
-ls -lh charge_-1/*.gjf | head -5
+1. 修复断开的数据库链接；
+2. 把绝对数据库链接改成相对链接；
+3. 删除数据库中已不存在的旧链接；
+4. 在项目输入电荷目录中移除历史数据库链接；
+5. 保留未知本地普通文件和非数据库链接；
+6. 可选地迁移与中央库完全相同的硬拷贝。
 
-# 应该看到类似：
-# lrwxrwxrwx ... charge_-1/1000.gjf -> /path/to/Database_Ions/3_For_CSP_module/charge_-1/1000.gjf
+函数返回 linked、repaired、migrated_copies、removed_project_links、
+removed_stale_links 和 conflicts 统计。
 
-# 检查空间占用
-du -sh charge_-1
-# 软链接只占几 KB，硬拷贝会占几十 MB
-```
+## Optimized 目录
 
----
+数据库软链接进入 1_2_Gaussian_optimized 和 Optimized 时继续保持相对链接。
+项目自己的 Gaussian 产物仍是普通文件。最终 combo_n 只复制被选中的少量
+GJF/JSON，使每个 CSP 工作目录保持独立。
 
-## 优势
+## mixed-ion 过滤
 
-| 对比项 | 硬拷贝（旧方案） | 软链接（新方案） |
-|--------|-----------------|-----------------|
-| **空间占用** | ~50MB/项目 | ~5KB/项目 |
-| **同步性** | Database 更新需手动重新复制 | 自动同步 |
-| **部署速度** | 需复制，慢 | 创建链接，快 |
-| **维护成本** | 多份副本，不一致风险 | 单一数据源 |
+组合生成会读取同名 JSON 的 ion_type：
 
-### 节省空间示例
+- 正电荷目录接受 cation；
+- 负电荷目录接受 anion；
+- mixed_ion 或目录类型不匹配的条目不进入组合；
+- 缺少 ion_type 的旧数据保持兼容，但应尽快补全元数据。
 
-假设有 20 个 EE 项目，每个都需要配对 500 个离子（~50MB）：
+## Gaussian 拓扑质量门禁
 
-- **硬拷贝**：20 × 50MB = **1GB**
-- **软链接**：20 × 5KB = **~100KB**
+组合生成前，validate_project_ion_topologies 会：
 
-**节省 99.99%！**
+1. 从项目 CSV 读取 SMILES、Refcode 和 Charge；
+2. 用 RDKit 构造期望元素标记邻接图；
+3. 从优化后 GJF 几何和共价半径构造观测图；
+4. 用图同构比较，允许原子重排但不允许断键、成键或碎裂；
+5. 将不合格 GJF/JSON 移入
+   1_2_Gaussian_optimized/Bad/topology_changed/charge_*；
+6. 写入 topology_validation.json；
+7. 若没有任何项目输入离子通过，则禁止生成组合。
 
----
+该门禁比较邻接拓扑，不声称从坐标恢复严格的单双键或芳香键级。
+如需键级验证，应额外分析 Gaussian 的 Wiberg 或 Mayer bond order。
 
-## 向后兼容
+## CSP 后分子检查
 
-### 旧项目无影响
+identify_molecules 现在比较完整的元素标记分子图和离子数量，而不再只比较
+分子式集合。它可以检测：
 
-已有的硬拷贝项目**不会被改动**，智能判断会跳过：
+- 同分子式但拓扑不同；
+- 断键和新键；
+- 离子碎裂或合并；
+- 重复离子数量错误。
 
-```
-2026-08-13 17:00:00 - INFO - charge_-1 already has local ions (581 files), skipping linking
-```
+## 迁移建议
 
-### 新项目自动享受
+对旧项目执行迁移前应整体归档 charge_*、Optimized 数据库视图和组合目录。
+不要用 rm -rf 直接清理。迁移后验证：
 
-新创建的项目自动使用软链接，无需任何配置改动。
+    find PROJECT/charge_-1 -type l ! -exec test -e {} \; -print
 
----
+正常情况下不应输出断链。也可检查链接目标不是绝对路径：
 
-## 故障排查
-
-### Q1: 软链接失效（文件找不到）
-
-**原因**：Database_Ions 被移动或删除
-
-**解决**：
-1. 确认 Database_Ions 路径正确：`ls /path/to/Database_Ions`
-2. 更新 config.yaml 中的 `database_dir` 路径
-3. 重新创建链接：
-   ```bash
-   rm -rf charge_-1
-   /path/to/conda/envs/ion_CSP/bin/python -m ion_CSP.run.main_EE $(pwd)
-   ```
-
-### Q2: 想恢复硬拷贝
-
-```bash
-cd /path/to/N10+_1val_single_salt
-# 删除软链接
-rm -rf charge_-1
-# 硬拷贝
-cp -r /path/to/Database_Ions/3_For_CSP_module/charge_-1 ./
-```
-
-### Q3: 如何禁用自动链接
-
-在 config.yaml 中移除或留空 `database_dir`：
-
-```yaml
-convert_SMILES:
-  database_dir: ''  # 空字符串 = 禁用自动链接
-```
-
----
-
-## 技术细节
-
-### 实现位置
-
-- **文件**：`/path/to/ion_CSP/src/ion_CSP/run/main_EE.py`
-- **函数**：`setup_ion_links(work_dir, config)`
-- **调用时机**：`main()` 中的 SMILES 转换任务完成后、经验估算任务开始前
-
-### 判断流程
-
-```python
-for folder in config["empirical_estimate"]["folders"]:
-    if folder 已存在 and 有非软链接的 gjf:
-        跳过（项目自有离子）
-    else:
-        创建软链接到 Database_Ions
-```
-
-### 日志标识
-
-- `✓ Linked <folder> from Database_Ions: X files (symlink)` - 成功创建链接
-- `<folder> already has local ions` - 跳过（已有文件）
-- `Database folder not found` - 数据库缺少该 charge 文件夹
-
----
-
-## 相关文件
-
-- 实现代码：`/path/to/ion_CSP/src/ion_CSP/run/main_EE.py`
-- 方案文档：`/tmp/EE_linking_solutions.md`
-- 本指南：`/path/to/ion_CSP/AUTO_LINKING_GUIDE.md`
-
----
-
-生成时间：2026-08-13
-版本：v1.0
+    find PROJECT/charge_-1 -type l -printf '%p -> %l\n'

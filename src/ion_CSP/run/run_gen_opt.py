@@ -8,6 +8,11 @@ DEFAULT_CONFIG = {
         "num_per_group": 500,  # 每个空间群要生成的晶体结构数量
         "space_groups_limit": 230,  # 空间群搜索的限制
         "nodes": 1,  # 机器学习势优化占用 GPU 节点数
+        "mlp_backend": "deepmd",
+        "mlp_python": "python",
+        "mlp_model": "model.pt",
+        "mlp_device": None,
+        "mlp_workers": 0,
     }
 }
 
@@ -42,11 +47,22 @@ def main(work_dir, config):
             try:
                 task_1_2.set_running()
                 # 基于 dpdispatcher 模块，在远程服务器上批量准备并提交输入文件，并在任务结束后回收机器学习势优化的输出文件 OUTCAR 与 CONTCAR
-                generator.dpdisp_mlp_tasks(
-                    machine_path=config["gen_opt"]["machine"],
-                    resources_path=config["gen_opt"]["resources"],
-                    nodes=config["gen_opt"]["nodes"],
-                )
+                mlp_task_options = {
+                    "machine_path": config["gen_opt"]["machine"],
+                    "resources_path": config["gen_opt"]["resources"],
+                    "nodes": config["gen_opt"]["nodes"],
+                }
+                optional_keys = {
+                    "mlp_backend": "backend",
+                    "mlp_python": "python_executable",
+                    "mlp_model": "model",
+                    "mlp_device": "device",
+                    "mlp_workers": "workers",
+                }
+                for config_key, argument_name in optional_keys.items():
+                    if config_key in config["gen_opt"]:
+                        mlp_task_options[argument_name] = config["gen_opt"][config_key]
+                generator.dpdisp_mlp_tasks(**mlp_task_options)
                 task_1_2.set_success()
             except Exception:
                 task_1_2.set_failure()

@@ -124,9 +124,10 @@ def test_identify_molecules_mismatched_molecules(setup_test_environment):
 
     # 验证结果
     expected_molecule = frozenset([("O", 1), ("H", 2)])
-    assert len(merged_molecules) == 2
-    assert expected_molecule not in merged_molecules
-    assert merged_molecules[expected_molecule] == 0
+    assert len(merged_molecules) == 3
+    # A fragment can retain the same formula as the expected molecule, but the
+    # complete graph multiset and multiplicity must still fail.
+    assert merged_molecules[expected_molecule] == 1
     assert molecules_flag is False
     assert initial_info == [{"O": 1, "H": 2}]
 
@@ -265,6 +266,46 @@ def test_identify_molecules_empty_structure():
     # 验证 initial_info：无 .gjf 文件，应为 []
     assert isinstance(initial_info, list)
     assert len(initial_info) == 0
+
+
+def test_identify_molecules_rejects_same_formula_different_topology(
+    setup_test_environment,
+):
+    initial = Atoms(
+        "N4", positions=[[0, 0, 0], [1.3, 0, 0], [2.6, 0, 0], [3.9, 0, 0]]
+    )
+    create_gjf_file(setup_test_environment, "N4.gjf", initial)
+    observed = Atoms(
+        "N4",
+        positions=[[0, 0, 0], [1.3, 0, 0], [1.3, 1.3, 0], [0, 1.3, 0]],
+    )
+
+    _, flag, _ = identify_molecules(observed, setup_test_environment)
+
+    assert flag is False
+
+
+def test_identify_molecules_respects_configured_multiplicity(
+    setup_test_environment,
+):
+    water = Atoms("OH2", positions=[[0, 0, 0], [0.95, 0, 0], [0, 0.95, 0]])
+    create_gjf_file(setup_test_environment, "water.gjf", water)
+    (setup_test_environment / "config.yaml").write_text(
+        """gen_opt:
+  species: [water.gjf]
+  ion_numbers: [2]
+""",
+        encoding="utf-8",
+    )
+
+    _, one_flag, _ = identify_molecules(water, setup_test_environment)
+    two_waters = water + Atoms(
+        "OH2", positions=[[10, 0, 0], [10.95, 0, 0], [10, 0.95, 0]]
+    )
+    _, two_flag, _ = identify_molecules(two_waters, setup_test_environment)
+
+    assert one_flag is False
+    assert two_flag is True
 
 
 # ==================== 测试 format_molecule_output 函数 ====================

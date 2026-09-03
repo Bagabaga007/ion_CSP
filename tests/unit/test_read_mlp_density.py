@@ -239,9 +239,34 @@ def test_read_property_and_sort_insufficient_ionic_crystals(
     reader = ReadMlpDensity(work_dir)
 
     with pytest.raises(
-        ValueError, match="Only 0 ionic crystals with original ions found"
+        ValueError, match="No ionic crystals with original ions were found"
     ):
         reader.read_property_and_sort(n_screen=5, molecules_screen=True)
+
+
+@patch("ion_CSP.read_mlp_density.identify_molecules")
+@patch("ion_CSP.read_mlp_density.read_vasp")
+def test_read_property_and_sort_keeps_all_when_fewer_than_requested(
+    mock_read_vasp, mock_identify, sample_contcar_files, caplog
+):
+    """Keep all valid structures when their count is below n_screen."""
+    work_dir, _ = sample_contcar_files
+    mock_atoms = MagicMock()
+    mock_atoms.get_volume.return_value = 10.0
+    mock_atoms.get_masses.return_value = [1.0, 1.0, 1.0]
+    mock_read_vasp.return_value = mock_atoms
+    mock_identify.side_effect = [({}, True, {})] * 2 + [({}, False, {})] * 8
+
+    reader = ReadMlpDensity(work_dir)
+    with caplog.at_level(logging.WARNING):
+        reader.read_property_and_sort(n_screen=5, molecules_screen=True)
+
+    assert len(list(reader.max_density_dir.glob("CONTCAR_*"))) == 2
+    with (reader.max_density_dir / "mlp_density_energy.csv").open(
+        encoding="utf-8"
+    ) as csv_file:
+        assert len(list(csv.reader(csv_file))) == 3
+    assert "Continuing with all 2 valid structures" in caplog.text
 
 
 @patch("ion_CSP.read_mlp_density.identify_molecules")

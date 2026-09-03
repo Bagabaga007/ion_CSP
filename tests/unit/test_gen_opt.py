@@ -1,7 +1,6 @@
 import csv
 import json
 import pytest
-import signal
 import psutil
 import logging
 import subprocess
@@ -98,6 +97,7 @@ def test_crystal_generator_init(crystal_generator: CrystalGenerator, tmp_path: P
     assert cg.POSCAR_dir == tmp_path / "1_generated/POSCAR_Files"
     assert cg.POSCAR_dir.exists()
     assert cg.primitive_cell_dir == tmp_path / "1_generated/primitive_cell"
+    assert not (tmp_path / "dpdispatcher.log").exists()
 
 
 def test_crystal_generator_uses_module_relative_runtime_files(
@@ -754,7 +754,7 @@ def test_phonopy_processing_with_deletions(crystal_generator: CrystalGenerator, 
     "context_type, nodes, parent, gpu",
     [
         ("LocalContext", 2, "", 1),
-        ("SSHContext", 1, "data/", 0),
+        ("SSHContext", 1, "data/", 1),
     ],
 )
 @patch("dpdispatcher.Submission.run_submission")
@@ -847,7 +847,7 @@ def test_dpdisp_mlp_tasks_local_and_remote(
     # 6. 使用固定job_id执行被测函数
     with patch("uuid.uuid4") as mock_uuid, patch(
         "ion_CSP.gen_opt._wait_for_gpu", return_value=0
-    ):
+    ) as mock_wait_for_gpu:
         mock_uuid.return_value = "test-job-123"
 
         # 创建PID文件
@@ -861,6 +861,14 @@ def test_dpdisp_mlp_tasks_local_and_remote(
             resources_path=str(resources_path),
             nodes=nodes,
         )
+
+    if context_type == "LocalContext":
+        mock_wait_for_gpu.assert_called_once_with(
+            memory_percent_threshold=40, wait_time=600
+        )
+    else:
+        mock_wait_for_gpu.assert_not_called()
+        assert "Skipping local GPU selection for remote Shell task" in caplog.text
 
     # 8. 验证日志
     assert "Batch optimization completed!!!" in caplog.text

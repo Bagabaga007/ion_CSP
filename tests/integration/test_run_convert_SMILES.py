@@ -5,7 +5,6 @@ Tests the complete workflow of SMILES conversion and Gaussian tasks
 
 import pytest
 import yaml
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 from ion_CSP.run import run_convert_SMILES
 
@@ -76,7 +75,8 @@ def test_run_convert_smiles_main_with_mocks(test_work_dir):
         # Verify SmilesProcessing was initialized correctly
         MockProcessing.assert_called_once_with(
             work_dir=test_work_dir,
-            csv_file="test_smiles.csv"
+            csv_file="test_smiles.csv",
+            preserve_topology=True,
         )
 
         # Verify charge_group was called
@@ -141,11 +141,13 @@ def test_run_convert_smiles_default_config():
     assert "group_screen" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
     assert "group_name" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
     assert "group_screen_invert" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
+    assert "preserve_smiles_topology" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
 
     # Verify default values
     assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["csv_file"] == ""
     assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["screen"] is False
     assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["group_screen_invert"] is False
+    assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["preserve_smiles_topology"] is True
 
 
 def test_run_convert_smiles_with_invert_screening(test_work_dir):

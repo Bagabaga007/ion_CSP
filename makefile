@@ -24,7 +24,7 @@ venv:
 # 安装依赖
 .PHONY: install
 install: venv
-	$(VENV)/bin/pip install -r requirements.txt
+	$(VENV)/bin/python -m pip install -e .
 
 # 运行应用程序
 .PHONY: run

@@ -1,19 +1,64 @@
 {
-    "python.defaultInterpreterPath": "/home/yangze/anaconda3/envs/ion_CSP/bin/python",
-    "python.analysis.typeCheckingMode": "off",
-    "python.testing.pytestEnabled": true,
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestArgs": [
-        "tests",
-        "-v"
-    ],
-    "python.testing.autoTestDiscoverOnSaveEnabled": true,
-    "coverage-gutters.coverageFileNames": [
-        "coverage.xml",
-        ".coverage",
-        "htmlcov/index.html"
-    ],
-    "coverage-gutters.showLineCoverage": true,
-    "coverage-gutters.showRulerCoverage": true,
-    "coverage-gutters.coverageBaseDir": "**"
+  "python.defaultInterpreterPath": "${workspaceFolder}/../../../software/miniforge3/envs/ion-csp-env/bin/python3.11",
+  "python.analysis.typeCheckingMode": "off",
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "tests",
+    "-v"
+  ],
+  "python.testing.autoTestDiscoverOnSaveEnabled": true,
+  "coverage-gutters.coverageFileNames": [
+    "coverage.xml",
+    ".coverage",
+    "htmlcov/index.html"
+  ],
+  "coverage-gutters.showLineCoverage": true,
+  "coverage-gutters.showRulerCoverage": true,
+  "coverage-gutters.coverageBaseDir": "**",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/src"
+  ],
+  "python.analysis.exclude": [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.sync-backups",
+    "**/build",
+    "**/dist",
+    "**/htmlcov",
+    "**/*.egg-info",
+    "examples/history_example_results",
+    "examples/example_test",
+    "examples/example_1_results",
+    "examples/example_2_results",
+    "examples/server"
+  ],
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/__pycache__/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.sync-backups/**": true,
+    "**/build/**": true,
+    "**/dist/**": true,
+    "**/htmlcov/**": true,
+    "**/*.egg-info/**": true,
+    "**/examples/history_example_results/**": true,
+    "**/examples/example_1_results/**": true,
+    "**/examples/example_2_results/**": true
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/.sync-backups": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/htmlcov": true,
+    "**/*.egg-info": true,
+    "**/examples/history_example_results": true,
+    "**/examples/example_1_results": true,
+    "**/examples/example_2_results": true
+  },
+  "python.condaPath": "${workspaceFolder}/../../../software/miniforge3/bin/conda"
 }

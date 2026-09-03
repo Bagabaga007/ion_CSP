@@ -10,6 +10,7 @@ DEFAULT_CONFIG = {
         "group_screen": "",  # 默认官能团筛选为空
         "group_name": "",  # 默认分组名称
         "group_screen_invert": False,  # 默认不进行反向筛选
+        "preserve_smiles_topology": True,
     }
 }
 
@@ -18,7 +19,11 @@ DEFAULT_CONFIG = {
 def main(work_dir, config):
     # 给定与脚本同目录的csv文件名
     result = SmilesProcessing(
-        work_dir=work_dir, csv_file=config["convert_SMILES"]["csv_file"]
+        work_dir=work_dir,
+        csv_file=config["convert_SMILES"]["csv_file"],
+        preserve_topology=config["convert_SMILES"].get(
+            "preserve_smiles_topology", True
+        ),
     )
     # 根据电荷进行分组创建文件夹并将SMILES码转换为对应的结构文件
     result.charge_group()

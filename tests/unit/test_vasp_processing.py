@@ -3,7 +3,21 @@ import logging
 from pathlib import Path
 from unittest.mock import patch
 
+from ase import Atoms
+from ase.calculators.singlepoint import SinglePointCalculator
+
 from ion_CSP.vasp_processing import VaspProcessing  # 替换为你的模块名
+
+
+def _mock_relaxed_atoms():
+    atoms = Atoms(
+        "CN",
+        positions=[[0, 0, 0], [1, 0, 0]],
+        cell=[5, 5, 5],
+        pbc=True,
+    )
+    atoms.calc = SinglePointCalculator(atoms, energy=-12.3)
+    return atoms
 
 
 @pytest.fixture
@@ -48,6 +62,12 @@ gen_opt:
     assert len(list(vp.vasp_optimized_dir.rglob("*"))) == 0
 
     yield vp
+
+
+def test_initialization_does_not_create_dpdispatcher_log(
+    vasp_processor: VaspProcessing,
+):
+    assert not (vasp_processor.base_dir / "dpdispatcher.log").exists()
 
 
 # ==================== 测试 dpdisp_vasp_optimization_tasks ====================
@@ -98,7 +118,7 @@ group_size: 1
     )
 
     # 验证日志
-    assert "Batch VASP optimization completed!!!" in caplog.text
+    assert "outputs returned for validation" in caplog.text
 
     # 验证 vasp_optimized_dir 被创建
     assert vasp_processor.vasp_optimized_dir.exists()
@@ -203,7 +223,7 @@ group_size: 1
         nodes=2,
     )
 
-    assert "Batch VASP optimization completed!!!" in caplog.text
+    assert "outputs returned for validation" in caplog.text
     mock_sub.assert_called()
     mock_run.assert_called_once()
 
@@ -388,13 +408,112 @@ def test_read_vasp_outcar_file_not_found(vasp_processor: VaspProcessing, tmp_pat
     assert energy == float("inf")
 
 
+@pytest.mark.parametrize(
+    ("body", "expected_valid", "reason_fragment"),
+    [
+        (
+            " vasp.6.3.0\n ZBRENT: fatal error in bracketing\n",
+            False,
+            "fatal VASP marker",
+        ),
+        (
+            " vasp.6.3.0\n executed on Linux\n",
+            False,
+            "did not terminate normally",
+        ),
+        (
+            " vasp.6.3.0\n executed on Linux\n"
+            " General timing and accounting informations for this job\n",
+            False,
+            "did not reach",
+        ),
+        (
+            " vasp.6.3.0\n executed on Linux\n"
+            " reached required accuracy - stopping structural energy minimisation\n"
+            " General timing and accounting informations for this job\n",
+            True,
+            None,
+        ),
+    ],
+)
+def test_validate_real_vasp_outcar(
+    vasp_processor: VaspProcessing,
+    tmp_path: Path,
+    body: str,
+    expected_valid: bool,
+    reason_fragment: str | None,
+):
+    outcar = tmp_path / "OUTCAR"
+    outcar.write_text(body, encoding="utf-8")
+
+    valid, reason = vasp_processor._validate_vasp_outcar(outcar)
+
+    assert valid is expected_valid
+    if reason_fragment is None:
+        assert reason is None
+    else:
+        assert reason_fragment in reason
+
+
+def test_stage_failure_status_overrides_converged_outcar(
+    vasp_processor: VaspProcessing, tmp_path: Path
+):
+    outcar = tmp_path / "OUTCAR"
+    outcar.write_text(
+        " vasp.6.3.0\n"
+        " executed on Linux\n"
+        " reached required accuracy - stopping structural energy minimisation\n"
+        " General timing and accounting informations for this job\n",
+        encoding="utf-8",
+    )
+    assert vasp_processor._validate_vasp_outcar(outcar) == (True, None)
+
+    (tmp_path / "ION_CSP_STAGE_STATUS").write_text(
+        "stage=fine\nstatus=FAILURE\nreason=pressure_not_converged\n",
+        encoding="utf-8",
+    )
+    valid, reason = vasp_processor._validate_vasp_outcar(outcar)
+
+    assert valid is False
+    assert "pressure_not_converged" in reason
+
+
+def test_potcar_preflight_rejects_missing_boron(
+    vasp_processor: VaspProcessing, tmp_path: Path
+):
+    structure = tmp_path / "CONTCAR_BN"
+    structure.write_text(
+        """BN
+1.0
+5.0 0.0 0.0
+0.0 5.0 0.0
+0.0 0.0 5.0
+B N
+1 1
+Direct
+0.0 0.0 0.0
+0.25 0.25 0.25
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FileNotFoundError, match="POTCAR_B"):
+        vasp_processor._potcar_files_for_structures([structure])
+
+
 # ==================== 测试 read_vaspout_save_csv ====================
 @patch("ion_CSP.vasp_processing.identify_molecules")
+@patch("ion_CSP.vasp_processing.read_vasp_out")
 def test_read_vaspout_save_csv_without_relaxation(
-    mock_identify, vasp_processor: VaspProcessing, tmp_path: Path, caplog
+    mock_read_vasp_out,
+    mock_identify,
+    vasp_processor: VaspProcessing,
+    tmp_path: Path,
+    caplog,
 ):
     """测试无弛豫模式的 CSV 生成"""
     caplog.set_level(logging.INFO)
+    mock_read_vasp_out.return_value = _mock_relaxed_atoms()
 
     # 模拟 identify_molecules 返回值
     mock_identify.return_value = (
@@ -482,11 +601,17 @@ Direct
 
 
 @patch("ion_CSP.vasp_processing.identify_molecules")
+@patch("ion_CSP.vasp_processing.read_vasp_out")
 def test_read_vaspout_save_csv_with_relaxation(
-    mock_identify, vasp_processor: VaspProcessing, tmp_path: Path, caplog
+    mock_read_vasp_out,
+    mock_identify,
+    vasp_processor: VaspProcessing,
+    tmp_path: Path,
+    caplog,
 ):
     """测试有弛豫模式的 CSV 生成"""
     caplog.set_level(logging.INFO)
+    mock_read_vasp_out.return_value = _mock_relaxed_atoms()
 
     mock_identify.return_value = (
         {frozenset([("C", 1), ("H", 4)]): 1},
@@ -783,7 +908,7 @@ group_size: 1
 
     # 验证 data 目录被删除
     assert not data_dir.exists()
-    assert "Batch VASP optimization completed!!!" in caplog.text
+    assert "outputs returned for validation" in caplog.text
 
 
 
@@ -840,11 +965,13 @@ def test_read_vasp_outcar_generic_exception(
 
 # ==================== 测试 read_vaspout_save_csv 的边界情况 ====================
 @patch("ion_CSP.vasp_processing.identify_molecules")
+@patch("ion_CSP.vasp_processing.read_vasp_out")
 def test_read_vaspout_save_csv_invalid_folder_name(
-    mock_identify, vasp_processor: VaspProcessing, caplog
+    mock_read_vasp_out, mock_identify, vasp_processor: VaspProcessing, caplog
 ):
     """测试文件夹名称格式异常 - 需要至少一个有效文件夹"""
     caplog.set_level(logging.WARNING)
+    mock_read_vasp_out.return_value = _mock_relaxed_atoms()
 
     mock_identify.return_value = (
         {frozenset([("C", 1), ("H", 4)]): 1},
@@ -988,17 +1115,26 @@ Direct
       1.00000      0.00000      0.00000         0.000000      0.000000      0.000000
 """, encoding="utf-8")
 
-    # 删掉 JSON 也应正常运行（新算法不依赖 JSON），fine 结构不可读则 PC 为 False
-    vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=False)
+    # 无可读 fine 结构时不能生成伪成功结果；失败详情单独留档。
+    with pytest.raises(RuntimeError, match="No valid, converged VASP structures"):
+        vasp_processor.read_vaspout_save_csv(
+            molecules_prior=False, relaxation=False
+        )
 
     csv_file = vasp_processor.base_dir / "vasp_density_energy.csv"
+    failures_file = vasp_processor.base_dir / "vasp_failures.csv"
     assert csv_file.exists()
+    assert failures_file.exists()
 
     import csv
+
     with csv_file.open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-        assert rows[0]["Fine_PC"] == "False"
+        assert list(csv.DictReader(f)) == []
+    with failures_file.open("r", encoding="utf-8") as f:
+        failures = list(csv.DictReader(f))
+    assert failures == [
+        {"Number": "001", "Stage": "fine", "Reason": "OUTCAR parse failed"}
+    ]
 
 
 def test_export_max_density_structure_csv_parse_error(
@@ -1127,7 +1263,7 @@ group_size: 1
     )
 
     # 验证完成
-    assert "Batch VASP optimization completed!!!" in caplog.text
+    assert "outputs returned for validation" in caplog.text
 
 
 @patch("dpdispatcher.Submission.run_submission")
@@ -1195,7 +1331,7 @@ cpu_per_node: 8
     dst_final = vasp_processor.vasp_optimized_dir / "2.876_001" / "fine" / "final"
     assert dst_final.exists()
     assert (dst_final / "test.txt").exists()
-    assert "Batch VASP optimization completed!!!" in caplog.text
+    assert "outputs returned for validation" in caplog.text
 
 
 @patch("ion_CSP.vasp_processing.identify_molecules")
@@ -1536,10 +1672,18 @@ Direct
         with patch("ion_CSP.vasp_processing.identify_molecules") as mock_identify:
             mock_identify.return_value = ({frozenset([("H", 2)]): 1}, True, [{"H": 2}])
             with caplog.at_level(logging.ERROR):
-                vasp_processor.read_vaspout_save_csv(molecules_prior=False, relaxation=True)
+                with pytest.raises(
+                    RuntimeError, match="No valid, converged VASP structures"
+                ):
+                    vasp_processor.read_vaspout_save_csv(
+                        molecules_prior=False, relaxation=True
+                    )
 
                 # Check error was logged for final OUTCAR
-                assert any("Error reading final/OUTCAR file" in record.message for record in caplog.records)
+                assert any(
+                    "Error reading final/OUTCAR file" in record.message
+                    for record in caplog.records
+                )
 
 
 def test_read_vaspout_save_csv_with_final_density_logging(vasp_processor: VaspProcessing, caplog):
@@ -1864,7 +2008,7 @@ group_size: 1
         nodes=1,
     )
 
-    assert "Batch VASP optimization completed!!!" in caplog.text
+    assert "outputs returned for validation" in caplog.text
     # 001 有 OUTCAR，CONTCAR 被复制到 optimized 目录
     assert (vasp_processor.vasp_optimized_dir / "CONTCAR_001").exists()
     # 002 缺 OUTCAR，未被复制

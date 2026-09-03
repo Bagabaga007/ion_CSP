@@ -26,7 +26,11 @@ def test_work_dir(tmp_path):
             "nodes": 1,
             "machine": "machine.yaml",
             "resources": "resources.yaml",
-            "python_path": "/usr/bin/python3"
+            "mlp_backend": "dpa4",
+            "mlp_python": "/remote/dpa4/bin/python",
+            "mlp_model": "DPA4-Nano-OMat24-v20260805",
+            "mlp_device": "cuda",
+            "mlp_workers": 1,
         }
     }
 
@@ -112,7 +116,12 @@ def test_run_gen_opt_main_with_mocks(test_work_dir):
             mock_gen.dpdisp_mlp_tasks.assert_called_once_with(
                 machine_path="machine.yaml",
                 resources_path="resources.yaml",
-                nodes=1
+                nodes=1,
+                backend="dpa4",
+                python_executable="/remote/dpa4/bin/python",
+                model="DPA4-Nano-OMat24-v20260805",
+                device="cuda",
+                workers=1,
             )
 
 
@@ -262,11 +271,21 @@ def test_run_gen_opt_default_config():
     assert "num_per_group" in run_gen_opt.DEFAULT_CONFIG["gen_opt"]
     assert "space_groups_limit" in run_gen_opt.DEFAULT_CONFIG["gen_opt"]
     assert "nodes" in run_gen_opt.DEFAULT_CONFIG["gen_opt"]
+    assert "mlp_backend" in run_gen_opt.DEFAULT_CONFIG["gen_opt"]
+    assert "mlp_python" in run_gen_opt.DEFAULT_CONFIG["gen_opt"]
+    assert "mlp_model" in run_gen_opt.DEFAULT_CONFIG["gen_opt"]
+    assert "mlp_device" in run_gen_opt.DEFAULT_CONFIG["gen_opt"]
+    assert "mlp_workers" in run_gen_opt.DEFAULT_CONFIG["gen_opt"]
 
     # Verify default values
     assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["num_per_group"] == 500
     assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["space_groups_limit"] == 230
     assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["nodes"] == 1
+    assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_backend"] == "deepmd"
+    assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_python"] == "python"
+    assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_model"] == "model.pt"
+    assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_device"] is None
+    assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_workers"] == 0
 
 
 @patch("ion_CSP.run.run_gen_opt.get_work_dir_and_config")

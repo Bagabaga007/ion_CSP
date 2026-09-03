@@ -37,6 +37,11 @@ server_config
 !examples/example_1/*
 !examples/example_2/combo_1/*
 model_ori.pt
+
+# Locally provisioned VASP potentials are license-controlled; tracked legacy
+# potentials remain tracked, while newly added elements must not enter Git.
+src/ion_CSP/param/POTCAR_*
+
 dist/*
 build/
 *.tar.gz

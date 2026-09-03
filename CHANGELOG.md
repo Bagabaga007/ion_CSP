@@ -2,6 +2,26 @@
 
 ## Latest Changes
 
+### Unreleased (2026-09-03)
+
+CSP input integrity and portable database views:
+
+- Added SMILES-to-Gaussian element-labelled graph validation before EE combination generation; invalid products are quarantined with a JSON report.
+- Replaced formula-set molecule checks with graph-isomorphic, multiplicity-sensitive CSP validation.
+- Added relocatable Database_Ions symlinks, broken-link repair, safe migration of byte-identical legacy copies, and project-input charge protection.
+- Preserved database symlinks through Gaussian Optimized views and made Multiwfn detection lazy for combination-only/CSP workflows.
+- Excluded mixed-ion and charge-folder type mismatches from EE combinations.
+- Allowed ReadMlpDensity to continue with all non-zero valid candidates when fewer than n_screen survive.
+- Forwarded MLP backend, Python, model, device, and worker options through the staged run_gen_opt entry point.
+- Prevented remote SSH Shell jobs from checking the local host's GPUs.
+- Added strict VASP fatal/truncation/ionic-convergence gates, per-stage shell status files, invalid-result CSV reporting, and zero-valid-result failure propagation.
+- Made POTCAR forwarding and shell assembly element-driven; missing elements fail before submission instead of producing an incomplete POTCAR, and the current BNx environment uses a locally provisioned PBE.52 B potential.
+- Replaced VASP 6.3 ISIF=8-only pre-optimization with bounded ISIF=2/7 force-pressure macro-cycles while retaining rough EDIFF=1e-4; explicit failed-stage status overrides readable OUTCAR frames.
+- Made dpdispatcher file logging submission-scoped, closed handlers deterministically, and removed pytest-only default logs after each session.
+- Removed root-level duplicate model/param packaging sources in favor of src/ion_CSP, and archived ignored historical example results and generated artifacts outside the repository.
+- Validated the constrained VASP flow on a real N8+ + nitrate top-1 candidate: rough/fine converged in 84/235 ionic steps, pressures were 1.62/-0.08 kB, final max force was 0.01812 eV/Å, and all ion graphs were preserved.
+- Added topology/linking, logging, packaging, and constrained-VASP regressions; the full suite passes 521/521.
+
 ### V2.3.4 (2026-08-31)
 
 Documentation and configuration alignment:

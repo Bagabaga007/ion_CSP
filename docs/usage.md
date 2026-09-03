@@ -435,7 +435,9 @@ sort_by=nitrogen 或 NC_ratio 时，组合目录名相应变为
 2_nitrogen_combos 或 2_NC_ratio_combos。
 
 database_dir 为空时禁用中央库。如果启用，它应指向包含
-3_For_CSP_module/charge_* 的数据库根目录。命中规范化 SMILES 和电荷的离子会
+3_For_CSP_module/charge_* 的数据库根目录。数据库视图使用可迁移的相对软链接，
+migrate_database_copies 可迁移完全相同的旧副本，validate_topology 会在组合前验证
+项目离子的 Gaussian 邻接图。命中规范化 SMILES 和电荷的离子会
 复用已有 GJF/JSON，从而跳过 Gaussian。
 
 ## CSP模块使用
@@ -467,7 +469,7 @@ python -m ion_CSP.run.main_CSP /absolute/path/to/combo_1
 | 1_optimization | MLP 批量优化 | 2_mlp_optimized/CONTCAR_n、OUTCAR_n |
 | 2_read_mlp_density | 分子完整性检查和排序 | max_density/ 或 min_energy/ |
 | 3_vasp_optimization | VASP 粗优化与精细优化 | 4_vasp_optimized/<结构>/fine/ |
-| 3_vasp_relaxation | VASP 最终弛豫和导出 | vasp_density_energy.csv、POSCAR |
+| 3_vasp_relaxation | VASP 最终弛豫和导出 | vasp_density_energy.csv、vasp_failures.csv、POSCAR |
 
 完整目录：
 
@@ -488,6 +490,7 @@ python -m ion_CSP.run.main_CSP /absolute/path/to/combo_1
 │       └── fine/
 │           └── final/
 ├── vasp_density_energy.csv
+├── vasp_failures.csv
 ├── POSCAR
 ├── main_CSP_output.log
 ├── workflow_status.yaml
@@ -502,8 +505,28 @@ MLP 筛选会计算密度并读取 OUTCAR 中的 TOTEN。sort_by=density 时密�
 sort_by=energy 时能量从低到高。molecules_screen=true 时，只保留能够识别出原始
 离子组成的结构。
 
-VASP 阶段依次使用 INCAR_1、INCAR_2 和 INCAR_3。最终 POSCAR 从
-Final_Ions_Check=true 的结构中按 Final_Density 选取最大值，并复制：
+VASP 阶段依次使用 INCAR_1、INCAR_2 和 INCAR_3。每个远端阶段会写入
+ION_CSP_STAGE_STATUS。Python 汇总会拒收包含致命错误、未正常结束或未达到离子
+收敛条件的真实 OUTCAR；无效结构写入 vasp_failures.csv，不再以 ASE 能读取最后
+一帧作为成功依据。如果所有结构均无效，该工作流阶段标记为 FAILURE。
+
+在 JLU_184 的 VASP 6.3.0 中，单独使用 ISIF=8 会令离子位移因子为零，不能同时
+实现“离子松弛 + 晶胞形状固定且整体尺度可变”。项目保留 INCAR_1 的 EDIFF=1e-4
+粗精度和 INCAR_2 的 EDIFF=1e-6 精度；sub_ori.sh 从它们派生有限宏循环：
+
+1. ISIF=2 固定当前晶胞，只松弛离子；
+2. 力收敛后读取 external pressure；
+3. 压力超阈值时用 ISIF=7 做少量等比例体积步，再回到离子松弛；
+4. 力和压力均合格，或达到最大循环数时停止。
+
+因此 ISIF=2 只是离子半步，不是对原物理约束的替代。默认 rough/fine 最大循环数为
+2/3，压力容差为 5/1 kB，每次体积半步 NSW=3；可分别用
+ION_CSP_ROUGH_MAX_CYCLES、ION_CSP_FINE_MAX_CYCLES、
+ION_CSP_ROUGH_PRESSURE_TOLERANCE_KB、ION_CSP_FINE_PRESSURE_TOLERANCE_KB
+和 ION_CSP_VOLUME_NSW 环境变量调整。每一阶段的
+CONSTRAINED_RELAXATION_HISTORY.tsv 记录循环、压力与体积步状态。
+
+最终 POSCAR 从 Final_Ions_Check=true 的结构中按 Final_Density 选取最大值，并复制：
 
 ~~~text
 4_vasp_optimized/<结构>/fine/final/CONTCAR
@@ -522,7 +545,7 @@ Final_Ions_Check=true 的结构中按 Final_Density 选取最大值，并复制�
 | main_EE_console.log / main_CSP_console.log | 后台脚本或任务管理器的 stdout/stderr |
 | workflow_status.log | 阶段状态变化 |
 | workflow_status.yaml | 各阶段状态和运行次数 |
-| dpdispatcher.log | 本地/远程任务提交、同步和调度详情 |
+| dpdispatcher.log | 仅在实际调用 run_submission 时写入对应计算目录；纯实例化/解析不创建 |
 
 阶段状态包括 INITIAL、RUNNING、SUCCESS、FAILURE 和 KILLED。再次运行同一工作流时：
 
@@ -597,9 +620,12 @@ python docs/example_usage_CSP.py /absolute/path/to/combo_1
 DPA4/MatterSim 一般将 mlp_workers 设置为 1，避免同一 GPU 重复加载多个大模型。
 详见 DPA4_BACKEND.md 和 MATTERSIM_BACKEND.md。
 
-当前 VASP 提交脚本只包含 H、C、N、O 的 POTCAR 拼接逻辑。因此，即使通用 MLP
-能够处理 B 等其他元素，在扩展 POTCAR 资源和 VASP shell 脚本之前，完整 CSP
-工作流仍只支持 CHNO 体系。
+VASP 提交会从结构元素动态发现并按 POSCAR 元素顺序拼接
+src/ion_CSP/param/POTCAR_<元素>。Git 历史中的 H、C、N、O 与 JLU_184 的
+PBE/PAW_PBE.52 势库逐字节匹配（忽略换行格式）。当前计算环境已从同一势库部署
+POTCAR_B，因此 BNx 可以进入 VASP；新增势文件受 VASP 许可约束并被 .gitignore
+阻止提交，其他克隆或计算节点必须由有权用户从同系列势库本地部署。缺失势会在
+远程提交前明确报错，不会生成少元素的错误 POTCAR。
 
 ## 故障排除
 
@@ -625,15 +651,13 @@ python -c "import ion_CSP; print(ion_CSP.__file__)"
 
 ### Multiwfn not found
 
-EE 初始化 EmpiricalEstimation 时会检查 Multiwfn_noGUI 或 Multiwfn。确认启动 EE
+EE 仅在实际进行 ESP 或 LOG→GJF 转换时检查 Multiwfn_noGUI 或 Multiwfn。只重建组合或运行 CSP 不需要 Multiwfn。确认执行 EE 分析的
 的环境 PATH 中存在其中一个：
 
 ~~~bash
 command -v Multiwfn_noGUI
 command -v Multiwfn
 ~~~
-
-即使离子已经预优化，当前 EE 类初始化仍会进行该检查。
 
 ### phonopy not found
 
@@ -653,12 +677,20 @@ python -m pip show phonopy
 3. machine/resources 的 context_type、batch_type 和 remote_root
 4. 计算节点 PATH 中的 g16、formchk、mpirun、vasp_std
 5. 调度器队列、CPU/GPU 和 module_list 配置
+6. 每个结构目录中的 ION_CSP_STAGE_STATUS 和根目录 vasp_failures.csv
+
+如果日志含 ZBRENT: fatal error，不能把现有 CONTCAR/OUTCAR 直接当作已收敛结果。
+先核对 ION_CSP_STAGE_STATUS、ISIF 和离子坐标是否实际变化。rough 的
+EDIFF=1e-4 是有意的效率设置，不应把通用的“减小 EDIFF”提示机械套用到所有失败。
+VASP 6.3 的受限预优化使用上面的 ISIF=2/7 宏循环；任何返回结果仍须同时通过正常
+结束、力/压力门禁和离子拓扑检查。
 
 ### MLP 候选少于 n_screen
 
-molecules_screen=true 时，离子结构改变的晶体会被排除。如果有效结构少于 n_screen，
-当前阶段会报错。应先检查详细日志和结构质量，再根据情况增加生成数量、降低
-n_screen，或在明确接受结构变化的前提下关闭 molecules_screen。
+molecules_screen=true 时，离子结构改变的晶体会被排除。如果仍有至少一个有效结构，
+当前阶段会记录警告并将全部有效结构送入后续步骤；零个有效结构才会报错。应先检查
+详细日志和结构质量，再根据情况增加生成数量、降低 n_screen，或在明确接受结构
+变化的前提下关闭 molecules_screen。
 
 ### 修改配置后没有重新计算
 

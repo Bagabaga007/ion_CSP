@@ -6,8 +6,8 @@ from typing import List
 from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from ion_CSP.log_and_time import dpdisp_logging, machine_resources_prep
 from dpdispatcher import Task, Submission
-from ion_CSP.log_and_time import redirect_dpdisp_logging, machine_resources_prep
 
 
 class SmilesProcessing:
@@ -18,6 +18,7 @@ class SmilesProcessing:
         csv_file: str,
         converted_folder: str = "1_1_SMILES_gjf",
         optimized_dir: str = "1_2_Gaussian_optimized",
+        preserve_topology: bool = True,
     ):
         """
         This class is used to process SMILES codes from a CSV file, convert them into Gaussian input files, and prepare for optimization tasks. It also supports grouping by charge and filtering based on functional groups.
@@ -27,8 +28,10 @@ class SmilesProcessing:
             csv_file: the csv file name in the working directory.
             converted_folder: the folder name for storing converted SMILES files.
             optimized_dir: the folder name for storing Gaussian optimized files.
+            preserve_topology: add Gaussian ModRedundant bond constraints for
+                every bond present in the source SMILES.
         """
-        redirect_dpdisp_logging(work_dir / "dpdispatcher.log")
+        self.preserve_topology = bool(preserve_topology)
         # 读取csv文件并处理数据, csv文件的表头包括 SMILES, Charge, Refcode或Number
         self.base_dir = work_dir.resolve()
         if not csv_file:
@@ -105,7 +108,14 @@ class SmilesProcessing:
         logging.info(f"CSV format validated successfully: {csv_path}")
 
 
-    def _convert_SMILES(self, dir_path: str, smiles: str, basename: str, charge: int):
+    def _convert_SMILES(
+        self,
+        dir_path: str,
+        smiles: str,
+        basename: str,
+        charge: int,
+        preserve_topology: bool | None = None,
+    ):
         """
         Private method:
         Use the rdkit module to read SMILES code and convert it into the required file types such as gjf, xyz, mol, etc.
@@ -156,12 +166,31 @@ class SmilesProcessing:
             multiplicity = num_unpaired_electrons + 1
             # 根据type参数判断要生成什么类型的结构文件, 目前只支持gjf, xyz, mol格式
             gjf_path = dir_path / f"{basename}.gjf"
+            preserve_topology = (
+                self.preserve_topology
+                if preserve_topology is None
+                else bool(preserve_topology)
+            )
+            route = (
+                "#p B3LYP/6-31G** opt=(MaxCycles=100,ModRedundant)"
+                if preserve_topology
+                else "#p B3LYP/6-31G** opt=(MaxCycles=100)"
+            )
             # 创建gjf文件内容
-            gjf_content = f"%nprocshared=8\n%chk={basename}.chk\n#p B3LYP/6-31G** opt=(MaxCycles=100)\n\n{basename}\n\n{num_charge} {multiplicity}\n"
+            gjf_content = (
+                f"%nprocshared=8\n%chk={basename}.chk\n{route}\n\n"
+                f"{basename}\n\n{num_charge} {multiplicity}\n"
+            )
             for atom in range(num_atoms):
                 pos = conf.GetAtomPosition(atom)
                 atom_symbol = mol.GetAtomWithIdx(atom).GetSymbol()
                 gjf_content += f"{atom_symbol} {pos.x:.6f} {pos.y:.6f} {pos.z:.6f}\n"
+            if preserve_topology:
+                gjf_content += "\n"
+                for bond in mol.GetBonds():
+                    begin = bond.GetBeginAtomIdx() + 1
+                    end = bond.GetEndAtomIdx() + 1
+                    gjf_content += f"B {begin} {end} F\n"
             # 写入gjf文件
             gjf_path.write_text(f"{gjf_content}\n\n")
             # gjf文件末尾需要空行，否则Gaussian会报End of file in ZSymb错误(l101.exe)
@@ -472,7 +501,8 @@ class SmilesProcessing:
                 resources=resources,
                 task_list=task_list,
             )
-            submission.run_submission()
+            with dpdisp_logging(self.base_dir / "dpdispatcher.log"):
+                submission.run_submission()
 
             # 创建用于存放优化后文件的 gaussian_optimized 目录
             optimized_folder_dir = self.gaussian_optimized_dir / folder

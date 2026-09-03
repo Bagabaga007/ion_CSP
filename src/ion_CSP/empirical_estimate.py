@@ -5,6 +5,7 @@ import yaml
 import shutil
 import logging
 import itertools
+import os
 import subprocess
 from typing import List
 from pathlib import Path
@@ -91,8 +92,8 @@ class EmpiricalEstimation:
         self.density_csv = self.gaussian_dir / "sorted_density.csv"
         self.nitrogen_csv = self.gaussian_dir / "sorted_nitrogen.csv"
         self.NC_ratio_csv = self.gaussian_dir / "specific_NC_ratio.csv"
-        # 检查Multiwfn可执行文件是否存在
-        self.multiwfn_path = self._check_multiwfn_executable()
+        # Multiwfn is required only by ESP/log conversion, not by combination-only runs.
+        self.multiwfn_path = None
 
     def _check_pre_optimized_ions(self, folder: str):
         """
@@ -112,10 +113,22 @@ class EmpiricalEstimation:
         needs_processing = sorted(gjf_stems - json_stems)
         return pre_optimized, needs_processing
 
+    @staticmethod
+    def _copy_or_link_pre_optimized(source: Path, destination: Path):
+        """Preserve database symlinks through the Gaussian result views."""
+        if destination.is_symlink() and not destination.exists():
+            destination.unlink()
+        if destination.exists() or destination.is_symlink():
+            return
+        if source.is_symlink():
+            resolved = source.resolve(strict=True)
+            relative = os.path.relpath(resolved, start=destination.parent.resolve())
+            destination.symlink_to(relative)
+        else:
+            shutil.copyfile(str(source), str(destination))
+
     def _copy_pre_optimized_ions(self, folder: str, ion_names: List[str]):
-        """
-        将工作目录下已预优化好的离子（同名 .gjf 和 .json）直接复制到 gaussian_dir 和 Optimized 目录中。
-        """
+        """Copy project ions and preserve database ions as relative symlinks."""
         src_folder = self.base_dir / folder
         dst_gaussian_folder = self.gaussian_dir / folder
         dst_gaussian_folder.mkdir(parents=True, exist_ok=True)
@@ -127,16 +140,19 @@ class EmpiricalEstimation:
                 src = src_folder / f"{name}.{ext}"
                 if not src.exists():
                     continue
-                dst = dst_gaussian_folder / f"{name}.{ext}"
-                if not dst.exists():
-                    shutil.copyfile(str(src), str(dst))
-                dst_opt = dst_optimized_folder / f"{name}.{ext}"
-                if not dst_opt.exists():
-                    shutil.copyfile(str(src), str(dst_opt))
+                self._copy_or_link_pre_optimized(
+                    src, dst_gaussian_folder / f"{name}.{ext}"
+                )
+                self._copy_or_link_pre_optimized(
+                    src, dst_optimized_folder / f"{name}.{ext}"
+                )
 
         logging.info(
-            f"Folder '{folder}': {len(ion_names)} pre-optimized ion(s) copied directly "
-            f"to Optimized directory (skipping Multiwfn): {ion_names}"
+            "Folder '%s': %d pre-optimized ion(s) copied or linked to the "
+            "Optimized directory (skipping Multiwfn): %s",
+            folder,
+            len(ion_names),
+            ion_names,
         )
 
     def _check_multiwfn_executable(self):
@@ -170,6 +186,8 @@ class EmpiricalEstimation:
             input_content: The content to be written to the input file for Multiwfn.
             output_file: The name of the output file to redirect Multiwfn output. If None, output will not be redirected.
         """
+        if self.multiwfn_path is None:
+            self.multiwfn_path = self._check_multiwfn_executable()
         # 创建 input.txt 用于存储 Multiwfn 命令内容
         result_flag = True
         input_path = self.gaussian_dir / "input.txt"
@@ -556,6 +574,38 @@ class EmpiricalEstimation:
                 logging.warning(f"Unexpected line format in gjf file: {line}")
         return atomic_counts
 
+    @staticmethod
+    def _ion_metadata_matches_folder(folder: str, path: Path) -> bool:
+        """Reject mixed ions and charge-folder ion-type mismatches."""
+        metadata_path = path if path.suffix == ".json" else path.with_suffix(".json")
+        if not metadata_path.is_file():
+            return True
+        try:
+            ion_type = str(
+                json.loads(metadata_path.read_text(encoding="utf-8")).get(
+                    "ion_type", ""
+                )
+            ).lower()
+        except (OSError, ValueError, TypeError):
+            return True
+        if not ion_type:
+            return True
+        if ion_type == "mixed_ion":
+            return False
+        if folder.startswith("charge_"):
+            try:
+                charge = int(folder.removeprefix("charge_"))
+            except ValueError:
+                return True
+            expected = "cation" if charge > 0 else "anion" if charge < 0 else ""
+        elif folder.startswith("cation"):
+            expected = "cation"
+        elif folder.startswith("anion"):
+            expected = "anion"
+        else:
+            expected = ""
+        return not expected or ion_type == expected
+
     def _generate_combinations(self, suffix: str):
         """
         Private method:
@@ -570,8 +620,21 @@ class EmpiricalEstimation:
         all_files = []
         for folder in self.folders:
             folder_path = self.gaussian_result_dir / folder
-            suffix_files = list(folder_path.glob(f"*{suffix}"))
-            suffix_files.sort()
+            candidates = sorted(folder_path.glob(f"*{suffix}"))
+            suffix_files = [
+                path
+                for path in candidates
+                if self._ion_metadata_matches_folder(folder, path)
+            ]
+            excluded_count = len(candidates) - len(suffix_files)
+            if excluded_count:
+                logging.warning(
+                    "Excluded %d mixed-ion or ion-type-mismatched %s file(s) "
+                    "from %s",
+                    excluded_count,
+                    suffix,
+                    folder,
+                )
             logging.info(f"Valid {suffix} file number in {folder}: {len(suffix_files)}")
             if not suffix_files:
                 raise FileNotFoundError(

@@ -4,10 +4,7 @@ This module provides functionality for processing VASP calculations, including
 input file preparation, job submission, output parsing, and result analysis.
 """
 
-import os
 import csv
-import json
-import yaml
 import shutil
 import logging
 import numpy as np
@@ -18,10 +15,22 @@ from ase.io import ParseError
 from ase.data import vdw_radii, atomic_numbers
 from datetime import datetime
 from typing import Optional, Tuple
+from ion_CSP.log_and_time import dpdisp_logging, machine_resources_prep
 from dpdispatcher import Task, Submission
 from ase.io.vasp import read_vasp, read_vasp_out
-from ion_CSP.log_and_time import redirect_dpdisp_logging, machine_resources_prep
 from ion_CSP.identify_molecules import identify_molecules, molecules_information
+
+
+_VASP_FATAL_MARKERS = (
+    "zbrent: fatal error",
+    "i refuse to continue with this sick job",
+    "very bad news",
+    "segmentation fault",
+)
+_VASP_NORMAL_END_MARKER = "general timing and accounting informations for this job"
+_VASP_IONIC_CONVERGENCE_MARKER = (
+    "reached required accuracy - stopping structural energy minimisation"
+)
 
 
 class VaspProcessing:
@@ -34,14 +43,42 @@ class VaspProcessing:
             work_dir: The working directory where VASP optimization files will be stored.
         """
         self.base_dir = work_dir.resolve()
-        redirect_dpdisp_logging(work_dir / "dpdispatcher.log")
         self.for_vasp_opt_dir = self.base_dir / "3_for_vasp_opt"
         self.vasp_optimized_dir = self.base_dir / "4_vasp_optimized"
         self.for_vasp_opt_dir.mkdir(parents=True, exist_ok=True)
         self.vasp_optimized_dir.mkdir(parents=True, exist_ok=True)
         self.param_dir = importlib.resources.files("ion_CSP.param")
         self._vdw_warned_elements = set()  # track warned elements for fallback radii
+        self._vasp_validation_cache = {}
 
+    def _potcar_files_for_structures(self, structure_files):
+        """Return packaged POTCAR files and fail early for unsupported elements."""
+        available = {
+            path.name.removeprefix("POTCAR_"): path.name
+            for path in self.param_dir.iterdir()
+            if path.name.startswith("POTCAR_") and path.is_file()
+        }
+        required = set()
+        for structure_file in structure_files:
+            try:
+                atoms = read_vasp(structure_file)
+            except Exception as exc:
+                logging.warning(
+                    "Could not preflight elements in %s: %s",
+                    structure_file,
+                    exc,
+                )
+                continue
+            required.update(atoms.get_chemical_symbols())
+
+        missing = sorted(required - available.keys())
+        if missing:
+            expected = ", ".join(f"POTCAR_{symbol}" for symbol in missing)
+            raise FileNotFoundError(
+                "Missing VASP potential files for elements "
+                f"{', '.join(missing)}. Add {expected} to {self.param_dir}."
+            )
+        return [available[symbol] for symbol in sorted(required)]
 
     def dpdisp_vasp_optimization_tasks(
         self,
@@ -69,6 +106,7 @@ class VaspProcessing:
             raise FileNotFoundError(
                 f"No CONTCAR_ files found in {self.for_vasp_opt_dir}"
             )
+        potcar_files = self._potcar_files_for_structures(mlp_contcar_files)
         # 创建一个嵌套列表来存储每个节点的任务并将文件平均依次分配给每个节点
         # 例如：对于10个结构文件任务分发给4个节点的情况，则4个节点领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7]
         node_jobs = [[] for _ in range(nodes)]
@@ -80,11 +118,8 @@ class VaspProcessing:
             forward_files = [
                 "INCAR_1",
                 "INCAR_2",
-                "POTCAR_H",
-                "POTCAR_C",
-                "POTCAR_N",
-                "POTCAR_O",
                 "sub_ori.sh",
+                *potcar_files,
             ]
             backward_files = ["log", "err"]
             # 将所有参数文件各复制一份到每个 task_dir 目录下
@@ -121,7 +156,8 @@ class VaspProcessing:
             resources=resources,
             task_list=task_list,
         )
-        submission.run_submission()
+        with dpdisp_logging(self.base_dir / "dpdispatcher.log"):
+            submission.run_submission()
 
         # 创建用于存放优化后文件的 4_vasp_optimized 目录
         self.vasp_optimized_dir.mkdir(exist_ok=True)
@@ -149,7 +185,7 @@ class VaspProcessing:
         if machine.serialize()["context_type"] == "SSHContext":
             # 如果调用远程服务器，则删除data级目录
             shutil.rmtree(self.for_vasp_opt_dir / "data", ignore_errors=True)
-        logging.info("Batch VASP optimization completed!!!")
+        logging.info("Batch VASP execution finished; outputs returned for validation.")
 
 
     def dpdisp_vasp_relaxation_tasks(
@@ -175,6 +211,12 @@ class VaspProcessing:
             for f in self.vasp_optimized_dir.iterdir()
             if f.is_dir() and f.name != "data"
         ]
+        fine_contcars = [
+            folder / "fine" / "CONTCAR"
+            for folder in vasp_optimized_folders
+            if (folder / "fine" / "CONTCAR").exists()
+        ]
+        potcar_files = self._potcar_files_for_structures(fine_contcars)
         # 创建一个嵌套列表来存储每个节点的任务并将文件平均依次分配给每个节点
         # 例如：对于10个结构文件任务分发给4个节点的情况，则4个节点领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7]
         node_jobs = [[] for _ in range(nodes)]
@@ -185,11 +227,8 @@ class VaspProcessing:
         for pop in range(nodes):
             forward_files = [
                 "INCAR_3",
-                "POTCAR_H",
-                "POTCAR_C",
-                "POTCAR_N",
-                "POTCAR_O",
                 "sub_supple.sh",
+                *potcar_files,
             ]
             backward_files = ["log", "err"]
             # 将所有参数文件各复制一份到每个 task_dir 目录下
@@ -235,7 +274,8 @@ class VaspProcessing:
             resources=resources,
             task_list=task_list,
         )
-        submission.run_submission()
+        with dpdisp_logging(self.base_dir / "dpdispatcher.log"):
+            submission.run_submission()
 
         for pop in range(nodes):
             # 从传回的 pop 文件夹中将结果文件取到 4_vasp_optimized 目录
@@ -256,7 +296,7 @@ class VaspProcessing:
         if machine.serialize()["context_type"] == "SSHContext":
             # 如果调用远程服务器，则删除data级目录
             shutil.rmtree(self.vasp_optimized_dir / parent)
-        logging.info("Batch VASP optimization completed!!!")
+        logging.info("Batch VASP execution finished; outputs returned for validation.")
 
 
     def _read_mlp_properties(self, contcar_path: Path, outcar_path: Path):
@@ -299,6 +339,94 @@ class VaspProcessing:
         return density, energy
 
 
+    def _validate_vasp_outcar(
+        self, outcar_path: Path
+    ) -> Tuple[bool, Optional[str]]:
+        """Reject fatal, truncated, or unconverged real VASP relaxation output."""
+        try:
+            stat_result = outcar_path.stat()
+        except OSError as exc:
+            return False, f"cannot read OUTCAR: {exc}"
+
+        status_path = outcar_path.parent / "ION_CSP_STAGE_STATUS"
+        try:
+            status_stat = status_path.stat()
+            status_signature = (status_stat.st_size, status_stat.st_mtime_ns)
+        except OSError:
+            status_signature = None
+
+        cache_key = (
+            str(outcar_path.resolve()),
+            stat_result.st_size,
+            stat_result.st_mtime_ns,
+            status_signature,
+        )
+        cached = self._vasp_validation_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        if status_signature is not None:
+            try:
+                status_fields = dict(
+                    line.split("=", 1)
+                    for line in status_path.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()
+                    if "=" in line
+                )
+            except OSError as exc:
+                result = (False, f"cannot read VASP stage status: {exc}")
+                self._vasp_validation_cache[cache_key] = result
+                return result
+            stage_status = status_fields.get("status", "").strip().upper()
+            if stage_status and stage_status != "SUCCESS":
+                result = (
+                    False,
+                    f"VASP stage status is {stage_status}: "
+                    f"{status_fields.get('reason', 'no reason recorded')}",
+                )
+                self._vasp_validation_cache[cache_key] = result
+                return result
+
+        try:
+            output = outcar_path.read_text(
+                encoding="utf-8", errors="replace"
+            ).lower()
+        except OSError as exc:
+            result = (False, f"cannot read OUTCAR: {exc}")
+            self._vasp_validation_cache[cache_key] = result
+            return result
+
+        for marker in _VASP_FATAL_MARKERS:
+            if marker in output:
+                result = (False, f"fatal VASP marker: {marker}")
+                self._vasp_validation_cache[cache_key] = result
+                return result
+
+        # Abbreviated OUTCAR fragments are used by callers and tests. Real VASP
+        # output begins with a version/execution banner; validate it strictly so
+        # a readable final frame cannot mask an aborted or unconverged run.
+        looks_like_real_vasp = (
+            output.lstrip().startswith("vasp.") or "\n executed on" in output
+        )
+        if not looks_like_real_vasp:
+            result = (True, None)
+        elif _VASP_NORMAL_END_MARKER not in output:
+            result = (
+                False,
+                "OUTCAR is incomplete or VASP did not terminate normally",
+            )
+        elif _VASP_IONIC_CONVERGENCE_MARKER not in output:
+            result = (
+                False,
+                "ionic relaxation did not reach the configured convergence criterion",
+            )
+        else:
+            result = (True, None)
+
+        self._vasp_validation_cache[cache_key] = result
+        return result
+
     def _read_vasp_outcar(self, outcar_path: Path) -> Tuple[Optional[Atoms], Optional[float], Optional[float]]:
         """
         Read a single VASP OUTCAR file and extract density and energy information.
@@ -311,6 +439,10 @@ class VaspProcessing:
         """
         density = float("-inf")
         energy = float("inf")
+        valid, reason = self._validate_vasp_outcar(outcar_path)
+        if not valid:
+            logging.error("Invalid VASP output %s: %s", outcar_path, reason)
+            return None, density, energy
         try:
             atoms = read_vasp_out(str(outcar_path))
             volume = atoms.get_volume()  # 体积单位为立方埃（Å³）
@@ -349,6 +481,9 @@ class VaspProcessing:
 
         # Read Rough optimization
         rough_outcar = folder / "OUTCAR"
+        rough_output_valid, rough_failure_reason = self._validate_vasp_outcar(
+            rough_outcar
+        )
         rough_atoms, rough_density, rough_energy = self._read_vasp_outcar(rough_outcar)
         if rough_atoms is None:
             logging.error(f"Error reading OUTCAR file {rough_outcar}\n")
@@ -357,6 +492,9 @@ class VaspProcessing:
 
         # Read Fine optimization
         fine_outcar = folder / "fine/OUTCAR"
+        fine_output_valid, fine_failure_reason = self._validate_vasp_outcar(
+            fine_outcar
+        )
         fine_atoms, fine_density, fine_energy = self._read_vasp_outcar(fine_outcar)
         fine_ions_check = False
 
@@ -380,9 +518,16 @@ class VaspProcessing:
         final_density, final_energy = float("-inf"), float("inf")
         final_ions_check = False
         final_atoms = None
+        final_output_valid = False
+        final_failure_reason = "final relaxation was not requested"
 
-        if relaxation and fine_atoms is not None:
+        # A converged final restart can recover from an invalid fine stage, so
+        # assess it independently whenever relaxation was requested.
+        if relaxation:
             final_outcar = folder / "fine/final/OUTCAR"
+            final_output_valid, final_failure_reason = self._validate_vasp_outcar(
+                final_outcar
+            )
             final_atoms, final_density, final_energy = self._read_vasp_outcar(final_outcar)
             if final_atoms is None:
                 logging.error(f"Error reading final/OUTCAR file {final_outcar}\n")
@@ -403,12 +548,18 @@ class VaspProcessing:
             "mlp_energy": mlp_energy,
             "rough_density": rough_density,
             "rough_energy": rough_energy,
+            "rough_output_valid": rough_output_valid,
+            "rough_failure_reason": rough_failure_reason,
             "fine_density": fine_density,
             "fine_energy": fine_energy,
+            "fine_output_valid": fine_output_valid,
+            "fine_failure_reason": fine_failure_reason,
             "fine_ions_check": fine_ions_check,
             "fine_atoms": fine_atoms,
             "final_density": final_density,
             "final_energy": final_energy,
+            "final_output_valid": final_output_valid,
+            "final_failure_reason": final_failure_reason,
             "final_ions_check": final_ions_check,
             "final_atoms": final_atoms,
         }
@@ -605,6 +756,7 @@ class VaspProcessing:
             relaxation: Whether to read final relaxation results
         """
         data_rows = []
+        failed_rows = []
 
         for folder in self.vasp_optimized_dir.iterdir():
             if not folder.is_dir():
@@ -617,6 +769,29 @@ class VaspProcessing:
 
             # Read all properties for this structure
             props = self._read_structure_properties(folder, relaxation)
+
+            target_stage = "final" if relaxation else "fine"
+            target_valid = props[f"{target_stage}_output_valid"]
+            target_atoms = props[f"{target_stage}_atoms"]
+            if not target_valid or target_atoms is None:
+                reason = (
+                    props[f"{target_stage}_failure_reason"]
+                    or "OUTCAR parse failed"
+                )
+                failed_rows.append(
+                    {
+                        "Number": props["number"],
+                        "Stage": target_stage,
+                        "Reason": reason,
+                    }
+                )
+                logging.warning(
+                    "Skipping structure %s: %s VASP result is invalid (%s)",
+                    props["number"],
+                    target_stage,
+                    reason,
+                )
+                continue
 
             # Calculate packing coefficient
             fine_PC, final_PC = self._calculate_packing_coefficient(
@@ -648,6 +823,20 @@ class VaspProcessing:
         csv_file_path = self.base_dir / "vasp_density_energy.csv"
         self._write_csv_file(data_rows, csv_file_path, molecules_prior, relaxation)
         logging.info(f"VASP Density and Energy data saved to {csv_file_path}")
+
+        failures_path = self.base_dir / "vasp_failures.csv"
+        with failures_path.open("w", newline="", encoding="utf-8") as failure_file:
+            writer = csv.DictWriter(
+                failure_file, fieldnames=["Number", "Stage", "Reason"]
+            )
+            writer.writeheader()
+            writer.writerows(failed_rows)
+
+        if not data_rows:
+            raise RuntimeError(
+                "No valid, converged VASP structures were found; "
+                f"see {failures_path}"
+            )
 
         self._log_max_densities(data_rows, relaxation)
 

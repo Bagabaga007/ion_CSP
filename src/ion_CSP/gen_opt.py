@@ -5,11 +5,8 @@ using various methods including CALYPSO, USPEX, and other crystal structure pred
 """
 
 import os
-import sys
 import csv
 import time
-import uuid
-import signal
 import shlex
 import shutil
 import psutil
@@ -21,7 +18,7 @@ from pathlib import Path
 from pyxtal import pyxtal
 from pyxtal.msg import Comp_CompatibilityError, Symm_CompatibilityError
 
-from ion_CSP.log_and_time import redirect_dpdisp_logging, machine_resources_prep
+from ion_CSP.log_and_time import dpdisp_logging, machine_resources_prep
 
 
 class CrystalGenerator:
@@ -36,9 +33,6 @@ class CrystalGenerator:
             species: A list of strings representing the species of ions in the ionic crystal.
         """
         self.base_dir = work_dir.resolve()
-        # 设置dpdispatcher日志文件存放路径
-        dpdisp_log_path = self.base_dir / "dpdispatcher.log"
-        redirect_dpdisp_logging(dpdisp_log_path)
         package_dir = Path(__file__).resolve().parent
         self.mlp_opt_file = package_dir / "mlp_opt.py"
         self.model_file = package_dir / "model" / "model.pt"
@@ -300,13 +294,25 @@ class CrystalGenerator:
         machine, resources, parent = machine_resources_prep(
             machine_path=machine_path, resources_path=resources_path
         )
+        machine_info = machine.serialize()
+        resources_info = resources.serialize()
         if (
-            machine.serialize()["batch_type"] == "Shell"
-            and resources.serialize()["gpu_per_node"] != 0
+            machine_info["batch_type"] == "Shell"
+            and resources_info["gpu_per_node"] != 0
         ):
-            # 如果是本地运行，则根据显存占用率阈值，等待可用的GPU
-            selected_gpu = _wait_for_gpu(memory_percent_threshold=40, wait_time=600)
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
+            if machine_info["context_type"] == "LocalContext":
+                # 本地 Shell 任务根据本机显存占用率选择 GPU。
+                selected_gpu = _wait_for_gpu(
+                    memory_percent_threshold=40, wait_time=600
+                )
+                os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
+            elif machine_info["context_type"] == "SSHContext":
+                # 远程 Shell 任务不能用本机 nvidia-smi 判断远端 GPU。
+                # GPU 选择由远端 resources/envs 或外部调度机制负责。
+                logging.info(
+                    "Skipping local GPU selection for remote Shell task; "
+                    "using the remote resource environment."
+                )
 
         from dpdispatcher import Task, Submission
 
@@ -408,7 +414,8 @@ class CrystalGenerator:
         # 所有中断/异常分支都会终止子进程并重新抛出，从而跳过回收，避免海量无效日志。
         try:
             logging.info("Submitting tasks to dpdispatcher...")
-            self._submission.run_submission()
+            with dpdisp_logging(self.base_dir / "dpdispatcher.log"):
+                self._submission.run_submission()
         except KeyboardInterrupt:
             # 捕获 KeyboardInterrupt，终止任务后重新抛出让 StatusLogger 处理
             logging.info("Received KeyboardInterrupt, terminating tasks...")

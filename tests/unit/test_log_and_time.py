@@ -1,10 +1,10 @@
 import yaml
 import pytest
 import logging
+import subprocess
+import sys
 from pathlib import Path
 from dpdispatcher.dlog import dlog
-import importlib
-import dpdispatcher
 from unittest.mock import patch, Mock, MagicMock
 
 from ion_CSP.log_and_time import (
@@ -12,9 +12,54 @@ from ion_CSP.log_and_time import (
     merge_config,
     StatusLogger,
     redirect_dpdisp_logging,
+    dpdisp_logging,
     get_work_dir_and_config,
     machine_resources_prep,
 )
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "ion_CSP.log_and_time",
+        "ion_CSP.convert_SMILES",
+        "ion_CSP.vasp_processing",
+    ],
+)
+def test_import_does_not_leave_default_dpdispatcher_log(
+    tmp_path, module_name
+):
+    subprocess.run(
+        [sys.executable, "-c", f"import {module_name}"],
+        cwd=tmp_path,
+        check=True,
+    )
+    assert not (tmp_path / "dpdispatcher.log").exists()
+
+
+def test_dpdisp_logging_context_closes_handler(tmp_path):
+    original_handlers = list(dlog.handlers)
+    dlog.handlers.clear()
+    log_path = tmp_path / "dpdispatcher.log"
+
+    try:
+        with dpdisp_logging(log_path):
+            file_handlers = [
+                handler
+                for handler in dlog.handlers
+                if isinstance(handler, logging.FileHandler)
+            ]
+            assert len(file_handlers) == 1
+            assert file_handlers[0].baseFilename == str(log_path)
+
+        assert not any(
+            isinstance(handler, logging.FileHandler) for handler in dlog.handlers
+        )
+        assert "LOG INIT:dpdispatcher log direct to" in log_path.read_text()
+    finally:
+        dlog.handlers.clear()
+        for handler in original_handlers:
+            dlog.addHandler(handler)
 
 
 # ========================== 测试 log_and_time 装饰器 ===============================
@@ -59,7 +104,7 @@ def test_log_and_time_decorator_exception(tmp_path, caplog):
     caplog.set_level(logging.INFO)
 
     # 使用装饰器的函数
-    result = dummy_function(tmp_path)
+    dummy_function(tmp_path)
 
     with pytest.raises(ZeroDivisionError):
         @log_and_time
@@ -758,7 +803,7 @@ ExistingTask:
 """)
 
     # 2. 创建 StatusLogger，会调用 _init_yaml
-    logger = StatusLogger(tmp_path, "NewTask")
+    StatusLogger(tmp_path, "NewTask")
 
     # 3. 验证：yaml 文件被读取并保留了原有任务（覆盖 227-228 分支）
     with open(yaml_file, "r") as f:

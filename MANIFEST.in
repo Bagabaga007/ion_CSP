@@ -1,5 +1,5 @@
 include README.md
 include LICENSE
-include src/run/*.py
-include param/*
-include model/model.pt
+recursive-include src/ion_CSP/run *.py
+recursive-include src/ion_CSP/param *
+recursive-include src/ion_CSP/model *.pt *.md
