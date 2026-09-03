@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python 3.11
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
@@ -32,12 +32,16 @@ jobs:
 
     - name: Install build tooling
       run: |
-        conda run --name ion-csp-env python -m pip install --upgrade build
+        conda run --name ion-csp-env python -m pip install --upgrade build "uv==0.11.33"
+
+    - name: Verify dependency lock
+      run: |
+        conda run --name ion-csp-env uv lock --check
 
     - name: Build package
       run: |
         conda run --name ion-csp-env python -m build
-        conda run --name ion-csp-env pip install -e .
+        conda run --name ion-csp-env pip install -e ".[test]"
   
     - name: Test with pytest
       run: |

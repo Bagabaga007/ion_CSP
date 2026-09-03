@@ -65,20 +65,22 @@
 | psutil      | 7.0.0    |
 | Docker      | 20.10    |
 | ase         | 3.23.0   |
-| deepmd-kit  | 3.0.1    |
-| torch       | 2.5.0    |
-| dpdispatcher| 0.6.7    |
+| deepmd-kit  | 3.2.0（MLP 节点） |
+| torch       | 2.11.0（MLP 节点）|
+| dpdispatcher| 1.1.0     |
 | numpy       | 1.26.4   |
 | pandas      | 2.2.3    |
-| paramiko    | 3.5.1    |
+| paramiko    | 5.0.0     |
 | PyYAML      | 6.0.2    |
 | pyxtal      | 1.0.4    |
 | phonopy     | 2.34.1   |
 | rdkit       | 2024.03.3|
-| pytest      | 8.3.4    |
-| pytest-cov  | 6.2.1    |
+| pytest      | 9.0.3     |
+| pytest-cov  | 7.1.0     |
 
-> Python 依赖不包含 Gaussian、Multiwfn 或 VASP。完整 EE/CSP 工作流还要求这些程序在本机或相应计算节点上可用。
+> 核心 Python 环境不安装 DeepMD/Torch；它们只在 `mlp_python` 指向的 MLP 计算节点环境中使用。当前受支持的二进制组合是 DeepMD 3.2.0 + Torch 2.11.0。Python 依赖不包含 Gaussian、Multiwfn 或 VASP。完整 EE/CSP 工作流还要求这些程序在本机或相应计算节点上可用。
+
+MLP 工作节点可使用 `environment-mlp.yml` 创建独立环境；不要在核心调度环境中安装或锁定 GPU/CUDA 栈。
 
 ### 安装步骤
 
@@ -188,7 +190,7 @@ pytest tests/system/      # 系统测试
 - 修复 Database_Ions 相对软链接迁移、混合离子排除和重复离子组合保护。
 - 增加 VASP 6.3.0 受限体积宏循环、致命错误/截断输出/离子未收敛门禁和阶段状态记录，同时保留粗优化 EDIFF=1e-4。
 - 改进 MLP 参数转发、远程 GPU 判断、dpdispatcher 日志生命周期和结果失败传播。
-- 将运行资源统一到 src/ion_CSP，补充拓扑、日志、打包和 VASP 回归测试；完整测试通过 523 项。
+- 将运行资源统一到 src/ion_CSP，补充拓扑、日志、打包和 VASP 回归测试；完整测试通过 524 项。
 - 纳入已获许可的 PBE.52 B POTCAR，并在 .gitignore 中显式允许该文件。
 
 ### V2.3.4 (2026-08-31)
@@ -332,18 +334,22 @@ See [docs/TEST_REPORT.md](docs/TEST_REPORT.md) for detailed test report.
 | psutil      | 7.0.0       |
 | Docker      | 20.10       |
 | ase         | 3.23.0      |
-| deepmd-kit  | 3.0.1       |
-| torch       | 2.5.0       |
-| dpdispatcher| 0.6.7       |
+| deepmd-kit  | 3.2.0 (MLP worker) |
+| torch       | 2.11.0 (MLP worker)|
+| dpdispatcher| 1.1.0          |
 | numpy       | 1.26.4      |
 | pandas      | 2.2.3       |
-| paramiko    | 3.5.1       |
+| paramiko    | 5.0.0          |
 | PyYAML      | 6.0.2       |
 | pyxtal      | 1.0.4       |
 | phonopy     | 2.34.1      |
 | rdkit       | 2024.03.3   |
-| pytest      | 8.3.4       |
-| pytest-cov  | 6.2.1       |
+| pytest      | 9.0.3          |
+| pytest-cov  | 7.1.0          |
+
+> The core environment does not install DeepMD/Torch. They run only in the MLP worker selected by `mlp_python`; the supported binary pair is DeepMD 3.2.0 + Torch 2.11.0.
+
+Use `environment-mlp.yml` for an isolated MLP worker; do not install or lock the GPU/CUDA stack in the core orchestration environment.
 
 ### Installation Steps
 

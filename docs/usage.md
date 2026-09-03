@@ -617,14 +617,23 @@ python docs/example_usage_CSP.py /absolute/path/to/combo_1
 - mattersim
 
 这些后端通常使用独立 Python 环境，并通过 mlp_python 指定计算节点上的解释器。
-DPA4/MatterSim 一般将 mlp_workers 设置为 1，避免同一 GPU 重复加载多个大模型。
+默认 DeepMD 工作节点也必须使用独立环境；当前验证过的安全升级组合为 `deepmd-kit[torch]==3.2.0`，其官方 wheel 按 ABI 绑定 `torch==2.11.0`，不能在不重编译 DeepMD 的情况下单独提升到 Torch 2.13。可在计算节点创建环境：
+
+~~~bash
+conda env create -f environment-mlp.yml
+conda run -n ion-csp-mlp python -c "from deepmd.calculator import DP; print('DeepMD ready')"
+~~~
+
+Torch 2.11 仍有一个只影响 `torch.jit.script` 的低风险告警
+`GHSA-rrmf-rvhw-rf47`；ion_CSP 的 MLP 运行器不调用该 API。MLP 模型必须来自
+可信来源并校验摘要，不要加载不可信的 PyTorch/DeepMD 模型文件。DPA4/MatterSim
+一般将 mlp_workers 设置为 1，避免同一 GPU 重复加载多个大模型。
 详见 DPA4_BACKEND.md 和 MATTERSIM_BACKEND.md。
 
 VASP 提交会从结构元素动态发现并按 POSCAR 元素顺序拼接
 src/ion_CSP/param/POTCAR_<元素>。Git 历史中的 H、C、N、O 与 JLU_184 的
 PBE/PAW_PBE.52 势库逐字节匹配（忽略换行格式）。当前计算环境已从同一势库部署
-POTCAR_B，因此 BNx 可以进入 VASP；新增势文件受 VASP 许可约束并被 .gitignore
-阻止提交，其他克隆或计算节点必须由有权用户从同系列势库本地部署。缺失势会在
+POTCAR_B，因此 BNx 可以进入 VASP；该 B 势文件已确认许可并随项目分发。其他新增势文件仍受 VASP 许可约束并默认由 `.gitignore` 阻止提交，必须逐个确认授权。缺失势会在
 远程提交前明确报错，不会生成少元素的错误 POTCAR。
 
 ## 故障排除

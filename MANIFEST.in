@@ -1,5 +1,7 @@
 include README.md
 include LICENSE
+include environment.yml
+include environment-mlp.yml
 recursive-include src/ion_CSP/run *.py
 recursive-include src/ion_CSP/param *
 recursive-include src/ion_CSP/model *.pt *.md

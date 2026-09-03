@@ -1,0 +1,13 @@
+name: ion-csp-mlp
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+    # DeepMD wheels are compiled against one exact PyTorch ABI. Keep this as
+    # the official supported pair instead of overriding Torch independently.
+    # Torch 2.11 retains GHSA-rrmf-rvhw-rf47 (LOW) in torch.jit.script; ion_CSP
+    # does not call that API and accepts only trusted, checksum-verified models.
+    - deepmd-kit[torch]==3.2.0
+    - ase>=3.23,<4

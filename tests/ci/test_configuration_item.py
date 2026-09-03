@@ -303,7 +303,8 @@ class TestCompatibility:
         required_packages = [
             'ase',
             'scipy',
-            'torch',
+            'dpdispatcher',
+            'paramiko',
             'numpy',
             'pytest',
             'rdkit',
@@ -314,6 +315,23 @@ class TestCompatibility:
                 __import__(package)
             except ImportError:
                 pytest.fail(f"缺少必需依赖包: {package}")
+
+    def test_dependency_security_policy(self, project_root):
+        """核心锁文件不得重新引入远程 MLP 的易受攻击依赖栈。"""
+        import tomllib
+
+        metadata = tomllib.loads((project_root / "pyproject.toml").read_text())
+        dependencies = [item.lower() for item in metadata["project"]["dependencies"]]
+        assert not any(item.startswith("torch") for item in dependencies)
+        assert not any(item.startswith("deepmd-kit") for item in dependencies)
+        assert any(item.startswith("paramiko>=5") for item in dependencies)
+        assert any(item.startswith("cryptography>=50") for item in dependencies)
+        assert any(item.startswith("urllib3>=2.7") for item in dependencies)
+
+        lock_text = (project_root / "uv.lock").read_text()
+        assert 'name = "torch"' not in lock_text
+        assert 'name = "deepmd-kit"' not in lock_text
+        assert 'version = "2.3.5"' in lock_text
 
     def test_platform_compatibility(self):
         """验证平台兼容性"""
@@ -405,7 +423,6 @@ class TestPortability:
     def test_no_hardcoded_paths(self, project_root):
         """验证没有硬编码的绝对路径"""
         import re
-        from pathlib import Path
 
         src_dir = project_root / "src" / "ion_CSP"
         py_files = list(src_dir.rglob("*.py"))
@@ -424,7 +441,6 @@ class TestPortability:
 
     def test_relative_imports_used(self, project_root):
         """验证使用相对导入"""
-        from pathlib import Path
 
         src_dir = project_root / "src" / "ion_CSP"
         py_files = list(src_dir.rglob("*.py"))
@@ -439,4 +455,4 @@ class TestPortability:
                 break
 
         # 这个测试比较宽松，只要有相对导入就通过
-        assert True  # 可移植性通过基本检查
+        assert has_relative_imports
