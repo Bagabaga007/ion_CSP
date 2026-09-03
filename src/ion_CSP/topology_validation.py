@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 import csv
 import json
+import logging
 import shutil
 
 import networkx as nx
@@ -162,6 +163,9 @@ def validate_project_ion_topologies(
 
     gaussian_root = work_dir / "1_2_Gaussian_optimized"
     optimized_root = gaussian_root / "Optimized"
+    convert_config = config.get("convert_SMILES", {})
+    snapshot_enabled = bool(convert_config.get("structure_snapshots", True))
+    snapshot_dpi = int(convert_config.get("snapshot_dpi", 160))
     report = {
         "csv_file": str(csv_path),
         "scale": scale,
@@ -202,6 +206,35 @@ def validate_project_ion_topologies(
                         row["SMILES"], read(gjf_path), scale=scale
                     )
                     item.update(comparison)
+                    if snapshot_enabled:
+                        try:
+                            from ion_CSP.structure_snapshots import (
+                                render_gjf_snapshots,
+                            )
+
+                            snapshot = render_gjf_snapshots(
+                                gjf_path,
+                                row["SMILES"],
+                                work_dir
+                                / "structure_snapshots"
+                                / "optimized"
+                                / charge_folder
+                                / refcode,
+                                refcode=refcode,
+                                stage="optimized",
+                                scale=scale,
+                                dpi=snapshot_dpi,
+                            )
+                            item["snapshot_manifest"] = snapshot["manifest"]
+                        except Exception as error:
+                            item["snapshot_error"] = (
+                                f"{type(error).__name__}: {error}"
+                            )
+                            logging.warning(
+                                "Unable to render optimized snapshots for %s: %s",
+                                refcode,
+                                item["snapshot_error"],
+                            )
                     if comparison["topology_match"]:
                         item["status"] = "valid"
                         report["valid_count"] += 1

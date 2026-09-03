@@ -23,6 +23,8 @@ DEFAULT_CONFIG = {
         "database_dir": "",
         "migrate_database_copies": True,
         "preserve_smiles_topology": True,
+        "structure_snapshots": True,
+        "snapshot_dpi": 160,
         "validate_topology": True,
     },
     "empirical_estimate": {
@@ -256,6 +258,10 @@ def convertion_task(work_dir, config):
         preserve_topology=config["convert_SMILES"].get(
             "preserve_smiles_topology", True
         ),
+        structure_snapshots=config["convert_SMILES"].get(
+            "structure_snapshots", True
+        ),
+        snapshot_dpi=config["convert_SMILES"].get("snapshot_dpi", 160),
     )
     # 根据电荷进行分组创建文件夹并将SMILES码转换为对应的结构文件
     convertion.charge_group()

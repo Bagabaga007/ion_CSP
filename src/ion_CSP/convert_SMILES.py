@@ -7,6 +7,7 @@ from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from ion_CSP.log_and_time import dpdisp_logging, machine_resources_prep
+from ion_CSP.structure_snapshots import render_gjf_snapshots
 from dpdispatcher import Task, Submission
 
 
@@ -19,6 +20,8 @@ class SmilesProcessing:
         converted_folder: str = "1_1_SMILES_gjf",
         optimized_dir: str = "1_2_Gaussian_optimized",
         preserve_topology: bool = True,
+        structure_snapshots: bool = True,
+        snapshot_dpi: int = 160,
     ):
         """
         This class is used to process SMILES codes from a CSV file, convert them into Gaussian input files, and prepare for optimization tasks. It also supports grouping by charge and filtering based on functional groups.
@@ -30,8 +33,14 @@ class SmilesProcessing:
             optimized_dir: the folder name for storing Gaussian optimized files.
             preserve_topology: add Gaussian ModRedundant bond constraints for
                 every bond present in the source SMILES.
+            structure_snapshots: render bonded multi-view PNG diagnostics.
+            snapshot_dpi: image resolution for the rendered PNG files.
         """
         self.preserve_topology = bool(preserve_topology)
+        self.structure_snapshots = bool(structure_snapshots)
+        self.snapshot_dpi = int(snapshot_dpi)
+        if self.snapshot_dpi < 72:
+            raise ValueError("snapshot_dpi must be at least 72")
         # 读取csv文件并处理数据, csv文件的表头包括 SMILES, Charge, Refcode或Number
         self.base_dir = work_dir.resolve()
         if not csv_file:
@@ -47,6 +56,7 @@ class SmilesProcessing:
         self.gaussian_optimized_dir = self.base_dir / optimized_dir
         self.converted_dir.mkdir(parents=True, exist_ok=True)
         self.gaussian_optimized_dir.mkdir(parents=True, exist_ok=True)
+        self.snapshot_dir = self.base_dir / "structure_snapshots"
         self.param_dir = importlib.resources.files("ion_CSP.param")
 
         original_df = pd.read_csv(csv_path)
@@ -200,6 +210,28 @@ class SmilesProcessing:
                 f"Error occurred while optimizing molecule of {basename} with charge {charge}: {e}"
             )
             result_flag = False
+        if result_flag and self.structure_snapshots:
+            gjf_path = dir_path / f"{basename}.gjf"
+            snapshot_output = (
+                self.snapshot_dir / "initial" / f"charge_{charge}" / str(basename)
+            )
+            try:
+                report = render_gjf_snapshots(
+                    gjf_path,
+                    smiles,
+                    snapshot_output,
+                    refcode=str(basename),
+                    stage="initial",
+                    dpi=self.snapshot_dpi,
+                )
+                logging.info("Initial structure snapshots: %s", report["manifest"])
+            except Exception as error:
+                logging.warning(
+                    "Unable to render initial snapshots for %s: %s: %s",
+                    basename,
+                    type(error).__name__,
+                    error,
+                )
         # 第一项返回值为结果码True或False, 分别代表成功和失败; 第二项返回值为对应的refcode或序号
         return result_flag, basename
 

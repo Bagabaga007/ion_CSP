@@ -65,6 +65,7 @@
 | psutil      | 7.0.0    |
 | Docker      | 20.10    |
 | ase         | 3.23.0   |
+| matplotlib  | 3.10     |
 | deepmd-kit  | 3.2.0（MLP 节点） |
 | torch       | 2.11.0（MLP 节点）|
 | dpdispatcher| 1.1.0     |
@@ -190,8 +191,9 @@ pytest tests/system/      # 系统测试
 - 修复 Database_Ions 相对软链接迁移、混合离子排除和重复离子组合保护。
 - 增加 VASP 6.3.0 受限体积宏循环、致命错误/截断输出/离子未收敛门禁和阶段状态记录，同时保留粗优化 EDIFF=1e-4。
 - 改进 MLP 参数转发、远程 GPU 判断、dpdispatcher 日志生命周期和结果失败传播。
-- 将运行资源统一到 src/ion_CSP，补充拓扑、日志、打包和 VASP 回归测试；完整测试通过 524 项。
+- 将运行资源统一到 src/ion_CSP，补充拓扑、日志、打包和 VASP 回归测试；完整测试通过 529 项。
 - 纳入已获许可的 PBE.52 B POTCAR，并在 .gitignore 中显式允许该文件。
+- 自动保存 Gaussian 优化前后的带键四视角 PNG、总览图和拓扑差异 JSON，便于人工检查离子成键。
 
 ### V2.3.4 (2026-08-31)
 
@@ -334,6 +336,7 @@ See [docs/TEST_REPORT.md](docs/TEST_REPORT.md) for detailed test report.
 | psutil      | 7.0.0       |
 | Docker      | 20.10       |
 | ase         | 3.23.0      |
+| matplotlib  | 3.10        |
 | deepmd-kit  | 3.2.0 (MLP worker) |
 | torch       | 2.11.0 (MLP worker)|
 | dpdispatcher| 1.1.0          |

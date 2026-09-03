@@ -297,6 +297,8 @@ def test_convertion_task_without_screen(mock_smiles, mock_work_dir, mock_config)
         work_dir=mock_work_dir,
         csv_file=mock_config["convert_SMILES"]["csv_file"],
         preserve_topology=True,
+        structure_snapshots=True,
+        snapshot_dpi=160,
     )
 
     # 验证 charge_group 被调用
@@ -521,6 +523,8 @@ def test_default_config_structure():
     # 验证 convert_SMILES 配置
     assert "csv_file" in DEFAULT_CONFIG["convert_SMILES"]
     assert "preserve_smiles_topology" in DEFAULT_CONFIG["convert_SMILES"]
+    assert "structure_snapshots" in DEFAULT_CONFIG["convert_SMILES"]
+    assert DEFAULT_CONFIG["convert_SMILES"]["snapshot_dpi"] == 160
     assert "screen" in DEFAULT_CONFIG["convert_SMILES"]
     assert DEFAULT_CONFIG["convert_SMILES"]["screen"] is False
 

@@ -77,6 +77,8 @@ def test_run_convert_smiles_main_with_mocks(test_work_dir):
             work_dir=test_work_dir,
             csv_file="test_smiles.csv",
             preserve_topology=True,
+            structure_snapshots=True,
+            snapshot_dpi=160,
         )
 
         # Verify charge_group was called
@@ -142,12 +144,16 @@ def test_run_convert_smiles_default_config():
     assert "group_name" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
     assert "group_screen_invert" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
     assert "preserve_smiles_topology" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
+    assert "structure_snapshots" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
+    assert "snapshot_dpi" in run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]
 
     # Verify default values
     assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["csv_file"] == ""
     assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["screen"] is False
     assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["group_screen_invert"] is False
     assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["preserve_smiles_topology"] is True
+    assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["structure_snapshots"] is True
+    assert run_convert_SMILES.DEFAULT_CONFIG["convert_SMILES"]["snapshot_dpi"] == 160
 
 
 def test_run_convert_smiles_with_invert_screening(test_work_dir):

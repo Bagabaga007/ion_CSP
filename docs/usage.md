@@ -199,6 +199,10 @@ convert_SMILES:
 
   # 没有中央预优化离子库时保持为空
   database_dir: ''
+  preserve_smiles_topology: true
+  validate_topology: true
+  structure_snapshots: true
+  snapshot_dpi: 160
 
   machine: /absolute/path/cpu_machine.yaml
   resources: /absolute/path/cpu_resources.yaml
@@ -233,6 +237,10 @@ empirical_estimate:
 | csv_file | 位于 EE 工作目录中的 CSV 文件名 |
 | screen | 是否按电荷和官能团进行额外筛选 |
 | database_dir | 中央预优化离子库根目录；空字符串表示禁用 |
+| preserve_smiles_topology | Gaussian 输入是否冻结原始 SMILES 中的键长 |
+| validate_topology | 组合前是否验证优化结构与 SMILES 的图同构关系 |
+| structure_snapshots | 是否保存初始和优化后的带键四视角 PNG 与总览图 |
+| snapshot_dpi | PNG 分辨率，最小值为 72 |
 | folders | 参与组合的 charge_* 文件夹，顺序很重要 |
 | ratios | 经验公式使用的各文件夹离子计量比 |
 | sort_by | density、nitrogen 或 NC_ratio |
@@ -420,6 +428,9 @@ python -m ion_CSP.run.main_EE /absolute/path/to/ee_work_dir
 │   ├── sorted_density.csv
 │   ├── sorted_nitrogen.csv
 │   └── specific_NC_ratio.csv
+├── structure_snapshots/
+│   ├── initial/charge_*/<ion>/
+│   └── optimized/charge_*/<ion>/
 ├── 2_density_combos/       # sort_by=density
 │   └── combo_n/
 │       ├── <ion>.gjf
@@ -439,6 +450,12 @@ database_dir 为空时禁用中央库。如果启用，它应指向包含
 migrate_database_copies 可迁移完全相同的旧副本，validate_topology 会在组合前验证
 项目离子的 Gaussian 邻接图。命中规范化 SMILES 和电荷的离子会
 复用已有 GJF/JSON，从而跳过 Gaussian。
+
+每个离子的快照目录包含 `xy`、`xz`、`yz`、`isometric` 四张单图、一个
+`*_multiview.png` 总览图和一个 `*_snapshot.json`。灰色实线表示 SMILES 预期键
+在几何邻接图中存在；红色虚线表示预期键缺失；橙色点线表示几何中出现了额外键；
+原子标签使用“元素+1-based 原子编号”。键宽反映 SMILES 键级，方便比较优化前后。
+快照只按项目 CSV 生成，不为配对时链接进来的数据库离子复制文件。
 
 ## CSP模块使用
 

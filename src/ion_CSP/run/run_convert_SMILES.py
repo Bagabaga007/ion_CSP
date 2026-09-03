@@ -11,6 +11,8 @@ DEFAULT_CONFIG = {
         "group_name": "",  # 默认分组名称
         "group_screen_invert": False,  # 默认不进行反向筛选
         "preserve_smiles_topology": True,
+        "structure_snapshots": True,
+        "snapshot_dpi": 160,
     }
 }
 
@@ -24,6 +26,10 @@ def main(work_dir, config):
         preserve_topology=config["convert_SMILES"].get(
             "preserve_smiles_topology", True
         ),
+        structure_snapshots=config["convert_SMILES"].get(
+            "structure_snapshots", True
+        ),
+        snapshot_dpi=config["convert_SMILES"].get("snapshot_dpi", 160),
     )
     # 根据电荷进行分组创建文件夹并将SMILES码转换为对应的结构文件
     result.charge_group()

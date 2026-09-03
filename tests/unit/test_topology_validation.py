@@ -53,7 +53,13 @@ def test_validate_project_topology_quarantines_changed_products(tmp_path):
         ),
     )
     (optimized / "N3.json").write_text("{}", encoding="utf-8")
-    config = {"convert_SMILES": {"csv_file": "ions.csv"}}
+    config = {
+        "convert_SMILES": {
+            "csv_file": "ions.csv",
+            "structure_snapshots": True,
+            "snapshot_dpi": 72,
+        }
+    }
 
     report = validate_project_ion_topologies(
         work, config, quarantine=True, raise_on_no_valid=False
@@ -62,6 +68,11 @@ def test_validate_project_topology_quarantines_changed_products(tmp_path):
     assert report["valid_count"] == 0
     assert report["invalid_count"] == 1
     assert report["ions"]["N3"]["status"] == "topology_changed"
+    snapshot_manifest = Path(report["ions"]["N3"]["snapshot_manifest"])
+    assert snapshot_manifest.is_file()
+    snapshot = json.loads(snapshot_manifest.read_text())
+    assert snapshot["topology_match"] is False
+    assert (snapshot_manifest.parent / snapshot["multiview"]).is_file()
     bad = work / "1_2_Gaussian_optimized/Bad/topology_changed/charge_0"
     assert (bad / "N3.gjf").is_file()
     assert (bad / "N3.json").is_file()

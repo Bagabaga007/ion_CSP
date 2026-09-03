@@ -37,7 +37,7 @@ invalid_smiles,0,REF005,5"""
         mock_files.return_value = param_dir
 
         # 5. 创建实例 —— 它会自动创建 converted_dir 和 gaussian_optimized_dir
-        sp = SmilesProcessing(base_dir, "test.csv")
+        sp = SmilesProcessing(base_dir, "test.csv", structure_snapshots=False)
         yield sp
 
 
@@ -251,6 +251,51 @@ def test_charge_group_success(smiles_processor: SmilesProcessing, caplog):
     assert "Errors encounted: 1" in caplog.text
     assert "REF005" in caplog.text
     assert "Invalid SMILES:" in caplog.text
+
+
+def test_charge_group_renders_initial_bonded_snapshots(tmp_path: Path):
+    work_dir = tmp_path / "snapshot_project"
+    work_dir.mkdir()
+    (work_dir / "ions.csv").write_text(
+        "SMILES,Charge,Refcode\nNNN,0,N3\n", encoding="utf-8"
+    )
+    processor = SmilesProcessing(
+        work_dir,
+        "ions.csv",
+        structure_snapshots=True,
+        snapshot_dpi=72,
+    )
+
+    processor.charge_group()
+
+    snapshot_dir = work_dir / "structure_snapshots/initial/charge_0/N3"
+    manifest = json.loads((snapshot_dir / "N3_initial_snapshot.json").read_text())
+    assert manifest["stage"] == "initial"
+    assert manifest["topology_match"] is True
+    assert len(manifest["views"]) == 4
+    assert (snapshot_dir / manifest["multiview"]).is_file()
+
+
+def test_snapshot_render_failure_does_not_discard_gaussian_input(
+    smiles_processor: SmilesProcessing, caplog
+):
+    smiles_processor.structure_snapshots = True
+    with patch(
+        "ion_CSP.convert_SMILES.render_gjf_snapshots",
+        side_effect=RuntimeError("render failed"),
+    ):
+        result, _ = smiles_processor._convert_SMILES(
+            smiles_processor.converted_dir / "charge_0",
+            "CCO",
+            "SNAPSHOT_WARNING",
+            0,
+        )
+
+    assert result is True
+    assert "Unable to render initial snapshots" in caplog.text
+    assert (
+        smiles_processor.converted_dir / "charge_0/SNAPSHOT_WARNING.gjf"
+    ).is_file()
 
 
 def test_charge_group_failure_no_csv(smiles_processor: SmilesProcessing, caplog):
@@ -742,7 +787,7 @@ def test_error_handling(smiles_processor: SmilesProcessing, caplog):
         SmilesProcessing(sp.base_dir, bad_csv.name)
 
     # 8. 无效 SMILES 日志（正常流程）
-    sp = SmilesProcessing(sp.base_dir, "test.csv")
+    sp = SmilesProcessing(sp.base_dir, "test.csv", structure_snapshots=False)
     sp.charge_group()
     assert "REF005" in caplog.text
     assert "Invalid SMILES:" in caplog.text
