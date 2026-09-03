@@ -21,7 +21,7 @@ CSP input integrity and portable database views:
 - Removed root-level duplicate model/param packaging sources in favor of src/ion_CSP, and archived ignored historical example results and generated artifacts outside the repository.
 - Validated the constrained VASP flow on a real N8+ + nitrate top-1 candidate: rough/fine converged in 84/235 ionic steps, pressures were 1.62/-0.08 kB, final max force was 0.01812 eV/Å, and all ion graphs were preserved.
 - Added topology/linking, logging, packaging, and constrained-VASP regressions; the full suite passes 524/524.
-- Refreshed the core dependency lock with patched cryptography, Pillow, urllib3, lxml, Paramiko, dpdispatcher, pytest, and related transitives; moved DeepMD/Torch to the isolated MLP worker contract.
+- Refreshed the core dependency lock with patched cryptography, Pillow, urllib3, lxml, Paramiko, dpdispatcher, pytest, GitHub Actions, and related transitives; moved DeepMD/Torch to the isolated MLP worker contract.
 
 ### V2.3.4 (2026-08-31)
 
