@@ -1,10 +1,10 @@
-# 基于分子/离子构型的晶体结构设计软件 V2.3.4
+# 基于分子/离子构型的晶体结构设计软件 V2.3.5
 
-[![Version](https://img.shields.io/badge/version-2.3.4-blue.svg)](https://github.com/Bagabaga007/ion_CSP)
+[![Version](https://img.shields.io/badge/version-2.3.5-blue.svg)](https://github.com/Bagabaga007/ion_CSP)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
-> 测试徽章和下方统计是 V2.3.0 的历史基线；V2.3.4 的修复和验证记录见 [CHANGELOG.md](CHANGELOG.md)。
+> 测试徽章和下方统计是 V2.3.0 的历史基线；V2.3.5 的修复和验证记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 项目概述
 
@@ -171,7 +171,7 @@ pytest tests/system/      # 系统测试
 
 ## 📚 文档
 
-- [完整使用指南](docs/usage.md) - 与 V2.3.4 源码一致的 EE/CSP 配置和运行说明
+- [完整使用指南](docs/usage.md) - 与 V2.3.5 源码一致的 EE/CSP 配置和运行说明
 - [Docker 指南](DOCKER.md) - CPU/GPU 容器构建与外部程序限制
 - [EE 自动离子库链接](AUTO_LINKING_GUIDE.md) - 中央预优化离子库复用说明
 - [DPA4 后端](DPA4_BACKEND.md) / [MatterSim 后端](MATTERSIM_BACKEND.md) - 通用元素 MLP 配置
@@ -181,6 +181,15 @@ pytest tests/system/      # 系统测试
 - [EE使用示例](docs/example_usage_EE.py) - EE模块使用示例
 
 ## 🔄 版本历史
+
+### V2.3.5 (2026-09-03)
+
+- 为 Gaussian 输入增加原始 SMILES 成键约束，并在优化后执行图同构拓扑门禁。
+- 修复 Database_Ions 相对软链接迁移、混合离子排除和重复离子组合保护。
+- 增加 VASP 6.3.0 受限体积宏循环、致命错误/截断输出/离子未收敛门禁和阶段状态记录，同时保留粗优化 EDIFF=1e-4。
+- 改进 MLP 参数转发、远程 GPU 判断、dpdispatcher 日志生命周期和结果失败传播。
+- 将运行资源统一到 src/ion_CSP，补充拓扑、日志、打包和 VASP 回归测试；完整测试通过 523 项。
+- 纳入已获许可的 PBE.52 B POTCAR，并在 .gitignore 中显式允许该文件。
 
 ### V2.3.4 (2026-08-31)
 
@@ -399,7 +408,7 @@ pytest tests/system/      # System tests
 
 ## Documentation
 
-- [Complete Usage Guide](docs/usage.md) - EE/CSP configuration and execution matching V2.3.4
+- [Complete Usage Guide](docs/usage.md) - EE/CSP configuration and execution matching V2.3.5
 - [Docker Guide](DOCKER.md) - CPU/GPU containers and external-program requirements
 - [DPA4 Backend](DPA4_BACKEND.md) / [MatterSim Backend](MATTERSIM_BACKEND.md) - universal-element MLP configuration
 - [Test Report](docs/TEST_REPORT.md) - V2.3.0 historical test snapshot

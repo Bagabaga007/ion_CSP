@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ion_CSP"
-version = "2.3.4"
+version = "2.3.5"
 keywords = ["Ion_Crystal, Crystal_Structure_Prediction"]
 authors = [
     {name = "Ze Yang", email = "yangze1995007@163.com"}
