@@ -67,3 +67,20 @@ def test_render_structure_snapshots_rejects_too_low_dpi(tmp_path: Path):
             stage="initial",
             dpi=71,
         )
+
+
+def test_render_structure_snapshots_supports_geometry_only_backfill(tmp_path: Path):
+    report = render_structure_snapshots(
+        Atoms("N2", positions=[[0, 0, 0], [1.3, 0, 0]]),
+        None,
+        tmp_path,
+        refcode="legacy_N2",
+        stage="optimized",
+        dpi=72,
+    )
+
+    assert report["topology_match"] is None
+    assert report["reference_source"] == "geometry"
+    assert report["smiles"] is None
+    assert report["observed_edges"] == [[0, 1]]
+    assert (tmp_path / report["multiview"]).is_file()

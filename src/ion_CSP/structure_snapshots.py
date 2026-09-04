@@ -117,7 +117,7 @@ def _draw_structure(
 
 def render_structure_snapshots(
     atoms: Atoms,
-    smiles: str,
+    smiles: str | None,
     output_dir: Path,
     *,
     refcode: str,
@@ -132,17 +132,27 @@ def render_structure_snapshots(
     if dpi < 72:
         raise ValueError("snapshot dpi must be at least 72")
     output_dir.mkdir(parents=True, exist_ok=True)
-    expected, bond_orders = _expected_bonds(smiles)
     observed = connectivity_graph(atoms, scale=scale)
-    topology_match, mapping, mapped_bonds = _mapped_expected_bonds(
-        expected, observed, bond_orders
-    )
     observed_edges = {tuple(sorted(edge)) for edge in observed.edges()}
+    if smiles:
+        expected, bond_orders = _expected_bonds(smiles)
+        topology_match, mapping, mapped_bonds = _mapped_expected_bonds(
+            expected, observed, bond_orders
+        )
+        expected_atom_count = expected.number_of_nodes()
+        reference_source = "smiles"
+        status = "MATCH" if topology_match else "MISMATCH"
+    else:
+        topology_match = None
+        mapping = {index: index for index in observed.nodes}
+        mapped_bonds = {edge: 1.0 for edge in observed_edges}
+        expected_atom_count = None
+        reference_source = "geometry"
+        status = "GEOMETRY ONLY"
     expected_edges = set(mapped_bonds)
     missing_edges = sorted(expected_edges - observed_edges)
     unexpected_edges = sorted(observed_edges - expected_edges)
     positions = atoms.get_positions()
-    status = "MATCH" if topology_match else "MISMATCH"
 
     image_files = {}
     for view_name, (elev, azim) in VIEWPOINTS.items():
@@ -164,16 +174,23 @@ def render_structure_snapshots(
         _draw_structure(ax, atoms, mapped_bonds, observed_edges)
         _configure_axes(ax, positions, elev, azim)
         ax.set_title(view_name, fontsize=10)
-    legend = [
-        Line2D([0], [0], color="#555555", lw=2.2, label="SMILES bond present"),
-        Line2D([0], [0], color="#d62728", lw=2.2, ls="--", label="SMILES bond missing"),
-        Line2D([0], [0], color="#ff8c00", lw=2.2, ls=":", label="Unexpected bond"),
-    ]
+    if reference_source == "smiles":
+        legend = [
+            Line2D([0], [0], color="#555555", lw=2.2, label="SMILES bond present"),
+            Line2D([0], [0], color="#d62728", lw=2.2, ls="--", label="SMILES bond missing"),
+            Line2D([0], [0], color="#ff8c00", lw=2.2, ls=":", label="Unexpected bond"),
+        ]
+        subtitle = (
+            f"{refcode} · {stage} · topology {status} · "
+            "bond width follows SMILES order"
+        )
+    else:
+        legend = [
+            Line2D([0], [0], color="#555555", lw=2.2, label="Geometry-derived bond")
+        ]
+        subtitle = f"{refcode} · {stage} · {status} · no source SMILES available"
     figure.legend(handles=legend, loc="lower center", ncol=3, fontsize=9)
-    figure.suptitle(
-        f"{refcode} · {stage} · topology {status} · bond width follows SMILES order",
-        fontsize=12,
-    )
+    figure.suptitle(subtitle, fontsize=12)
     figure.subplots_adjust(top=0.93, bottom=0.08, wspace=0.02, hspace=0.08)
     contact_sheet = output_dir / f"{refcode}_{stage}_multiview.png"
     figure.savefig(contact_sheet, dpi=dpi, bbox_inches="tight", facecolor="white")
@@ -184,10 +201,11 @@ def render_structure_snapshots(
         "stage": stage,
         "source_path": str(source_path) if source_path else None,
         "smiles": smiles,
+        "reference_source": reference_source,
         "scale": scale,
         "atom_count": len(atoms),
         "topology_match": topology_match,
-        "expected_atom_count": expected.number_of_nodes(),
+        "expected_atom_count": expected_atom_count,
         "observed_edge_count": len(observed_edges),
         "atom_mapping_expected_to_observed": {
             str(key): value for key, value in sorted(mapping.items())
@@ -262,7 +280,7 @@ def _read_gaussian_coordinates(gjf_path: Path) -> Atoms:
 
 def render_gjf_snapshots(
     gjf_path: Path,
-    smiles: str,
+    smiles: str | None,
     output_dir: Path,
     *,
     refcode: str,

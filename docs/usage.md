@@ -456,6 +456,10 @@ migrate_database_copies 可迁移完全相同的旧副本，validate_topology �
 在几何邻接图中存在；红色虚线表示预期键缺失；橙色点线表示几何中出现了额外键；
 原子标签使用“元素+1-based 原子编号”。键宽反映 SMILES 键级，方便比较优化前后。
 快照只按项目 CSV 生成，不为配对时链接进来的数据库离子复制文件。
+对缺少原始 SMILES 的历史生产结构，可以显式使用 geometry-only 回填模式；标题会
+显示 `GEOMETRY ONLY · no source SMILES available`，JSON 中的
+`reference_source` 为 `geometry`、`topology_match` 为 `null`。这种图片只用于查看
+几何推断的键，不能视为原始拓扑验证通过。
 
 ## CSP模块使用
 
