@@ -259,16 +259,123 @@ gpu_per_node: 0
 group_size: 1
 """, encoding="utf-8")
 
-    with pytest.raises(FileNotFoundError):
-        vasp_processor.dpdisp_vasp_relaxation_tasks(
-            machine_path=str(machine_path),
-            resources_path=str(resources_path),
-            nodes=2,
-        )
+    submitted_count = vasp_processor.dpdisp_vasp_relaxation_tasks(
+        machine_path=str(machine_path),
+        resources_path=str(resources_path),
+        nodes=2,
+    )
 
-    assert "File" in caplog.text and "does not exist" in caplog.text
+    assert submitted_count == 0
+    assert "Skipping final relaxation for 2.876_001" in caplog.text
+    assert "this combo has no Final candidates" in caplog.text
+    summary = vasp_processor.base_dir / "final_relaxation_summary.json"
+    assert '"status": "NO_FINE_INPUTS"' in summary.read_text(encoding="utf-8")
     mock_sub.assert_not_called()
     mock_run.assert_not_called()
+
+
+@patch("dpdispatcher.Submission.run_submission")
+@patch("dpdispatcher.Submission.__init__", return_value=None)
+@patch("dpdispatcher.Task.__init__", return_value=None)
+def test_dpdisp_vasp_relaxation_tasks_skips_missing_and_empty_fine_contcar(
+    mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path, caplog
+):
+    """Only non-empty Fine structures reach Final; no empty node task is built."""
+    caplog.set_level(logging.INFO)
+    valid_fine = vasp_processor.vasp_optimized_dir / "2.876_001" / "fine"
+    valid_fine.mkdir(parents=True)
+    (valid_fine / "CONTCAR").write_text("dummy", encoding="utf-8")
+    (vasp_processor.vasp_optimized_dir / "2.900_002").mkdir(parents=True)
+    empty_fine = vasp_processor.vasp_optimized_dir / "2.950_003" / "fine"
+    empty_fine.mkdir(parents=True)
+    (empty_fine / "CONTCAR").touch()
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+    machine_path.write_text("""
+context_type: LocalContext
+local_root: ./
+remote_root: /your/remote/workplace
+batch_type: Shell
+""", encoding="utf-8")
+    resources_path.write_text("""
+number_node: 2
+cpu_per_node: 8
+gpu_per_node: 0
+group_size: 1
+""", encoding="utf-8")
+
+    submitted_count = vasp_processor.dpdisp_vasp_relaxation_tasks(
+        machine_path=str(machine_path), resources_path=str(resources_path), nodes=2
+    )
+
+    assert submitted_count == 1
+    assert "Skipping final relaxation for 2.900_002" in caplog.text
+    assert "Skipping final relaxation for 2.950_003" in caplog.text
+    assert "missing or empty" in caplog.text
+    assert mock_task.call_count == 1
+    forward_files = mock_task.call_args.kwargs["forward_files"]
+    assert "2.876_001/fine/CONTCAR" in forward_files
+    assert "2.900_002/fine/CONTCAR" not in forward_files
+    assert "2.950_003/fine/CONTCAR" not in forward_files
+    mock_sub.assert_called_once()
+    mock_run.assert_called_once()
+
+
+@patch("dpdispatcher.Submission.run_submission", side_effect=RuntimeError("Final job failed"))
+@patch("dpdispatcher.Submission.__init__", return_value=None)
+@patch("dpdispatcher.Task.__init__", return_value=None)
+def test_dpdisp_vasp_relaxation_tasks_keeps_submission_errors_fatal(
+    mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path
+):
+    """Scientific non-input is non-fatal; dispatcher/Final failures still propagate."""
+    fine = vasp_processor.vasp_optimized_dir / "2.876_001" / "fine"
+    fine.mkdir(parents=True)
+    (fine / "CONTCAR").write_text("dummy", encoding="utf-8")
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+    machine_path.write_text("""
+context_type: LocalContext
+local_root: ./
+remote_root: /your/remote/workplace
+batch_type: Shell
+""", encoding="utf-8")
+    resources_path.write_text("""
+number_node: 1
+cpu_per_node: 8
+gpu_per_node: 0
+group_size: 1
+""", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Final job failed"):
+        vasp_processor.dpdisp_vasp_relaxation_tasks(
+            machine_path=str(machine_path), resources_path=str(resources_path), nodes=1
+        )
+
+    mock_task.assert_called_once()
+    mock_sub.assert_called_once()
+    mock_run.assert_called_once()
+
+
+def test_read_vaspout_save_csv_allows_explicit_no_final_candidates(
+    vasp_processor: VaspProcessing, caplog
+):
+    """An explicit zero-input Final outcome writes auditable empty CSVs and succeeds."""
+    caplog.set_level(logging.WARNING)
+
+    valid_count = vasp_processor.read_vaspout_save_csv(
+        molecules_prior=False, relaxation=True, allow_empty=True
+    )
+
+    assert valid_count == 0
+    assert "scientific no-candidate outcome" in caplog.text
+    csv_path = vasp_processor.base_dir / "vasp_density_energy.csv"
+    failures_path = vasp_processor.base_dir / "vasp_failures.csv"
+    assert csv_path.read_text(encoding="utf-8").splitlines()[0].startswith(
+        "Number,MLP_Energy,Rough_Energy,Fine_Energy,Final_Energy"
+    )
+    assert failures_path.read_text(encoding="utf-8").splitlines() == [
+        "Number,Stage,Reason"
+    ]
 
 
 # ==================== 测试 _read_mlp_properties ====================
@@ -424,8 +531,8 @@ def test_read_vasp_outcar_file_not_found(vasp_processor: VaspProcessing, tmp_pat
         (
             " vasp.6.3.0\n executed on Linux\n"
             " General timing and accounting informations for this job\n",
-            False,
-            "did not reach",
+            True,
+            None,
         ),
         (
             " vasp.6.3.0\n executed on Linux\n"
@@ -455,6 +562,52 @@ def test_validate_real_vasp_outcar(
         assert reason_fragment in reason
 
 
+
+
+def test_intermediate_stage_accepts_fatal_outcar_for_restart(
+    vasp_processor: VaspProcessing, tmp_path: Path
+):
+    stage = tmp_path / "sample"
+    stage.mkdir()
+    outcar = stage / "OUTCAR"
+    outcar.write_text(
+        " vasp.6.3.0\nZBRENT: fatal error in bracketing\n",
+        encoding="utf-8",
+    )
+    (stage / "ION_CSP_STAGE_STATUS").write_text(
+        "stage=fine\nstatus=SUCCESS\nreason=intermediate_output_accepted_vasp_exit_1\n",
+        encoding="utf-8",
+    )
+
+    valid, reason = vasp_processor._validate_vasp_outcar(outcar)
+
+    assert valid is True
+    assert reason is None
+
+def test_strict_ionic_gate_can_be_enabled_for_final_diagnostics(
+    vasp_processor: VaspProcessing, tmp_path: Path, monkeypatch
+):
+    final_dir = tmp_path / "fine" / "final"
+    final_dir.mkdir(parents=True)
+    outcar = final_dir / "OUTCAR"
+    outcar.write_text(
+        " vasp.6.3.0\n"
+        " executed on Linux\n"
+        " General timing and accounting informations for this job\n",
+        encoding="utf-8",
+    )
+    (final_dir / "ION_CSP_STAGE_STATUS").write_text(
+        "stage=final\nstatus=SUCCESS\nreason=normal_termination_relaxed_gate\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ION_CSP_REQUIRE_IONIC_CONVERGENCE", "1")
+
+    valid, reason = vasp_processor._validate_vasp_outcar(outcar)
+
+    assert valid is False
+    assert "did not reach" in reason
+
+
 def test_stage_failure_status_overrides_converged_outcar(
     vasp_processor: VaspProcessing, tmp_path: Path
 ):
@@ -476,6 +629,20 @@ def test_stage_failure_status_overrides_converged_outcar(
 
     assert valid is False
     assert "pressure_not_converged" in reason
+
+
+def test_stage_failure_status_explains_intentionally_missing_outcar(
+    vasp_processor: VaspProcessing, tmp_path: Path
+):
+    (tmp_path / "ION_CSP_STAGE_STATUS").write_text(
+        "stage=fine\nstatus=FAILURE\nreason=rough_stage_not_successful\n",
+        encoding="utf-8",
+    )
+
+    valid, reason = vasp_processor._validate_vasp_outcar(tmp_path / "OUTCAR")
+
+    assert valid is False
+    assert "rough_stage_not_successful" in reason
 
 
 def test_potcar_preflight_rejects_missing_boron(
@@ -1897,7 +2064,7 @@ def test_dpdisp_vasp_relaxation_tasks_ssh_context(
     mock_run, mock_sub, mock_task, mock_machine_load, vasp_processor: VaspProcessing, tmp_path: Path
 ):
     """Test dpdisp_vasp_relaxation_tasks with SSH context to trigger rmtree"""
-    fine_dir = vasp_processor.for_vasp_opt_dir / "data" / "pop1" / "2.876_001" / "fine"
+    fine_dir = vasp_processor.vasp_optimized_dir / "2.876_001" / "fine"
     fine_dir.mkdir(parents=True)
 
     fine_contcar = fine_dir / "CONTCAR"

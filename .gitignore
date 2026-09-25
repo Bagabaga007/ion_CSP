@@ -27,6 +27,9 @@ OUTCAR_*
 *.log
 *.csv
 *.json
+!delivery/**/*.json
+!delivery/**/*.toml
+!delivery/**/*.txt
 *.zip
 slurm-*.out
 server_config

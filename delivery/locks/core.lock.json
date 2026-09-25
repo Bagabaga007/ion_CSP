@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "profile": "core",
+  "role": "EE/CSP controller, parsers, PyXtal and Phonopy",
+  "python": "3.11.x",
+  "resolver": "uv",
+  "authoritative_lock": "../../uv.lock",
+  "bootstrap_environment": "../../environment.yml",
+  "conda_channel_priority": "strict",
+  "conda_channels": [
+    "https://conda.anaconda.org/conda-forge",
+    "https://repo.anaconda.com/pkgs/main"
+  ],
+  "excluded_stacks": [
+    "deepmd-kit",
+    "torch",
+    "CUDA"
+  ],
+  "install": [
+    "python -m pip install uv",
+    "uv sync --frozen --no-dev"
+  ],
+  "notes": [
+    "uv.lock is the complete hash-bearing core Python resolution.",
+    "environment.yml is a Conda bootstrap specification, not a replacement for uv.lock.",
+    "Gaussian, Multiwfn and VASP are not Python dependencies and are inventoried separately."
+  ]
+}

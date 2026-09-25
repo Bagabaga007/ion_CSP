@@ -224,9 +224,10 @@ def test_vasp_relaxation_task(mock_vasp, mock_work_dir, mock_config):
     """测试VASP弛豫任务"""
     # 设置 mock
     vasp_instance = MagicMock()
+    vasp_instance.dpdisp_vasp_relaxation_tasks.return_value = 0
     mock_vasp.return_value = vasp_instance
 
-    # 执行VASP弛豫任务
+    # Zero usable Fine inputs are a non-fatal scientific no-candidate outcome.
     vasp_relaxation_task(mock_work_dir, mock_config)
 
     # 验证 VaspProcessing 被正确初始化
@@ -239,7 +240,9 @@ def test_vasp_relaxation_task(mock_vasp, mock_work_dir, mock_config):
         nodes=mock_config["vasp_processing"]["nodes"],
     )
     vasp_instance.read_vaspout_save_csv.assert_called_once_with(
-        molecules_prior=mock_config["vasp_processing"]["molecules_prior"], relaxation=True
+        molecules_prior=mock_config["vasp_processing"]["molecules_prior"],
+        relaxation=True,
+        allow_empty=True,
     )
     vasp_instance.export_max_density_structure.assert_called_once_with(relaxation=True)
 

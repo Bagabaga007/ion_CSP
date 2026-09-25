@@ -527,25 +527,22 @@ sort_by=energy 时能量从低到高。molecules_screen=true 时，只保留能�
 离子组成的结构。
 
 VASP 阶段依次使用 INCAR_1、INCAR_2 和 INCAR_3。每个远端阶段会写入
-ION_CSP_STAGE_STATUS。Python 汇总会拒收包含致命错误、未正常结束或未达到离子
-收敛条件的真实 OUTCAR；无效结构写入 vasp_failures.csv，不再以 ASE 能读取最后
-一帧作为成功依据。如果所有结构均无效，该工作流阶段标记为 FAILURE。
+ION_CSP_STAGE_STATUS。rough/fine 只是为 final 提供较好的重启状态：只要 VASP 写出了
+可读的 OUTCAR/CONTCAR，就保留最后一帧，即使这两个中间阶段出现 ZBRENT、非零退出
+或未正常结束。rough/fine 的离子力和 external pressure 不参与候选验收。真正的
+fatal/正常结束检查、数值结果读取和拓扑筛选只在 final 阶段执行；如果中间阶段连
+OUTCAR/CONTCAR 都没有，则无法进入 final 并写入 vasp_failures.csv。
 
-在 JLU_184 的 VASP 6.3.0 中，单独使用 ISIF=8 会令离子位移因子为零，不能同时
-实现“离子松弛 + 晶胞形状固定且整体尺度可变”。项目保留 INCAR_1 的 EDIFF=1e-4
-粗精度和 INCAR_2 的 EDIFF=1e-6 精度；sub_ori.sh 从它们派生有限宏循环：
+rough 和 fine 使用 ISIF=8：固定晶胞形状，同时允许晶胞长度（整体尺度/体积）和离子
+坐标变化。rough 使用 IBRION=3、SMASS=0.4 的阻尼动力学跨过初始陡峭区域，保留
+EDIFF=1e-4；fine 使用 IBRION=1/RMM-DIIS 精修，保留 EDIFF=1e-6。
+最后的 final 阶段使用 INCAR_3（默认 ISIF=3）放开晶胞形状，进行完整晶胞优化。
+每个阶段的 CONSTRAINED_RELAXATION_HISTORY.tsv 记录压力和是否达到离子收敛，便于
+在放宽门禁后评估结构稳定性。VASP 返回 exit 255 时默认自动重试最多两次，失败
+输出会归档到对应阶段的 failed_attempts/，不会覆盖成功重试的结果。
 
-1. ISIF=2 固定当前晶胞，只松弛离子；
-2. 力收敛后读取 external pressure；
-3. 压力超阈值时用 ISIF=7 做少量等比例体积步，再回到离子松弛；
-4. 力和压力均合格，或达到最大循环数时停止。
-
-因此 ISIF=2 只是离子半步，不是对原物理约束的替代。默认 rough/fine 最大循环数为
-2/3，压力容差为 5/1 kB，每次体积半步 NSW=3；可分别用
-ION_CSP_ROUGH_MAX_CYCLES、ION_CSP_FINE_MAX_CYCLES、
-ION_CSP_ROUGH_PRESSURE_TOLERANCE_KB、ION_CSP_FINE_PRESSURE_TOLERANCE_KB
-和 ION_CSP_VOLUME_NSW 环境变量调整。每一阶段的
-CONSTRAINED_RELAXATION_HISTORY.tsv 记录循环、压力与体积步状态。
+如需进行严格离子收敛诊断，可设置 ION_CSP_REQUIRE_IONIC_CONVERGENCE=1；生产候选
+筛选默认不设置该变量。ION_CSP_VASP_MAX_ATTEMPTS 可调整 exit 255 的重试次数。
 
 最终 POSCAR 从 Final_Ions_Check=true 的结构中按 Final_Density 选取最大值，并复制：
 
@@ -712,8 +709,11 @@ python -m pip show phonopy
 如果日志含 ZBRENT: fatal error，不能把现有 CONTCAR/OUTCAR 直接当作已收敛结果。
 先核对 ION_CSP_STAGE_STATUS、ISIF 和离子坐标是否实际变化。rough 的
 EDIFF=1e-4 是有意的效率设置，不应把通用的“减小 EDIFF”提示机械套用到所有失败。
-VASP 6.3 的受限预优化使用上面的 ISIF=2/7 宏循环；任何返回结果仍须同时通过正常
-结束、力/压力门禁和离子拓扑检查。
+VASP 6.3 的 rough/fine 预优化使用 ISIF=8（rough IBRION=3，fine IBRION=1），
+final 使用 INCAR_3 的无约束晶胞优化。
+rough/fine 只负责保留重启帧，final 才须通过正常结束和致命错误检查；离子拓扑
+检查保持为独立硬条件，Fine_Ions_Check/Final_Ions_Check=False 的结构不会被导出为
+最终高密度候选。
 
 ### MLP 候选少于 n_screen
 

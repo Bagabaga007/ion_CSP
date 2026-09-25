@@ -1,0 +1,34 @@
+schema_version = 1
+profile = "mlp-deepmd-torch"
+role = "MLP structure-optimization worker"
+platform = "linux-x86_64"
+resolver = "pip"
+index_url = "https://pypi.org/simple"
+
+[pairing]
+python = "3.12.x"
+deepmd-kit = "3.2.0"
+torch = "2.11.0"
+ase = "3.23.0"
+
+[cuda]
+policy = "runtime-receipt-required"
+boundary = "Torch and DeePMD are one ABI unit; do not upgrade Torch or change its CUDA wheel independently."
+required_evidence = [
+  "torch.version.cuda",
+  "torch.cuda.is_available()",
+  "nvidia-smi visibility",
+  "GPU model and driver from the MLP endpoint receipt",
+]
+
+[assets]
+default_model = "../../src/ion_CSP/model/model.pt"
+model_policy = "release manifest must bind the model SHA-256"
+
+[install]
+requirements = "mlp-requirements.txt"
+command = "python -m pip install -r delivery/locks/mlp-requirements.txt"
+
+[limitations]
+dpa4 = "Uses DeepMD but may require a model-specific environment receipt in addition to this default pair."
+mattersim = "Bring-your-own profile; capture exact MatterSim/Torch/CUDA versions before production."

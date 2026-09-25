@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Bagabaga007/ion_CSP/blob/main/delivery/config-contract.schema.json",
+  "title": "ion_CSP work-directory config.yaml contract",
+  "description": "The release wrapper always reads exactly <work_dir>/config.yaml. Machine and resources paths are absolute YAML/JSON paths.",
+  "type": "object",
+  "oneOf": [
+    {"$ref": "#/$defs/ee"},
+    {"$ref": "#/$defs/csp"}
+  ],
+  "$defs": {
+    "absoluteConfigPath": {
+      "type": "string",
+      "minLength": 2,
+      "pattern": "^/.*\\.(json|yaml)$"
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "positiveNumberArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "number", "exclusiveMinimum": 0}
+    },
+    "positiveIntegerArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "integer", "minimum": 1}
+    },
+    "stringArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "ee": {
+      "type": "object",
+      "required": ["convert_SMILES", "empirical_estimate"],
+      "properties": {
+        "convert_SMILES": {
+          "type": "object",
+          "required": ["csv_file", "machine", "resources", "nodes"],
+          "properties": {
+            "csv_file": {"type": "string", "minLength": 1},
+            "machine": {"$ref": "#/$defs/absoluteConfigPath"},
+            "resources": {"$ref": "#/$defs/absoluteConfigPath"},
+            "nodes": {"$ref": "#/$defs/positiveInteger"}
+          }
+        },
+        "empirical_estimate": {
+          "type": "object",
+          "required": ["folders", "ratios", "ion_numbers"],
+          "properties": {
+            "folders": {"$ref": "#/$defs/stringArray"},
+            "ratios": {"$ref": "#/$defs/positiveNumberArray"},
+            "ion_numbers": {"$ref": "#/$defs/positiveIntegerArray"},
+            "sort_by": {"enum": ["density", "nitrogen", "NC_ratio"]}
+          }
+        }
+      }
+    },
+    "csp": {
+      "type": "object",
+      "required": ["gen_opt", "read_mlp_density", "vasp_processing"],
+      "properties": {
+        "gen_opt": {
+          "type": "object",
+          "required": ["species", "ion_numbers", "machine", "resources", "nodes"],
+          "properties": {
+            "species": {"$ref": "#/$defs/stringArray"},
+            "ion_numbers": {"$ref": "#/$defs/positiveIntegerArray"},
+            "machine": {"$ref": "#/$defs/absoluteConfigPath"},
+            "resources": {"$ref": "#/$defs/absoluteConfigPath"},
+            "nodes": {"$ref": "#/$defs/positiveInteger"},
+            "mlp_backend": {"enum": ["deepmd", "dpa4", "dpa4_ion_ft", "mattersim"]}
+          }
+        },
+        "read_mlp_density": {"type": "object"},
+        "vasp_processing": {
+          "type": "object",
+          "required": ["machine", "resources", "nodes"],
+          "properties": {
+            "machine": {"$ref": "#/$defs/absoluteConfigPath"},
+            "resources": {"$ref": "#/$defs/absoluteConfigPath"},
+            "nodes": {"$ref": "#/$defs/positiveInteger"}
+          }
+        }
+      }
+    }
+  }
+}

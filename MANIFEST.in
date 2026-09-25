@@ -2,6 +2,13 @@ include README.md
 include LICENSE
 include environment.yml
 include environment-mlp.yml
+include docs/delivery.md
+recursive-include delivery *.json *.toml *.txt *.md
+exclude delivery/release-manifest.json
+include scripts/release_preflight.py
+include scripts/ion_csp_workflow.py
+include scripts/build_release_manifest.py
 recursive-include src/ion_CSP/run *.py
 recursive-include src/ion_CSP/param *
+recursive-exclude src/ion_CSP/param *.orig
 recursive-include src/ion_CSP/model *.pt *.md

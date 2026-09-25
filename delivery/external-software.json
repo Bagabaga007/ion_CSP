@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "software": [
+    {
+      "name": "Multiwfn",
+      "endpoint": "core",
+      "required_for": ["EE"],
+      "executable_any_of": ["Multiwfn_noGUI", "Multiwfn"],
+      "execution": "local controller process",
+      "license_bundled": false
+    },
+    {
+      "name": "Phonopy",
+      "endpoint": "core",
+      "required_for": ["CSP"],
+      "executable_any_of": ["phonopy"],
+      "execution": "local controller process",
+      "python_lock": "uv.lock"
+    },
+    {
+      "name": "Gaussian 16",
+      "endpoint": "external",
+      "profile": "gaussian",
+      "required_for": ["EE"],
+      "executable_any_of": ["g16"],
+      "companion_executables": ["formchk"],
+      "license_bundled": false
+    },
+    {
+      "name": "VASP",
+      "endpoint": "external",
+      "profile": "vasp",
+      "required_for": ["CSP"],
+      "executable_any_of": ["vasp_std"],
+      "companion_executables": ["mpirun", "mpiexec"],
+      "license_bundled": false
+    }
+  ],
+  "policy": {
+    "visibility_only": "Preflight checks PATH visibility and never starts a licensed calculation.",
+    "receipts": "Run release_preflight.py on the actual endpoint and retain its JSON output.",
+    "secrets": "Machine credentials and license files must not be embedded in this inventory or release manifest."
+  }
+}

@@ -14,13 +14,14 @@ CSP input integrity and portable database views:
 - Allowed ReadMlpDensity to continue with all non-zero valid candidates when fewer than n_screen survive.
 - Forwarded MLP backend, Python, model, device, and worker options through the staged run_gen_opt entry point.
 - Prevented remote SSH Shell jobs from checking the local host's GPUs.
-- Added strict VASP fatal/truncation/ionic-convergence gates, per-stage shell status files, invalid-result CSV reporting, and zero-valid-result failure propagation.
+- Added VASP fatal/truncation gates, per-stage shell status files, invalid-result CSV reporting, and zero-valid-result failure propagation; ionic/pressure convergence is advisory by default for metastable energetic-material candidates.
 - Made POTCAR forwarding and shell assembly element-driven; missing elements fail before submission instead of producing an incomplete POTCAR, and the current BNx environment uses the licensed PBE.52 B potential.
-- Replaced VASP 6.3 ISIF=8-only pre-optimization with bounded ISIF=2/7 force-pressure macro-cycles while retaining rough EDIFF=1e-4; explicit failed-stage status overrides readable OUTCAR frames.
+- Restored rough/fine to fixed-shape ISIF=8 with rough IBRION=3 damped dynamics and fine IBRION=1 RMM-DIIS; intermediate fatal/non-zero output is retained for the final restart, while final remains INCAR_3/ISIF=3 and performs the only fatal/normal-output acceptance check.
+- Added opt-in ION_CSP_REQUIRE_IONIC_CONVERGENCE for strict diagnostics while retaining topology checks and automatic archival/retry (up to two retries) of transient MPI exit 255 failures.
 - Made dpdispatcher file logging submission-scoped, closed handlers deterministically, and removed pytest-only default logs after each session.
 - Removed root-level duplicate model/param packaging sources in favor of src/ion_CSP, and archived ignored historical example results and generated artifacts outside the repository.
-- Validated the constrained VASP flow on a real N8+ + nitrate top-1 candidate: rough/fine converged in 84/235 ionic steps, pressures were 1.62/-0.08 kB, final max force was 0.01812 eV/Å, and all ion graphs were preserved.
-- Added topology/linking, logging, packaging, and constrained-VASP regressions; the full suite passes 530/530.
+- Archived the earlier strict constrained-VASP diagnostic for the N8+ + nitrate top-1 candidate (84/235 ionic steps, pressures 1.62/-0.08 kB, final max force 0.01812 eV/Å); topology preservation remains mandatory even when production numerical gates are relaxed.
+- Added topology/linking, logging, packaging, and constrained-VASP regressions; the full suite passes 537/537.
 - Refreshed the core dependency lock with patched cryptography, Pillow, urllib3, lxml, Paramiko, dpdispatcher, pytest, GitHub Actions, and related transitives; moved DeepMD/Torch to the isolated MLP worker contract.
 - Added headless bonded structure snapshots for four orthogonal/isometric views before and after Gaussian optimization, including missing/unexpected-bond diagnostics and JSON manifests.
 - Added an explicitly labelled geometry-only snapshot mode for legacy production structures whose authoritative SMILES inputs are unavailable.

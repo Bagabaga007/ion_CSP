@@ -1,0 +1,5 @@
+# Default ion_CSP DeepMD worker direct lock.
+# The endpoint receipt records the platform-specific transitive CUDA wheels.
+ase==3.23.0
+deepmd-kit[torch]==3.2.0
+torch==2.11.0

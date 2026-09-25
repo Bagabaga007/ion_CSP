@@ -1,6 +1,7 @@
 name: ion-csp-mlp
 channels:
-  - conda-forge
+  - https://conda.anaconda.org/conda-forge
+  - nodefaults
 dependencies:
   - python=3.12
   - pip
@@ -10,4 +11,5 @@ dependencies:
     # Torch 2.11 retains GHSA-rrmf-rvhw-rf47 (LOW) in torch.jit.script; ion_CSP
     # does not call that API and accepts only trusted, checksum-verified models.
     - deepmd-kit[torch]==3.2.0
-    - ase>=3.23,<4
+    - torch==2.11.0
+    - ase==3.23.0

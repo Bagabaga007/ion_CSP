@@ -1,7 +1,8 @@
 name: ion-csp-env
 channels:
-  - conda-forge
-  - defaults
+  - https://conda.anaconda.org/conda-forge
+  - https://repo.anaconda.com/pkgs/main
+  - nodefaults
 dependencies:
   - python=3.11
   - pip

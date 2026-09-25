@@ -3,11 +3,12 @@ NPAR = 4
 PREC = Accurate 
 ENCUT = 600  # 800
 EDIFF = 1e-4  # 1e-6
-IBRION = 2 
-ISIF = 8  # target: fixed cell shape with variable scale; sub_ori derives ISIF=2/7 on VASP 6.3
+IBRION = 3  # damped molecular dynamics to avoid CG/ZBRENT failures
+ISIF = 8  # fixed cell shape; variable length/volume for rough/fine
 NSW = 300  # 200
 ISMEAR = 0 ; SIGMA = 0.05 
 POTIM = 0.05 
+SMASS = 0.4
 #No writing charge density and wavefunction 
 LCHARG = FALSE 
 LWAVE = FALSE 

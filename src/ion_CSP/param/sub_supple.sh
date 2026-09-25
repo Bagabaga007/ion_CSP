@@ -6,6 +6,8 @@ shopt -s nullglob
 BASE_DIR="."
 ROOT_DIR="$(pwd)"
 failures=0
+require_ionic_convergence="${ION_CSP_REQUIRE_IONIC_CONVERGENCE:-0}"
+vasp_max_attempts="${ION_CSP_VASP_MAX_ATTEMPTS:-3}"
 
 if [[ ! -f INCAR_3 ]]; then
     echo "Required INCAR_3 is missing." >&2
@@ -15,6 +17,21 @@ if [[ -z "${DPDISPATCHER_CPU_PER_NODE:-}" ]]; then
     echo "DPDISPATCHER_CPU_PER_NODE is not set." >&2
     exit 1
 fi
+if ! [[ "$vasp_max_attempts" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ION_CSP_VASP_MAX_ATTEMPTS must be a positive integer." >&2
+    exit 1
+fi
+case "${require_ionic_convergence,,}" in
+    0|1|false|true|no|yes) ;;
+    *)
+        echo "ION_CSP_REQUIRE_IONIC_CONVERGENCE must be 0/1 or false/true." >&2
+        exit 1
+        ;;
+esac
+case "${require_ionic_convergence,,}" in
+    1|true|yes) require_ionic_convergence=1 ;;
+    *) require_ionic_convergence=0 ;;
+esac
 
 record_stage_status() {
     local stage_dir="$1"
@@ -28,6 +45,46 @@ record_stage_status() {
         printf 'reason=%s\n' "$reason"
         printf 'exit_code=%s\n' "$exit_code"
     } > "${stage_dir}/ION_CSP_STAGE_STATUS"
+}
+
+archive_failed_vasp_attempt() {
+    local stage_dir="$1"
+    local attempt="$2"
+    local exit_code="$3"
+    local archive_dir="${stage_dir}/failed_attempts/attempt_${attempt}_exit_${exit_code}"
+    local name
+
+    mkdir -p "$archive_dir"
+    for name in CONTCAR OUTCAR OSZICAR XDATCAR vasprun.xml vasp.log EIGENVAL DOSCAR IBZKPT PCDAT REPORT CHG CHGCAR WAVECAR ION_CSP_STAGE_STATUS; do
+        if [[ -e "${stage_dir}/${name}" ]]; then
+            mv "${stage_dir}/${name}" "${archive_dir}/${name}"
+        fi
+    done
+}
+
+run_vasp_command() {
+    local stage_dir="$1"
+    local stage="$2"
+    local attempt
+    local exit_code
+
+    for ((attempt=1; attempt<=vasp_max_attempts; attempt++)); do
+        exit_code=0
+        (
+            cd "$stage_dir" || exit 125
+            mpirun -n "$DPDISPATCHER_CPU_PER_NODE" vasp_std > vasp.log 2>&1
+        ) || exit_code=$?
+
+        if (( exit_code != 255 || attempt == vasp_max_attempts )); then
+            printf '%s\n' "$exit_code"
+            return 0
+        fi
+
+        record_stage_status "$stage_dir" "$stage" "FAILURE" "transient_vasp_exit_255" "$exit_code"
+        archive_failed_vasp_attempt "$stage_dir" "$attempt" "$exit_code"
+        printf '%s transient MPI exit 255 in %s; retrying attempt %d/%d.\n' \
+            "$stage" "$stage_dir" "$((attempt + 1))" "$vasp_max_attempts" >&2
+    done
 }
 
 create_potcar_from_poscar() {
@@ -74,10 +131,15 @@ validate_vasp_stage() {
         reason="fatal_VASP_marker"
     elif ! grep -Fiq 'General timing and accounting informations for this job' "$outcar"; then
         reason="incomplete_OUTCAR"
-    elif ! grep -Fiq 'reached required accuracy - stopping structural energy minimisation' "$outcar"; then
+    elif (( require_ionic_convergence == 1 )) && ! grep -Fiq 'reached required accuracy - stopping structural energy minimisation' "$outcar"; then
         reason="ionic_relaxation_not_converged"
     else
-        record_stage_status "$stage_dir" "$stage" "SUCCESS" "converged" "$exit_code"
+        if grep -Fiq 'reached required accuracy - stopping structural energy minimisation' "$outcar"; then
+            reason="normal_termination_ionic_converged"
+        else
+            reason="normal_termination_relaxed_gate"
+        fi
+        record_stage_status "$stage_dir" "$stage" "SUCCESS" "$reason" "$exit_code"
         return 0
     fi
 
@@ -89,13 +151,9 @@ validate_vasp_stage() {
 run_vasp_stage() {
     local stage_dir="$1"
     local stage="$2"
-    local exit_code=0
+    local exit_code
 
-    (
-        cd "$stage_dir" || exit 125
-        mpirun -n "$DPDISPATCHER_CPU_PER_NODE" vasp_std > vasp.log 2>&1
-    ) || exit_code=$?
-
+    exit_code="$(run_vasp_command "$stage_dir" "$stage")"
     validate_vasp_stage "$stage_dir" "$stage" "$exit_code"
 }
 
@@ -120,6 +178,8 @@ for sample_dir in "$BASE_DIR"/*; do
         failures=$((failures + 1))
         continue
     fi
+    # Final deliberately uses INCAR_3 (normally ISIF=3) to release the cell
+    # shape after the fixed-shape ISIF=8 rough/fine pre-optimization.
     if ! run_vasp_stage "${sample_dir}/fine/final" "final"; then
         failures=$((failures + 1))
     fi
@@ -130,8 +190,8 @@ if (( found == 0 )); then
     exit 1
 fi
 if (( failures > 0 )); then
-    printf 'Final VASP stages completed with %d failure(s); inspect ION_CSP_STAGE_STATUS files.\n' "$failures" >&2
+    printf 'Final VASP stages completed with %d failure(s); inspect ION_CSP_STAGE_STATUS files and topology reports.\n' "$failures" >&2
 else
-    echo "All final VASP stages converged."
+    echo "All final VASP stages completed normally."
 fi
 exit 0

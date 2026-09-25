@@ -83,6 +83,26 @@
 
 MLP 工作节点可使用 `environment-mlp.yml` 创建独立环境；不要在核心调度环境中安装或锁定 GPU/CUDA 栈。
 
+### 生产三端交付
+
+生产部署使用彼此隔离的 core 主控端、MLP 计算端和 Gaussian/VASP 外部软件端。
+仓库提供统一 JSON 预检、固定 EE/CSP wrapper、分离锁文件和 SHA-256 发布 manifest：
+
+```bash
+python scripts/release_preflight.py --target core --workflow ee \
+  --project-root . --work-dir /absolute/path/to/ee_run
+python scripts/release_preflight.py --target mlp --backend deepmd \
+  --model /absolute/path/to/model.pt --require-gpu
+python scripts/release_preflight.py --target external \
+  --external-profile gaussian
+
+ion-csp-workflow ee  /absolute/path/to/ee_run  --check-only
+ion-csp-workflow csp /absolute/path/to/combo_1 --check-only
+```
+
+任一 required 检查失败时返回非零状态。完整目录合同、DeepMD/Torch/CUDA 边界、
+构建 manifest 与验签方法见 [三端生产交付指南](docs/delivery.md)。
+
 ### 安装步骤
 
 #### 方式一：从PyPI安装（推荐）
@@ -175,6 +195,7 @@ pytest tests/system/      # 系统测试
 ## 📚 文档
 
 - [完整使用指南](docs/usage.md) - 与 V2.3.5 源码一致的 EE/CSP 配置和运行说明
+- [三端生产交付指南](docs/delivery.md) - core/MLP/external 预检、锁文件、wrapper 与发布 manifest
 - [Docker 指南](DOCKER.md) - CPU/GPU 容器构建与外部程序限制
 - [EE 自动离子库链接](AUTO_LINKING_GUIDE.md) - 中央预优化离子库复用说明
 - [DPA4 后端](DPA4_BACKEND.md) / [MatterSim 后端](MATTERSIM_BACKEND.md) - 通用元素 MLP 配置

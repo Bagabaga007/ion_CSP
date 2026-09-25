@@ -126,14 +126,21 @@ def vasp_relaxation_task(work_dir, config):
     # VASP无约束晶胞优化处理
     vasp_result = VaspProcessing(work_dir=work_dir)
     # 基于 dpdispatcher 模块，在远程CPU服务器上批量准备并提交VASP分步优化任务
-    vasp_result.dpdisp_vasp_relaxation_tasks(
+    submitted_count = vasp_result.dpdisp_vasp_relaxation_tasks(
         machine_path=config["vasp_processing"]["machine"],
         resources_path=config["vasp_processing"]["resources"],
         nodes=config["vasp_processing"]["nodes"],
     )
+    if submitted_count == 0:
+        logging.warning(
+            "Final relaxation was skipped because no usable fine/CONTCAR "
+            "inputs were available; recording this combo with no Final candidates."
+        )
     # 批量读取 VASP 分步优化的输出文件，并将能量和密度等结果保存到目录中的相应CSV文件
     vasp_result.read_vaspout_save_csv(
-        molecules_prior=config["vasp_processing"]["molecules_prior"], relaxation=True
+        molecules_prior=config["vasp_processing"]["molecules_prior"],
+        relaxation=True,
+        allow_empty=submitted_count == 0,
     )
     vasp_result.export_max_density_structure(relaxation=True)
 

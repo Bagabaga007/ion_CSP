@@ -4,7 +4,9 @@ This module provides functionality for processing VASP calculations, including
 input file preparation, job submission, output parsing, and result analysis.
 """
 
+import os
 import csv
+import json
 import shutil
 import logging
 import numpy as np
@@ -79,6 +81,25 @@ class VaspProcessing:
                 f"{', '.join(missing)}. Add {expected} to {self.param_dir}."
             )
         return [available[symbol] for symbol in sorted(required)]
+
+    def _write_final_relaxation_summary(self, status, eligible_folders, skipped_folders):
+        """Persist an explicit, atomic audit record for Final input selection."""
+        summary_path = self.base_dir / "final_relaxation_summary.json"
+        payload = {
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "status": status,
+            "eligible_count": len(eligible_folders),
+            "eligible_structures": [folder.name for folder in eligible_folders],
+            "skipped_count": len(skipped_folders),
+            "skipped_structures": list(skipped_folders),
+        }
+        tmp_path = summary_path.with_suffix(".tmp")
+        tmp_path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        tmp_path.replace(summary_path)
+
 
     def dpdisp_vasp_optimization_tasks(
         self,
@@ -201,30 +222,59 @@ class VaspProcessing:
             resources: The resources configuration file, which can be in JSON or YAML format.
             nodes: The number of nodes to distribute the optimization tasks across.
         """
-        # 读取machine.json和resources.json的参数
+        # Only non-empty Fine outputs can enter Final relaxation. Missing or
+        # empty outputs are scientific non-candidates, not a combo-wide fatal
+        # error. Dispatcher/infrastructure failures below still propagate.
+        all_vasp_optimized_folders = sorted(
+            (
+                folder
+                for folder in self.vasp_optimized_dir.iterdir()
+                if folder.is_dir() and folder.name != "data"
+            ),
+            key=lambda folder: folder.name,
+        )
+        vasp_optimized_folders = []
+        skipped_folders = []
+        for folder in all_vasp_optimized_folders:
+            fine_contcar_path = folder / "fine" / "CONTCAR"
+            if fine_contcar_path.is_file() and fine_contcar_path.stat().st_size > 0:
+                vasp_optimized_folders.append(folder)
+            else:
+                skipped_folders.append(folder.name)
+                logging.warning(
+                    "Skipping final relaxation for %s: fine/CONTCAR is missing "
+                    "or empty; this structure has no Final candidate.",
+                    folder.name,
+                )
+
+        if not vasp_optimized_folders:
+            self._write_final_relaxation_summary(
+                "NO_FINE_INPUTS", vasp_optimized_folders, skipped_folders
+            )
+            logging.warning(
+                "No usable fine/CONTCAR inputs were found in %s; skipping Final "
+                "relaxation because this combo has no Final candidates.",
+                self.vasp_optimized_dir,
+            )
+            return 0
+
+        self._write_final_relaxation_summary(
+            "PREPARED", vasp_optimized_folders, skipped_folders
+        )
         machine, resources, parent = machine_resources_prep(
             machine_path=machine_path, resources_path=resources_path
         )
-        # 获取dir文件夹中所有以prefix_name开头的文件，在此实例中为POSCAR_
-        vasp_optimized_folders = [
-            f
-            for f in self.vasp_optimized_dir.iterdir()
-            if f.is_dir() and f.name != "data"
-        ]
-        fine_contcars = [
-            folder / "fine" / "CONTCAR"
-            for folder in vasp_optimized_folders
-            if (folder / "fine" / "CONTCAR").exists()
-        ]
+        fine_contcars = [folder / "fine" / "CONTCAR" for folder in vasp_optimized_folders]
         potcar_files = self._potcar_files_for_structures(fine_contcars)
         # 创建一个嵌套列表来存储每个节点的任务并将文件平均依次分配给每个节点
         # 例如：对于10个结构文件任务分发给4个节点的情况，则4个节点领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7]
-        node_jobs = [[] for _ in range(nodes)]
-        for index, file in enumerate(vasp_optimized_folders):
-            node_index = index % nodes
+        active_nodes = min(nodes, len(vasp_optimized_folders))
+        node_jobs = [[] for _ in range(active_nodes)]
+        for index, _file in enumerate(vasp_optimized_folders):
+            node_index = index % active_nodes
             node_jobs[node_index].append(index)
         task_list = []
-        for pop in range(nodes):
+        for pop in range(active_nodes):
             forward_files = [
                 "INCAR_3",
                 "sub_supple.sh",
@@ -243,15 +293,9 @@ class VaspProcessing:
                 vasp_dir_name = vasp_optimized_folders[job_i].name
                 fine_optimized_file = f"{vasp_dir_name}/fine/CONTCAR"
                 fine_contcar_path = self.vasp_optimized_dir / fine_optimized_file
-                if fine_contcar_path.exists():
-                    dst = task_dir / fine_optimized_file
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(str(fine_contcar_path), str(dst))
-                else:
-                    logging.error(f"File {fine_contcar_path} does not exist.")
-                    raise FileNotFoundError(
-                        f"Required fine CONTCAR not found: {fine_contcar_path}"
-                    )
+                dst = task_dir / fine_optimized_file
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(str(fine_contcar_path), str(dst))
                 forward_files.append(fine_optimized_file)
                 # 每个POSCAR文件在优化后都取回对应的CONTCAR和OUTCAR输出文件
                 backward_files.append(f"{vasp_dir_name}/*")
@@ -277,7 +321,7 @@ class VaspProcessing:
         with dpdisp_logging(self.base_dir / "dpdispatcher.log"):
             submission.run_submission()
 
-        for pop in range(nodes):
+        for pop in range(active_nodes):
             # 从传回的 pop 文件夹中将结果文件取到 4_vasp_optimized 目录
             task_dir = self.vasp_optimized_dir / f"{parent}pop{pop}"
             for job_i in node_jobs[pop]:
@@ -296,7 +340,11 @@ class VaspProcessing:
         if machine.serialize()["context_type"] == "SSHContext":
             # 如果调用远程服务器，则删除data级目录
             shutil.rmtree(self.vasp_optimized_dir / parent)
+        self._write_final_relaxation_summary(
+            "SUBMISSION_COMPLETED", vasp_optimized_folders, skipped_folders
+        )
         logging.info("Batch VASP execution finished; outputs returned for validation.")
+        return len(vasp_optimized_folders)
 
 
     def _read_mlp_properties(self, contcar_path: Path, outcar_path: Path):
@@ -342,11 +390,21 @@ class VaspProcessing:
     def _validate_vasp_outcar(
         self, outcar_path: Path
     ) -> Tuple[bool, Optional[str]]:
-        """Reject fatal, truncated, or unconverged real VASP relaxation output."""
+        """Reject fatal or truncated output while allowing metastable runs.
+
+        Ionic and pressure convergence are intentionally advisory by default:
+        energetic-material candidates may be useful metastable structures before
+        reaching a zero-force/zero-pressure minimum. Set
+        ``ION_CSP_REQUIRE_IONIC_CONVERGENCE=1`` to restore the strict ionic gate
+        for diagnostic runs. Topology is checked separately from the parsed
+        final structure.
+        """
+        outcar_error = None
         try:
             stat_result = outcar_path.stat()
         except OSError as exc:
-            return False, f"cannot read OUTCAR: {exc}"
+            stat_result = None
+            outcar_error = exc
 
         status_path = outcar_path.parent / "ION_CSP_STAGE_STATUS"
         try:
@@ -355,16 +413,27 @@ class VaspProcessing:
         except OSError:
             status_signature = None
 
+        require_ionic_convergence = (
+            os.environ.get("ION_CSP_REQUIRE_IONIC_CONVERGENCE", "0")
+            .strip()
+            .lower()
+            in {"1", "true", "yes"}
+        )
         cache_key = (
             str(outcar_path.resolve()),
-            stat_result.st_size,
-            stat_result.st_mtime_ns,
+            stat_result.st_size if stat_result is not None else None,
+            stat_result.st_mtime_ns if stat_result is not None else None,
             status_signature,
+            require_ionic_convergence,
         )
         cached = self._vasp_validation_cache.get(cache_key)
         if cached is not None:
             return cached
 
+        # A skipped downstream stage intentionally has no OUTCAR. Surface its
+        # recorded upstream failure instead of replacing it with a less useful
+        # file-not-found message.
+        status_fields = {}
         if status_signature is not None:
             try:
                 status_fields = dict(
@@ -388,6 +457,26 @@ class VaspProcessing:
                 self._vasp_validation_cache[cache_key] = result
                 return result
 
+        stage_name = status_fields.get("stage", "").strip().lower()
+        intermediate_stage = stage_name in {"rough", "fine"}
+        if intermediate_stage:
+            # Rough/fine are preconditioning only. If a usable last frame was
+            # written, defer fatal-marker and normal-termination acceptance to
+            # the final ISIF=3 stage.
+            if outcar_error is not None:
+                result = (False, f"cannot read OUTCAR: {outcar_error}")
+            elif stat_result is None or stat_result.st_size == 0:
+                result = (False, "OUTCAR is missing or empty")
+            else:
+                result = (True, None)
+            self._vasp_validation_cache[cache_key] = result
+            return result
+
+        if outcar_error is not None:
+            result = (False, f"cannot read OUTCAR: {outcar_error}")
+            self._vasp_validation_cache[cache_key] = result
+            return result
+
         try:
             output = outcar_path.read_text(
                 encoding="utf-8", errors="replace"
@@ -404,8 +493,8 @@ class VaspProcessing:
                 return result
 
         # Abbreviated OUTCAR fragments are used by callers and tests. Real VASP
-        # output begins with a version/execution banner; validate it strictly so
-        # a readable final frame cannot mask an aborted or unconverged run.
+        # output begins with a version/execution banner; require normal
+        # termination so a readable final frame cannot mask an aborted run.
         looks_like_real_vasp = (
             output.lstrip().startswith("vasp.") or "\n executed on" in output
         )
@@ -416,12 +505,15 @@ class VaspProcessing:
                 False,
                 "OUTCAR is incomplete or VASP did not terminate normally",
             )
-        elif _VASP_IONIC_CONVERGENCE_MARKER not in output:
+        elif require_ionic_convergence and _VASP_IONIC_CONVERGENCE_MARKER not in output:
             result = (
                 False,
                 "ionic relaxation did not reach the configured convergence criterion",
             )
         else:
+            # A complete, normally terminated run is useful for metastable
+            # candidate ranking even when EDIFFG was not reached. Pressure and
+            # ionic convergence remain available in OUTCAR diagnostics.
             result = (True, None)
 
         self._vasp_validation_cache[cache_key] = result
@@ -747,7 +839,9 @@ class VaspProcessing:
             )
 
 
-    def read_vaspout_save_csv(self, molecules_prior: bool, relaxation: bool = False):
+    def read_vaspout_save_csv(
+        self, molecules_prior: bool, relaxation: bool = False, allow_empty: bool = False
+    ):
         """
         Read VASP output files in batches and save energy and density to corresponding CSV files in the directory
 
@@ -833,12 +927,21 @@ class VaspProcessing:
             writer.writerows(failed_rows)
 
         if not data_rows:
-            raise RuntimeError(
+            message = (
                 "No valid, converged VASP structures were found; "
                 f"see {failures_path}"
             )
+            if allow_empty:
+                logging.warning(
+                    "%s. This combo had no usable Fine inputs, so the empty "
+                    "Final result is recorded as a scientific no-candidate outcome.",
+                    message,
+                )
+                return 0
+            raise RuntimeError(message)
 
         self._log_max_densities(data_rows, relaxation)
+        return len(data_rows)
 
     def export_max_density_structure(self, relaxation: bool = False):
         """

@@ -62,8 +62,14 @@ namespaces = true
 [tool.setuptools.package-data]
 ion_CSP = ["param/*", "model/*.pt", "model/options/*"]
 
+[tool.setuptools.exclude-package-data]
+ion_CSP = ["param/*.orig"]
+
 [project.scripts]
 ion-csp = "ion_CSP.task_manager:main"
+ion-csp-workflow = "ion_CSP.workflow_cli:main"
+ion-csp-preflight = "ion_CSP.preflight:main"
+ion-csp-release-manifest = "ion_CSP.release_manifest:main"
 
 [tool.pytest.ini_options]
 # 注意：不要把 --cov 放进 addopts，否则会破坏 VS Code/Trae 的测试发现与调试
