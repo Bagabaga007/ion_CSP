@@ -1,0 +1,559 @@
+{
+  "artifacts": [
+    {
+      "path": "dist/delivery-20260925/ion_csp-2.3.5-py3-none-any.whl",
+      "required": true,
+      "role": "wheel",
+      "sha256": "5231fda892fe2a5282ba03b9e1632549126a946b2376cf2eb93efdb529ee3eb4",
+      "size_bytes": 50182527
+    },
+    {
+      "path": "dist/delivery-20260925/ion_csp-2.3.5.tar.gz",
+      "required": true,
+      "role": "sdist",
+      "sha256": "63dd208cd4c0d680000d50062058d46ed23bb0727cda585e5b58d2e6c67c0f70",
+      "size_bytes": 50180744
+    }
+  ],
+  "config_contract": {
+    "path": "delivery/config-contract.schema.json",
+    "sha256": "588228724aa5f4452417150d7921adf32989e4f251efc6e2021ceace0eb4c11d"
+  },
+  "endpoint_receipts": {
+    "captured": [],
+    "command": "python scripts/release_preflight.py --target <core|mlp|external> --json-output <receipt.json>",
+    "required": [
+      "core",
+      "mlp",
+      "external"
+    ]
+  },
+  "generated_at": "2026-09-25T02:45:24.345991+00:00",
+  "generated_by": {
+    "python": "3.12.10",
+    "schema_version": 1,
+    "tool": "ion_CSP.release_manifest"
+  },
+  "profiles": {
+    "core": {
+      "authoritative_lock": "uv.lock",
+      "conda_bootstrap": "environment.yml",
+      "gpu_stack_excluded": true,
+      "lock_index": "delivery/locks/core.lock.json",
+      "lock_index_sha256": "ca950a71d1ba2699eb09d9190352c0e9ab60f0780b7715a46753be6fbbb29f01",
+      "lock_sha256": "360944005693436e50c129bb766b69cfb1d6eb86fbebb11d30e03e437f9884f1",
+      "python": "3.11.x",
+      "resolved_package_count": 75,
+      "resolved_packages": [
+        "ase",
+        "bcrypt",
+        "bibtexparser",
+        "certifi",
+        "cffi",
+        "charset-normalizer",
+        "cloudpickle",
+        "colorama",
+        "contourpy",
+        "coverage",
+        "cryptography",
+        "cycler",
+        "dargs",
+        "dpdispatcher",
+        "filelock",
+        "fonttools",
+        "h5py",
+        "idna",
+        "importlib-metadata",
+        "iniconfig",
+        "invoke",
+        "ion-csp",
+        "joblib",
+        "kiwisolver",
+        "lxml",
+        "matplotlib",
+        "monty",
+        "mpmath",
+        "narwhals",
+        "networkx",
+        "numpy",
+        "orjson",
+        "packaging",
+        "palettable",
+        "pandas",
+        "paramiko",
+        "phonopy",
+        "pillow",
+        "plotly",
+        "pluggy",
+        "psutil",
+        "pycparser",
+        "pygments",
+        "pymatgen",
+        "pymatgen-core",
+        "pymatgen-core",
+        "pynacl",
+        "pyocse",
+        "pyparsing",
+        "pytest",
+        "pytest-cov",
+        "python-dateutil",
+        "pytz",
+        "pyxtal",
+        "pyyaml",
+        "rdkit",
+        "requests",
+        "ruamel-yaml",
+        "scipy",
+        "six",
+        "spglib",
+        "symfc",
+        "sympy",
+        "tabulate",
+        "toml",
+        "tomli",
+        "tqdm",
+        "typeguard",
+        "typing-extensions",
+        "tzdata",
+        "uncertainties",
+        "urllib3",
+        "vasprun-xml",
+        "xmltodict",
+        "zipp"
+      ],
+      "role": "controller and workflow parser"
+    },
+    "external": {
+      "inventory": "delivery/external-software.json",
+      "inventory_sha256": "8f105c3b86d748f7dfab7572f7426912d4d1518aceac32b39008c93f2f71de28",
+      "receipt_required": true,
+      "role": "licensed/external scientific software workers",
+      "software": [
+        {
+          "endpoint": "core",
+          "executable_any_of": [
+            "Multiwfn_noGUI",
+            "Multiwfn"
+          ],
+          "execution": "local controller process",
+          "license_bundled": false,
+          "name": "Multiwfn",
+          "required_for": [
+            "EE"
+          ]
+        },
+        {
+          "endpoint": "core",
+          "executable_any_of": [
+            "phonopy"
+          ],
+          "execution": "local controller process",
+          "name": "Phonopy",
+          "python_lock": "uv.lock",
+          "required_for": [
+            "CSP"
+          ]
+        },
+        {
+          "companion_executables": [
+            "formchk"
+          ],
+          "endpoint": "external",
+          "executable_any_of": [
+            "g16"
+          ],
+          "license_bundled": false,
+          "name": "Gaussian 16",
+          "profile": "gaussian",
+          "required_for": [
+            "EE"
+          ]
+        },
+        {
+          "companion_executables": [
+            "mpirun",
+            "mpiexec"
+          ],
+          "endpoint": "external",
+          "executable_any_of": [
+            "vasp_std"
+          ],
+          "license_bundled": false,
+          "name": "VASP",
+          "profile": "vasp",
+          "required_for": [
+            "CSP"
+          ]
+        }
+      ]
+    },
+    "mlp": {
+      "authoritative_lock": "delivery/locks/mlp-deepmd-torch.lock.toml",
+      "bundled_model": {
+        "path": "src/ion_CSP/model/model.pt",
+        "sha256": "e43f474cfe5bee350ebf790796d4fbd4e473860b79a7de9ac236ea0b8a195634",
+        "size_bytes": 24649402
+      },
+      "cuda_boundary": {
+        "boundary": "Torch and DeePMD are one ABI unit; do not upgrade Torch or change its CUDA wheel independently.",
+        "policy": "runtime-receipt-required",
+        "required_evidence": [
+          "torch.version.cuda",
+          "torch.cuda.is_available()",
+          "nvidia-smi visibility",
+          "GPU model and driver from the MLP endpoint receipt"
+        ]
+      },
+      "lock_sha256": "233532b1713b59cead36fbc26869b1b2e5e13ac1b28eeca22bc79f56e78222a5",
+      "pairing": {
+        "ase": "3.23.0",
+        "deepmd-kit": "3.2.0",
+        "python": "3.12.x",
+        "torch": "2.11.0"
+      },
+      "receipt_required": true,
+      "requirements": "delivery/locks/mlp-requirements.txt",
+      "requirements_sha256": "d13c2dd3b653701d0d4739f9ecf04201d30eedd8f5db77435348fdd3d9befe0d",
+      "role": "MLP structure optimization worker"
+    }
+  },
+  "project": "ion_CSP",
+  "schema_version": 1,
+  "source_revision": {
+    "content_sha256": "99fc1c183c279df0d0d58a96b2ce2a21ac31dc1081f022cd7c4c2aa1eba926b1",
+    "dirty": false,
+    "dirty_entries": [],
+    "git_head": "bd4b6362082a54274f7894b0c0615135ff7a3447"
+  },
+  "source_validation": {
+    "inventory": [
+      {
+        "path": "MANIFEST.in",
+        "sha256": "a2d51502ea10b9b14b1627ad2c8000b563ac37fe1c3b918344b140f93ffc6a8a",
+        "size_bytes": 483
+      },
+      {
+        "path": "README.md",
+        "sha256": "d363c7f6e19420ba009996c2210b412994350ae5e5dda8646a8b468496f3bd72",
+        "size_bytes": 14433
+      },
+      {
+        "path": "delivery/README.md",
+        "sha256": "5161032e4b0f98cd6ea801e0f8fe681e760a05f1c6c5bb246cad2ce70dd55868",
+        "size_bytes": 1074
+      },
+      {
+        "path": "delivery/config-contract.schema.json",
+        "sha256": "588228724aa5f4452417150d7921adf32989e4f251efc6e2021ceace0eb4c11d",
+        "size_bytes": 3151
+      },
+      {
+        "path": "delivery/external-software.json",
+        "sha256": "8f105c3b86d748f7dfab7572f7426912d4d1518aceac32b39008c93f2f71de28",
+        "size_bytes": 1309
+      },
+      {
+        "path": "delivery/locks/core.lock.json",
+        "sha256": "ca950a71d1ba2699eb09d9190352c0e9ab60f0780b7715a46753be6fbbb29f01",
+        "size_bytes": 819
+      },
+      {
+        "path": "delivery/locks/mlp-deepmd-torch.lock.toml",
+        "sha256": "233532b1713b59cead36fbc26869b1b2e5e13ac1b28eeca22bc79f56e78222a5",
+        "size_bytes": 1038
+      },
+      {
+        "path": "delivery/locks/mlp-requirements.txt",
+        "sha256": "d13c2dd3b653701d0d4739f9ecf04201d30eedd8f5db77435348fdd3d9befe0d",
+        "size_bytes": 173
+      },
+      {
+        "path": "docs/delivery.md",
+        "sha256": "1b5648bee1bfcc38e1a61fb967540ae94fe3d81538067f3ede99dbb0fd4687ed",
+        "size_bytes": 7262
+      },
+      {
+        "path": "environment-mlp.yml",
+        "sha256": "fc4504c1804ac02a26169aea60e1b7c2aac8da6381ec190c66e0bec6ba9ec93e",
+        "size_bytes": 517
+      },
+      {
+        "path": "environment.yml",
+        "sha256": "004eaee15ba3638f0d9cd0c33c83bee9c88de0f1b07a38426070a28598f5b2d5",
+        "size_bytes": 740
+      },
+      {
+        "path": "pyproject.toml",
+        "sha256": "41f072fd9f136f8d3e66b7420d5db43a5c34dd3f7e8944073e24b370d75d0957",
+        "size_bytes": 2443
+      },
+      {
+        "path": "scripts/CLI.py",
+        "sha256": "bc34baa2575799d23f5812f36806c84585d25193d1281a71c2cf0e82fc297a97",
+        "size_bytes": 77
+      },
+      {
+        "path": "scripts/CLI.sh",
+        "sha256": "1256931b3e49c029b408e19dd63d347be76bd438a5dc860804d5761db680e76e",
+        "size_bytes": 5771
+      },
+      {
+        "path": "scripts/build_release_manifest.py",
+        "sha256": "1e09fac2ba49977349e28582d60d1f7548728646e0dd5d8bfb753ceafc22b120",
+        "size_bytes": 415
+      },
+      {
+        "path": "scripts/ion_csp_workflow.py",
+        "sha256": "8df4f9c7b1fe84728a8db2bbd82f4fc2ee97513ad69b5bff0cbfb80ea9867292",
+        "size_bytes": 413
+      },
+      {
+        "path": "scripts/main_CSP.sh",
+        "sha256": "8baf441129975777fe540332fcc91ec362a5bf514be950d2c4a1c300df4b3264",
+        "size_bytes": 116
+      },
+      {
+        "path": "scripts/main_EE.sh",
+        "sha256": "6c797fe7dc2dbdb9b345b1eab92cc301804f991dc9159e4427bca376deaabead",
+        "size_bytes": 114
+      },
+      {
+        "path": "scripts/release_preflight.py",
+        "sha256": "12fba73b4d0b5b7a24a1295d58f26a9380971427083e35c43869ef88315d2936",
+        "size_bytes": 401
+      },
+      {
+        "path": "scripts/run_upload_download.py",
+        "sha256": "c2e4c0772e1b81d76e0fb4c9b601f0a3f7d3a472a5900c268119270a50cb603a",
+        "size_bytes": 2436
+      },
+      {
+        "path": "scripts/update_changelog.py",
+        "sha256": "c45842877a8e1377162f09d40f78d00e1b2cb0d6de05f0108d69291a76bf24ca",
+        "size_bytes": 2148
+      },
+      {
+        "path": "scripts/upload_download.py",
+        "sha256": "1d7c5540c532744a077b6bd5f3dc11ec37b852dd6512d7baa66a7c43cd9d79c2",
+        "size_bytes": 23800
+      },
+      {
+        "path": "src/ion_CSP/__init__.py",
+        "sha256": "7c11d777dfb6cc53734aaff2940cbb5aa33775c0db3e7533bfcb08b89676f056",
+        "size_bytes": 356
+      },
+      {
+        "path": "src/ion_CSP/__main__.py",
+        "sha256": "5e5342c7978c4ab2fbca577d75d4985e18d7be0d996060ffba4f4b76a35a6efb",
+        "size_bytes": 74
+      },
+      {
+        "path": "src/ion_CSP/convert_SMILES.py",
+        "sha256": "e2ea43c4f4207dcddf52bd10ed3f4fe6f900584aab4b6ef610f349c6bcad3847",
+        "size_bytes": 26399
+      },
+      {
+        "path": "src/ion_CSP/empirical_estimate.py",
+        "sha256": "d482494fe56114fcdc28f4d71c4f37ded3852b21822b4b38e969519faaa23dfa",
+        "size_bytes": 47428
+      },
+      {
+        "path": "src/ion_CSP/gen_opt.py",
+        "sha256": "09c9901b36508a638af57cfbc849631dee4a1d4287f63a180f03c0e9777cc57e",
+        "size_bytes": 30910
+      },
+      {
+        "path": "src/ion_CSP/identify_molecules.py",
+        "sha256": "f91dff493c8d3e433a473e6c58da3d1b8afbacbe7cbb1aceaee204adcd5f825e",
+        "size_bytes": 4436
+      },
+      {
+        "path": "src/ion_CSP/log_and_time.py",
+        "sha256": "8461d7d8c42aa573a273ae8b5054147cb1aea136241fd28763e622e01e2114da",
+        "size_bytes": 19116
+      },
+      {
+        "path": "src/ion_CSP/mlp_opt.py",
+        "sha256": "1a88b5be3727ab45487ff3d7e608b239d2faeb4d3006c388d2438bb6be7737b3",
+        "size_bytes": 13933
+      },
+      {
+        "path": "src/ion_CSP/model/dpa4_ion_ft_v1.pt",
+        "sha256": "61c9a6dd40f63020a1482fb02a03873326299c81ba220cf35d9605123544c5ef",
+        "size_bytes": 3742095
+      },
+      {
+        "path": "src/ion_CSP/model/model.pt",
+        "sha256": "e43f474cfe5bee350ebf790796d4fbd4e473860b79a7de9ac236ea0b8a195634",
+        "size_bytes": 24649402
+      },
+      {
+        "path": "src/ion_CSP/model/options/README.md",
+        "sha256": "89fa1e35717609fc2a523b775e6879a9497e7b885f3f878c578124a95ec6537d",
+        "size_bytes": 182
+      },
+      {
+        "path": "src/ion_CSP/model/options/model.ckpt-4000000.pt",
+        "sha256": "e43f474cfe5bee350ebf790796d4fbd4e473860b79a7de9ac236ea0b8a195634",
+        "size_bytes": 24649402
+      },
+      {
+        "path": "src/ion_CSP/param/INCAR_0",
+        "sha256": "aa1d1c39ecfdf8bbf4c15c9fe9b0ab43dda45a28a83acc7eb57b61731d865ed1",
+        "size_bytes": 295
+      },
+      {
+        "path": "src/ion_CSP/param/INCAR_1",
+        "sha256": "8affa894103025bbae10d86fd6e7c8064ba3b3f110bf5c64514cdd2669022e1e",
+        "size_bytes": 477
+      },
+      {
+        "path": "src/ion_CSP/param/INCAR_2",
+        "sha256": "08380b05123041f2ff6136f54371a8d5358aec75eef5700f7f60c76163c5b9af",
+        "size_bytes": 430
+      },
+      {
+        "path": "src/ion_CSP/param/INCAR_3",
+        "sha256": "cd7e96fa85f6c5361cf0e1246dfcc98b26a9236fae06b329009732cb2a512751",
+        "size_bytes": 319
+      },
+      {
+        "path": "src/ion_CSP/param/POTCAR_B",
+        "sha256": "a32ced30f5ae56fd4d10b4325ff17eb3e4e38ee0f4288bc219fb012fddfa6e97",
+        "size_bytes": 194927
+      },
+      {
+        "path": "src/ion_CSP/param/POTCAR_C",
+        "sha256": "072804a08d314e0cbced7bea928f78f117e3e4dc3ea8093085f7790af250e720",
+        "size_bytes": 209530
+      },
+      {
+        "path": "src/ion_CSP/param/POTCAR_H",
+        "sha256": "ca99c4ebf4523d577282aefd7a55d6899ee0223eab1953f655e4576f363a73be",
+        "size_bytes": 142686
+      },
+      {
+        "path": "src/ion_CSP/param/POTCAR_N",
+        "sha256": "9fdfaf1ea93db09e80dc2dded724f0f6bf5264a0c9735980ae071f749d003c0e",
+        "size_bytes": 213434
+      },
+      {
+        "path": "src/ion_CSP/param/POTCAR_O",
+        "sha256": "4b92d8b1b936656a038fa84bc51b9c338f3034781fec141c0b2960c0674be210",
+        "size_bytes": 222698
+      },
+      {
+        "path": "src/ion_CSP/param/g16_sub.sh",
+        "sha256": "58ec5784188f8e967c789c1d2dd2ed09f56c58f5a1d144b1ac16d7f6eddcba79",
+        "size_bytes": 519
+      },
+      {
+        "path": "src/ion_CSP/param/sub_final.sh",
+        "sha256": "8f9003d1ccc0e0d6915bc79286d03c3fe33a2225e5858a5138e606f7abad505b",
+        "size_bytes": 333
+      },
+      {
+        "path": "src/ion_CSP/param/sub_ori.sh",
+        "sha256": "ee9a692dc9d75fc58d0cbb87e8b1e33978dd712e3c927b8c9cc550653daa490d",
+        "size_bytes": 10609
+      },
+      {
+        "path": "src/ion_CSP/param/sub_supple.sh",
+        "sha256": "2123cb1025f38cfa58a20a11605fab1e378dcd0a994bf3d030790d1431ac42e0",
+        "size_bytes": 6534
+      },
+      {
+        "path": "src/ion_CSP/preflight.py",
+        "sha256": "acfcca86a88fd85259b839561d334af1c34ffdfdd5c02f361dbeeb06695dc259",
+        "size_bytes": 22686
+      },
+      {
+        "path": "src/ion_CSP/read_mlp_density.py",
+        "sha256": "617654b090e7180818be4ef5f9bc23f39d10cfe831b01db2835b8327a4a7df79",
+        "size_bytes": 16571
+      },
+      {
+        "path": "src/ion_CSP/release_manifest.py",
+        "sha256": "d9c1c6def437040be63de202f5ed8f2acf9186583ce1967ccb698d399a6d790e",
+        "size_bytes": 14090
+      },
+      {
+        "path": "src/ion_CSP/run/__init__.py",
+        "sha256": "ffd1005e9e1cbf8d4045bc5a842922870a98e05d34635f2d05e4dab96783f66c",
+        "size_bytes": 186
+      },
+      {
+        "path": "src/ion_CSP/run/main_CSP.py",
+        "sha256": "4c5fbdfaa119eb1554c8640a362681cf0c50b0c95f6608ce79e5a64819a273df",
+        "size_bytes": 6999
+      },
+      {
+        "path": "src/ion_CSP/run/main_EE.py",
+        "sha256": "622002528337bb994f6611af9c66846038052446a10c4269f78f52b3b48ec67a",
+        "size_bytes": 14737
+      },
+      {
+        "path": "src/ion_CSP/run/run_convert_SMILES.py",
+        "sha256": "412a7c18dc24173bc954993c1c7d2bc9850219a416578b33c29d9f56b46c3a06",
+        "size_bytes": 2470
+      },
+      {
+        "path": "src/ion_CSP/run/run_empirical_estimate.py",
+        "sha256": "53fcaf43980c88190311a6c75cb2520049b41331878522aceb1996a040bf8237",
+        "size_bytes": 2831
+      },
+      {
+        "path": "src/ion_CSP/run/run_gen_opt.py",
+        "sha256": "641a92c49482022d6cce06c8847004d72b3223353b3652bf89cd9df94cddce3e",
+        "size_bytes": 3389
+      },
+      {
+        "path": "src/ion_CSP/run/run_read_mlp_density.py",
+        "sha256": "77a3fadc3ad66ad812316cccf50c461d92a29f081f8f9141d14b4d8c741cb041",
+        "size_bytes": 2022
+      },
+      {
+        "path": "src/ion_CSP/run/run_vasp_processing.py",
+        "sha256": "e018388e4ff4f30d22a26d0345a6871fff01cb3a247ce830bf52031ae571f1ec",
+        "size_bytes": 1625
+      },
+      {
+        "path": "src/ion_CSP/structure_snapshots.py",
+        "sha256": "b90a198838e4b891ce9e9ef4e141da0eeae208e96eb08382e0a0afdd410b785a",
+        "size_bytes": 11112
+      },
+      {
+        "path": "src/ion_CSP/task_manager.py",
+        "sha256": "dc8f636650e0a03bb3fb06c4dd91907d1ab10f64d61e418de8f3023bccb08f8c",
+        "size_bytes": 21568
+      },
+      {
+        "path": "src/ion_CSP/topology_validation.py",
+        "sha256": "ad861acf6dea30f29a169b77a8cdd0541e0bedab928572bb8e82b88b025d9ffe",
+        "size_bytes": 10639
+      },
+      {
+        "path": "src/ion_CSP/vasp_processing.py",
+        "sha256": "5223b36fd5e1733c4d28de55e4d86aac2f786fa1ba1887aca36e61ed7ad8110f",
+        "size_bytes": 45538
+      },
+      {
+        "path": "src/ion_CSP/workflow_cli.py",
+        "sha256": "1b74d64500f7855ae110d3b414bfcc30bc8f8d9e612969dd9075f41b1f851dae",
+        "size_bytes": 2415
+      },
+      {
+        "path": "uv.lock",
+        "sha256": "360944005693436e50c129bb766b69cfb1d6eb86fbebb11d30e03e437f9884f1",
+        "size_bytes": 471085
+      }
+    ],
+    "python_parse": {
+      "failures": [],
+      "file_count": 24,
+      "parser": "python.ast.parse",
+      "status": "pass"
+    }
+  },
+  "version": "2.3.5"
+}
