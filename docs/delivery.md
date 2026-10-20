@@ -11,6 +11,9 @@ ion_CSP 不是一个可以用单一 Python 环境完整承载的程序。生产�
 
 `core` 可以通过 dpdispatcher 的 SSHContext 把计算任务发到另外两端。预检命令只检查
 目录、解释器、包版本和 PATH 可见性，不启动 Gaussian、VASP 或 MLP 作业。
+如果 core、MLP 与 VASP 都在同一工作站，使用 `LocalContext + Shell`，分别按
+[`compute_profiles.md`](compute_profiles.md) 和 [`local_workstation.md`](local_workstation.md)
+生成配置并完成受限试算前就绪检查；后者的 PASS 不代替实际 VASP MPI ABI 或科学结果验收。
 
 ## 1. 固定 core 与 MLP 环境
 

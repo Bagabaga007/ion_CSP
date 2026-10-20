@@ -120,22 +120,29 @@ class VaspProcessing:
         )
 
         # 获取文件夹中所有以prefix_name开头的文件，在此实例中为CONTCAR_
-        mlp_contcar_files = [
-            f for f in self.for_vasp_opt_dir.iterdir() if f.name.startswith("CONTCAR_")
-        ]
+        mlp_contcar_files = sorted(
+            (
+                f for f in self.for_vasp_opt_dir.iterdir()
+                if f.is_file() and f.name.startswith("CONTCAR_")
+            ),
+            key=lambda f: f.name,
+        )
         if not mlp_contcar_files:
             raise FileNotFoundError(
                 f"No CONTCAR_ files found in {self.for_vasp_opt_dir}"
             )
+        if nodes < 1:
+            raise ValueError("nodes must be at least 1")
         potcar_files = self._potcar_files_for_structures(mlp_contcar_files)
-        # 创建一个嵌套列表来存储每个节点的任务并将文件平均依次分配给每个节点
-        # 例如：对于10个结构文件任务分发给4个节点的情况，则4个节点领到的任务分别[0, 4, 8], [1, 5, 9], [2, 6], [3, 7]
-        node_jobs = [[] for _ in range(nodes)]
+        # A screened combo can contain fewer structures than configured nodes.
+        # Never submit an empty pop task: sub_ori.sh requires a CONTCAR_* input.
+        active_nodes = min(nodes, len(mlp_contcar_files))
+        node_jobs = [[] for _ in range(active_nodes)]
         for index, file in enumerate(mlp_contcar_files):
-            node_index = index % nodes
+            node_index = index % active_nodes
             node_jobs[node_index].append(index)
         task_list = []
-        for pop in range(nodes):
+        for pop in range(active_nodes):
             forward_files = [
                 "INCAR_1",
                 "INCAR_2",
@@ -191,7 +198,7 @@ class VaspProcessing:
                 )
                 shutil.copyfile(str(outcar), str(self.vasp_optimized_dir / outcar.name))
 
-        for pop in range(nodes):
+        for pop in range(active_nodes):
             # 从传回的 pop 文件夹中将结果文件取到 4_vasp_optimized 目录
             task_dir = self.for_vasp_opt_dir / f"{parent}pop{pop}"
             for job_i in node_jobs[pop]:
@@ -1027,9 +1034,52 @@ class VaspProcessing:
                     # 复制并重命名 CONTCAR 为 POSCAR
                     shutil.copy(str(target_contcar), str(poscar_path))
                     logging.info(f"Copied CONTCAR from target {target_contcar} to {poscar_path}")
+                    return poscar_path
                 else:
                     logging.info(f"Eligible CONTCAR not found at expected location: {target_contcar}")
                 break
 
         if target_contcar is None:
             logging.info(f"No folder found for structure number {best_number}")
+
+    def render_final_vesta_snapshots(
+        self, poscar_path: Path, *, vesta_executable: Optional[str] = None
+    ) -> Optional[Path]:
+        """Render the exported Final POSCAR in VESTA from three crystal axes.
+
+        A visualization failure is recorded separately and does not invalidate
+        the already selected and copied scientific structure.
+        """
+        from ion_CSP.vesta_snapshots import render_vesta_views, write_snapshot_status
+
+        status_path = self.base_dir / "crystal_snapshots" / "final_snapshot_status.json"
+        try:
+            manifest = render_vesta_views(
+                poscar_path,
+                self.base_dir / "crystal_snapshots",
+                executable=vesta_executable,
+            )
+        except Exception as exc:
+            write_snapshot_status(
+                status_path,
+                poscar_path,
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            logging.warning("Final VESTA snapshots could not be rendered: %s", exc)
+            return None
+        write_snapshot_status(
+            status_path, poscar_path, status="success", manifest=manifest
+        )
+        logging.info("Final VESTA snapshots saved: %s", manifest)
+        return manifest
+
+    def record_no_final_vesta_snapshot(self) -> None:
+        """Prevent an old snapshot from being mistaken for this run's result."""
+        from ion_CSP.vesta_snapshots import write_snapshot_status
+
+        write_snapshot_status(
+            self.base_dir / "crystal_snapshots" / "final_snapshot_status.json",
+            None,
+            status="no_exported_final_poscar",
+        )

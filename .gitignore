@@ -30,6 +30,9 @@ OUTCAR_*
 !delivery/**/*.json
 !delivery/**/*.toml
 !delivery/**/*.txt
+# Candidate receipts are local build records, not versioned release inputs.
+delivery/candidate-manifests/
+*.orig
 *.zip
 slurm-*.out
 server_config

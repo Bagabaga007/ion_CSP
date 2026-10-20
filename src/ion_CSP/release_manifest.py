@@ -28,6 +28,9 @@ ROOT_FILES = (
     "MANIFEST.in",
     "README.md",
     "docs/delivery.md",
+    "docs/compute_profiles.md",
+    "docs/dispatch_accounting.md",
+    "docs/local_workstation.md",
 )
 
 
@@ -58,6 +61,11 @@ def _source_paths(root: Path, manifest_path: Path) -> list[Path]:
             continue
         for candidate in directory.rglob("*"):
             if not candidate.is_file() or candidate == manifest_path:
+                continue
+            # Internal candidate receipts are generated *after* builds. They
+            # are not source inputs and must not invalidate earlier manifests
+            # or leak into a later distributable source archive.
+            if relative == "delivery" and "candidate-manifests" in candidate.relative_to(directory).parts:
                 continue
             if "__pycache__" in candidate.parts or candidate.suffix in {".pyc", ".pyo", ".orig"}:
                 continue
@@ -122,6 +130,7 @@ def _git_revision(root: Path, content_sha256: str) -> dict[str, Any]:
         *SOURCE_ROOTS,
         *ROOT_FILES,
         ":(exclude)delivery/release-manifest.json",
+        ":(exclude)delivery/candidate-manifests/**",
         ":(exclude)src/ion_CSP/**/*.orig",
     )
     dirty_entries = [] if not porcelain else porcelain.splitlines()

@@ -77,6 +77,11 @@ def test_manifest_rejects_new_source_but_ignores_local_backup(tmp_path):
     (root / "src/ion_CSP/notes.orig").write_text("backup\n", encoding="utf-8")
     assert verify_manifest(root, output)["ok"]
 
+    candidate_dir = root / "delivery/candidate-manifests"
+    candidate_dir.mkdir()
+    (candidate_dir / "internal-build.json").write_text('{"candidate":true}\n', encoding="utf-8")
+    assert verify_manifest(root, output)["ok"]
+
     (root / "src/ion_CSP/new_module.py").write_text("VALUE = 2\n", encoding="utf-8")
     result = verify_manifest(root, output)
     assert not result["ok"]

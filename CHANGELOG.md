@@ -2,40 +2,41 @@
 
 ## Latest Changes
 
-### V2.3.5 (2026-09-03)
+### b741a15 (2026-09-25)
 
-CSP input integrity and portable database views:
+chore: record verified ion_CSP release manifest
 
-- Added SMILES-to-Gaussian element-labelled graph validation before EE combination generation; invalid products are quarantined with a JSON report.
-- Replaced formula-set molecule checks with graph-isomorphic, multiplicity-sensitive CSP validation.
-- Added relocatable Database_Ions symlinks, broken-link repair, safe migration of byte-identical legacy copies, and project-input charge protection.
-- Preserved database symlinks through Gaussian Optimized views and made Multiwfn detection lazy for combination-only/CSP workflows.
-- Excluded mixed-ion and charge-folder type mismatches from EE combinations.
-- Allowed ReadMlpDensity to continue with all non-zero valid candidates when fewer than n_screen survive.
-- Forwarded MLP backend, Python, model, device, and worker options through the staged run_gen_opt entry point.
-- Prevented remote SSH Shell jobs from checking the local host's GPUs.
-- Added VASP fatal/truncation gates, per-stage shell status files, invalid-result CSV reporting, and zero-valid-result failure propagation; ionic/pressure convergence is advisory by default for metastable energetic-material candidates.
-- Made POTCAR forwarding and shell assembly element-driven; missing elements fail before submission instead of producing an incomplete POTCAR, and the current BNx environment uses the licensed PBE.52 B potential.
-- Restored rough/fine to fixed-shape ISIF=8 with rough IBRION=3 damped dynamics and fine IBRION=1 RMM-DIIS; intermediate fatal/non-zero output is retained for the final restart, while final remains INCAR_3/ISIF=3 and performs the only fatal/normal-output acceptance check.
-- Added opt-in ION_CSP_REQUIRE_IONIC_CONVERGENCE for strict diagnostics while retaining topology checks and automatic archival/retry (up to two retries) of transient MPI exit 255 failures.
-- Made dpdispatcher file logging submission-scoped, closed handlers deterministically, and removed pytest-only default logs after each session.
-- Removed root-level duplicate model/param packaging sources in favor of src/ion_CSP, and archived ignored historical example results and generated artifacts outside the repository.
-- Archived the earlier strict constrained-VASP diagnostic for the N8+ + nitrate top-1 candidate (84/235 ionic steps, pressures 1.62/-0.08 kB, final max force 0.01812 eV/Å); topology preservation remains mandatory even when production numerical gates are relaxed.
-- Added topology/linking, logging, packaging, and constrained-VASP regressions; the full suite passes 537/537.
-- Refreshed the core dependency lock with patched cryptography, Pillow, urllib3, lxml, Paramiko, dpdispatcher, pytest, GitHub Actions, and related transitives; moved DeepMD/Torch to the isolated MLP worker contract.
-- Added headless bonded structure snapshots for four orthogonal/isometric views before and after Gaussian optimization, including missing/unexpected-bond diagnostics and JSON manifests.
-- Added an explicitly labelled geometry-only snapshot mode for legacy production structures whose authoritative SMILES inputs are unavailable.
+### bd4b636 (2026-09-25)
 
-### V2.3.4 (2026-08-31)
+feat: freeze three-end delivery and VASP workflow hardening
 
-Documentation and configuration alignment:
+### 1955af5 (2026-09-04)
 
-- Unified the user-facing configuration contract around YAML and <work_dir>/config.yaml; removed stale JSON, --config, and old API guidance.
-- Rewrote the usage guide to match the EE/CSP execution graph, output directories, logs, resume semantics, scheduler setup, and external-program requirements.
-- Corrected the CSP/EE Python examples to import ion_CSP.run.* and call main(work_dir, config).
-- Added direct declarations for pandas, PyYAML, and psutil; aligned the Conda and uv lock metadata with Phonopy 2.34.1.
-- Fixed target_dir to accept YAML strings, resolving relative paths against the EE work directory; added a regression test.
-- The full Python test suite passes 497/497 with temporary PyXtal/Phonopy dependencies and an external-program stub; no real Gaussian/VASP/Multiwfn calculations were run.
+feat: support legacy geometry-only snapshots
+
+### 2e25ab1 (2026-09-03)
+
+feat: add bonded multi-view structure snapshots
+
+### 57af191 (2026-09-03)
+
+ci: update GitHub Actions dependencies
+
+### 663385f (2026-09-03)
+
+fix: remediate dependency security alerts
+
+### 301fdd6 (2026-09-03)
+
+release: bump version to 2.3.5
+
+### fb0f3d7 (2026-09-03)
+
+refactor: harden CSP topology and VASP workflows
+
+### 0605f61 (2026-08-31)
+
+Release v2.3.4
 
 ### 9003537 (2026-08-11)
 

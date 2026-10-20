@@ -3,10 +3,16 @@ include LICENSE
 include environment.yml
 include environment-mlp.yml
 include docs/delivery.md
+include docs/compute_profiles.md
+include docs/dispatch_accounting.md
+include docs/local_workstation.md
 recursive-include delivery *.json *.toml *.txt *.md
 exclude delivery/release-manifest.json
+prune delivery/candidate-manifests
 include scripts/release_preflight.py
 include scripts/ion_csp_workflow.py
+include scripts/ion_csp_profile.py
+include scripts/ion_csp_local_check.py
 include scripts/build_release_manifest.py
 recursive-include src/ion_CSP/run *.py
 recursive-include src/ion_CSP/param *

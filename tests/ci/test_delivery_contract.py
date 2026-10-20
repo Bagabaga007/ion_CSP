@@ -16,6 +16,8 @@ def test_delivery_contract_files_and_common_manifest_fields_exist():
         "scripts/release_preflight.py",
         "scripts/build_release_manifest.py",
         "scripts/ion_csp_workflow.py",
+        "scripts/ion_csp_profile.py",
+        "scripts/ion_csp_local_check.py",
     )
     for relative in required:
         assert (PROJECT_ROOT / relative).is_file(), relative
@@ -51,9 +53,17 @@ def test_console_scripts_publish_wrapper_preflight_and_manifest():
     project = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     scripts = project["project"]["scripts"]
     assert scripts["ion-csp-workflow"] == "ion_CSP.workflow_cli:main"
+    assert scripts["ion-csp-profile"] == "ion_CSP.compute_profile:main"
+    assert scripts["ion-csp-local-check"] == "ion_CSP.local_readiness:main"
     assert scripts["ion-csp-preflight"] == "ion_CSP.preflight:main"
     assert scripts["ion-csp-release-manifest"] == "ion_CSP.release_manifest:main"
     excluded = project["tool"]["setuptools"]["exclude-package-data"]["ion_CSP"]
     assert "param/*.orig" in excluded
     manifest_rules = (PROJECT_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
     assert "exclude delivery/release-manifest.json" in manifest_rules
+    assert "prune delivery/candidate-manifests" in manifest_rules
+    assert "include scripts/ion_csp_profile.py" in manifest_rules
+    assert "include docs/compute_profiles.md" in manifest_rules
+    assert "include docs/dispatch_accounting.md" in manifest_rules
+    assert "include docs/local_workstation.md" in manifest_rules
+    assert "include scripts/ion_csp_local_check.py" in manifest_rules

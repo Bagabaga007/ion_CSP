@@ -225,6 +225,7 @@ def test_vasp_relaxation_task(mock_vasp, mock_work_dir, mock_config):
     # 设置 mock
     vasp_instance = MagicMock()
     vasp_instance.dpdisp_vasp_relaxation_tasks.return_value = 0
+    vasp_instance.export_max_density_structure.return_value = None
     mock_vasp.return_value = vasp_instance
 
     # Zero usable Fine inputs are a non-fatal scientific no-candidate outcome.
@@ -245,6 +246,25 @@ def test_vasp_relaxation_task(mock_vasp, mock_work_dir, mock_config):
         allow_empty=True,
     )
     vasp_instance.export_max_density_structure.assert_called_once_with(relaxation=True)
+    vasp_instance.render_final_vesta_snapshots.assert_not_called()
+    vasp_instance.record_no_final_vesta_snapshot.assert_called_once_with()
+
+
+@patch("ion_CSP.run.main_CSP.VaspProcessing")
+def test_vasp_relaxation_renders_exported_final_poscar(
+    mock_vasp, mock_work_dir, mock_config
+):
+    vasp_instance = mock_vasp.return_value
+    vasp_instance.dpdisp_vasp_relaxation_tasks.return_value = 1
+    final_poscar = mock_work_dir / "POSCAR"
+    vasp_instance.export_max_density_structure.return_value = final_poscar
+
+    vasp_relaxation_task(mock_work_dir, mock_config)
+
+    vasp_instance.render_final_vesta_snapshots.assert_called_once_with(
+        final_poscar, vesta_executable=None
+    )
+    vasp_instance.record_no_final_vesta_snapshot.assert_not_called()
 
 
 @patch("ion_CSP.run.main_CSP.get_work_dir_and_config")
@@ -299,5 +319,3 @@ def test_default_config_structure():
     assert "molecules_prior" in DEFAULT_CONFIG["vasp_processing"]
     assert DEFAULT_CONFIG["vasp_processing"]["nodes"] == 2
     assert DEFAULT_CONFIG["vasp_processing"]["molecules_prior"] is True
-
-

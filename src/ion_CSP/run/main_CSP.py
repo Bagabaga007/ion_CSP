@@ -26,6 +26,8 @@ DEFAULT_CONFIG = {
     "vasp_processing": {
         "nodes": 2,  # VASP 分步优化占用 CPU 节点数
         "molecules_prior": True,  # 是否检查离子晶体结构中所有离子的结构
+        "vesta_snapshots": True,  # Final 根 POSCAR 的 a/b/c 轴 VESTA 快照
+        "vesta_executable": None,  # 可用 ION_CSP_VESTA_BIN 或显式路径指定
     },
 }
 
@@ -142,7 +144,15 @@ def vasp_relaxation_task(work_dir, config):
         relaxation=True,
         allow_empty=submitted_count == 0,
     )
-    vasp_result.export_max_density_structure(relaxation=True)
+    final_poscar = vasp_result.export_max_density_structure(relaxation=True)
+    if config["vasp_processing"].get("vesta_snapshots", True):
+        if final_poscar is None:
+            vasp_result.record_no_final_vesta_snapshot()
+        else:
+            vasp_result.render_final_vesta_snapshots(
+                final_poscar,
+                vesta_executable=config["vasp_processing"].get("vesta_executable"),
+            )
 
 
 if __name__ == "__main__":

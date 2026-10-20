@@ -490,7 +490,7 @@ python -m ion_CSP.run.main_CSP /absolute/path/to/combo_1
 | 1_optimization | MLP 批量优化 | 2_mlp_optimized/CONTCAR_n、OUTCAR_n |
 | 2_read_mlp_density | 分子完整性检查和排序 | max_density/ 或 min_energy/ |
 | 3_vasp_optimization | VASP 粗优化与精细优化 | 4_vasp_optimized/<结构>/fine/ |
-| 3_vasp_relaxation | VASP 最终弛豫和导出 | vasp_density_energy.csv、vasp_failures.csv、POSCAR |
+| 3_vasp_relaxation | VASP 最终弛豫、导出和 VESTA 快照 | vasp_density_energy.csv、vasp_failures.csv、POSCAR、crystal_snapshots/ |
 
 完整目录：
 
@@ -513,6 +513,14 @@ python -m ion_CSP.run.main_CSP /absolute/path/to/combo_1
 ├── vasp_density_energy.csv
 ├── vasp_failures.csv
 ├── POSCAR
+├── crystal_snapshots/
+│   ├── final_snapshot_status.json
+│   └── <POSCAR哈希>-<时间戳>/
+│       ├── a.png
+│       ├── b.png
+│       ├── c.png
+│       ├── a_screen.png、b_screen.png、c_screen.png
+│       └── manifest.json
 ├── main_CSP_output.log
 ├── workflow_status.yaml
 ├── workflow_status.log
@@ -552,6 +560,36 @@ EDIFF=1e-4；fine 使用 IBRION=1/RMM-DIIS 精修，保留 EDIFF=1e-6。
 ~~~
 
 若根目录已有 POSCAR，程序会先将其备份为 POSCAR.bak.<时间戳>。
+
+复制 Final CONTCAR 成功后，默认通过 VESTA 在独立的虚拟显示上生成沿 a、b、c
+三个晶轴观察的 PNG。`manifest.json` 记录根 POSCAR 的 SHA-256、原子数、VESTA
+可执行文件和每张图的哈希；`final_snapshot_status.json` 指向当前结果或明确记录
+制图失败原因。相同 POSCAR 已有完整且哈希匹配的图时会复用。没有通过 Final
+拓扑检查的候选、或所选 Final CONTCAR 未能导出时不生成新图，状态文件标为
+`no_exported_final_poscar`，且不会把旧 POSCAR 或旧图片关联到本次结果。
+制图失败不会改变已选中的根 POSCAR。
+
+服务器需要 VESTA GUI、`xvfb-run`、`xwininfo`、ImageMagick `import` 和 XTest
+库。VESTA 路径可在 `vasp_processing.vesta_executable` 中指定，或设置
+`ION_CSP_VESTA_BIN`；若该 VESTA 安装需要额外动态库，可设置
+`ION_CSP_VESTA_LIBRARY_PATH`。程序也会查找工作区的
+`.local/opt/vesta-3.5.8/VESTA-gui` 稳定安装。已有 `~/.VESTA/VESTA.ini`
+会原样保留；缺失时程序仅用 VESTA 安装目录中的默认 INI 初始化一次。可通过
+`vasp_processing.vesta_snapshots: false` 关闭自动制图。
+
+为已有 `<combo>/POSCAR` 补图时，可运行：
+
+~~~bash
+python -m ion_CSP.backfill_vesta_snapshots /workplace/home/yangze/results --workers 4
+~~~
+
+命令只扫描 combo 根 POSCAR，不扫描 `stable/` 或 `4_vasp_optimized/` 中的输入。
+正在运行 CSP 的 combo 会暂缓处理；汇总与逐项状态保存在 results 根目录的
+`vesta_snapshot_backfill.json` 和各 combo 的 `final_snapshot_status.json`。任务中断后
+重跑同一命令会通过 POSCAR/PNG 哈希复用已经完成的图。若需等待正在运行的 CSP
+进程结束后自动补图，可随后运行 `--launch-watcher`。
+回填结束后可运行同一命令加 `--audit`，核对根 POSCAR、快照目录、三张 PNG
+及其哈希；审计结果保存到 `results/vesta_snapshot_audit.json`。
 
 ## 日志与断点续跑
 

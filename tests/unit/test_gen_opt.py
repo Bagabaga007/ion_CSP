@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 import pytest
 import psutil
 import logging
@@ -12,7 +13,9 @@ from ion_CSP.gen_opt import (
     CrystalGenerator,
     Comp_CompatibilityError,
     _get_available_gpus,
+    _resolve_allowed_gpu_uuids,
     _wait_for_gpu,
+    parse_cuda_visible_devices_uuids,
 )
 
 
@@ -62,6 +65,11 @@ N      6.90312600   -1.57214500    5.91086700
 SAMPLE_SPECIES = ["N2H6.gjf", "N5.gjf"]
 SAMPLE_ION_NUMBERS = [1, 2]
 SAMPLE_CELL_ATOMS = 18  # (8 atoms in N2H6) * 1 + (5 atoms in N5) * 2 = 18
+GPU_UUID_0 = "GPU-00000000-0000-0000-0000-000000000000"
+GPU_UUID_1 = "GPU-11111111-AAAA-BBBB-CCCC-111111111111"
+GPU_UUID_2 = "GPU-22222222-AAAA-BBBB-CCCC-222222222222"
+GPU_UUID_3 = "GPU-33333333-AAAA-BBBB-CCCC-333333333333"
+GPU_UUID_4 = "GPU-44444444-AAAA-BBBB-CCCC-444444444444"
 
 
 # ==================== pytest fixture: 创建干净测试环境 ====================
@@ -753,7 +761,8 @@ def test_phonopy_processing_with_deletions(crystal_generator: CrystalGenerator, 
 @pytest.mark.parametrize(
     "context_type, nodes, parent, gpu",
     [
-        ("LocalContext", 2, "", 1),
+        ("LocalContext", 1, "", 1),
+        ("LocalContext", 2, "", 0),
         ("SSHContext", 1, "data/", 1),
     ],
 )
@@ -779,9 +788,12 @@ def test_dpdisp_mlp_tasks_local_and_remote(
     crystal_generator: CrystalGenerator,
     tmp_path: Path,
     caplog,
+    monkeypatch,
 ):
     """测试本地 GPU 和远程 SSH 模式"""
     caplog.set_level(logging.INFO)
+    controller_gpu_mask = f"{GPU_UUID_2},{GPU_UUID_3}"
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", controller_gpu_mask)
 
     # 1. 创建 machine 和 resources 文件（JSON 格式）
     machine_path = tmp_path / "machine.json"
@@ -807,6 +819,10 @@ def test_dpdisp_mlp_tasks_local_and_remote(
         "gpu_per_node": gpu,
         "group_size": 1,
     }
+    if context_type == "LocalContext" and gpu != 0:
+        resources_config["envs"] = {
+            "CUDA_VISIBLE_DEVICES": f"{GPU_UUID_3},{GPU_UUID_4}"
+        }
     resources_path.write_text(json.dumps(resources_config, indent=2), encoding="utf-8")
 
     # 2. 创建输入文件：3 个 POSCAR_0,1,2
@@ -845,9 +861,21 @@ def test_dpdisp_mlp_tasks_local_and_remote(
                 )
 
     # 6. 使用固定job_id执行被测函数
-    with patch("uuid.uuid4") as mock_uuid, patch(
-        "ion_CSP.gen_opt._wait_for_gpu", return_value=0
-    ) as mock_wait_for_gpu:
+    with (
+        patch("uuid.uuid4") as mock_uuid,
+        patch(
+            "subprocess.check_output",
+            return_value=(
+                f"0,{GPU_UUID_0},0,1000\n"
+                f"2,GPU-{GPU_UUID_2[4:].lower()},10,1000\n"
+                f"3,GPU-{GPU_UUID_3[4:].lower()},100,1000\n"
+                f"4,GPU-{GPU_UUID_4[4:].lower()},50,1000"
+            ),
+        ) as mock_gpu_query,
+        patch(
+            "ion_CSP.gen_opt._wait_for_gpu", wraps=_wait_for_gpu
+        ) as mock_wait_for_gpu,
+    ):
         mock_uuid.return_value = "test-job-123"
 
         # 创建PID文件
@@ -862,13 +890,37 @@ def test_dpdisp_mlp_tasks_local_and_remote(
             nodes=nodes,
         )
 
-    if context_type == "LocalContext":
+    if context_type == "LocalContext" and gpu != 0:
         mock_wait_for_gpu.assert_called_once_with(
-            memory_percent_threshold=40, wait_time=600
+            memory_percent_threshold=40,
+            timeout=300,
+            poll_interval=10,
+            allowed_gpu_uuids={GPU_UUID_3},
+        )
+        assert all(
+            call.kwargs["command"].startswith(
+                f"CUDA_VISIBLE_DEVICES=GPU-{GPU_UUID_3[4:].lower()} "
+                "python mlp_opt.py"
+            )
+            for call in mock_task.call_args_list
+        )
+        mock_gpu_query.assert_called_once()
+    elif context_type == "LocalContext":
+        mock_wait_for_gpu.assert_not_called()
+        mock_gpu_query.assert_not_called()
+        assert all(
+            call.kwargs["command"].startswith("python mlp_opt.py")
+            for call in mock_task.call_args_list
         )
     else:
         mock_wait_for_gpu.assert_not_called()
+        mock_gpu_query.assert_not_called()
         assert "Skipping local GPU selection for remote Shell task" in caplog.text
+        assert all(
+            call.kwargs["command"].startswith("python mlp_opt.py")
+            for call in mock_task.call_args_list
+        )
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == controller_gpu_mask
 
     # 8. 验证日志
     assert "Batch optimization completed!!!" in caplog.text
@@ -911,6 +963,60 @@ def test_dpdisp_mlp_tasks_local_and_remote(
     if context_type == "SSHContext":
         mock_setup_ssh.assert_called_once()
         mock_ensure_alive.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "nodes, gpu_per_node",
+    [(1, 2), (2, 1)],
+    ids=["multiple-gpus-per-node", "multiple-task-nodes"],
+)
+def test_dpdisp_mlp_tasks_rejects_unsupported_local_gpu_shape(
+    nodes: int,
+    gpu_per_node: int,
+    crystal_generator: CrystalGenerator,
+    tmp_path: Path,
+):
+    """Reject unsupported local GPU layouts before querying nvidia-smi."""
+    machine_path = tmp_path / "machine.json"
+    resources_path = tmp_path / "resources.json"
+    machine_path.write_text(
+        json.dumps(
+            {
+                "context_type": "LocalContext",
+                "local_root": "./",
+                "remote_root": "/remote/workplace",
+                "batch_type": "Shell",
+            }
+        ),
+        encoding="utf-8",
+    )
+    resources_path.write_text(
+        json.dumps(
+            {
+                "number_node": 1,
+                "cpu_per_node": 4,
+                "gpu_per_node": gpu_per_node,
+                "group_size": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("ion_CSP.gen_opt._wait_for_gpu") as mock_wait_for_gpu:
+        with pytest.raises(
+            ValueError,
+            match=(
+                "Local Shell GPU selection supports only gpu_per_node=1 "
+                "with nodes=1"
+            ),
+        ):
+            crystal_generator.dpdisp_mlp_tasks(
+                machine_path=str(machine_path),
+                resources_path=str(resources_path),
+                nodes=nodes,
+            )
+
+    mock_wait_for_gpu.assert_not_called()
 
 
 @patch("dpdispatcher.Submission.run_submission")
@@ -1433,13 +1539,12 @@ def test_get_available_gpus_empty_output(caplog):
 def test_get_available_gpus_invalid_output(caplog):
     """测试 nvidia-smi 返回格式错误"""
     with patch("subprocess.check_output", return_value="invalid line") as mock_check:
-        result = _get_available_gpus()
-        assert result == []
+        with pytest.raises(
+            RuntimeError, match="Invalid GPU memory data from nvidia-smi"
+        ):
+            _get_available_gpus()
         mock_check.assert_called_once()
-        assert (
-            "Unexpected error: invalid literal for int() with base 10: 'invalid line'\n"
-            in caplog.text
-        )  # 应该有解析错误日志
+        assert mock_check.call_args.kwargs["timeout"] == 10
 
 
 def test_get_available_gpus_called_error(caplog):
@@ -1448,17 +1553,35 @@ def test_get_available_gpus_called_error(caplog):
         "subprocess.check_output",
         side_effect=subprocess.CalledProcessError(1, "nvidia-smi"),
     ) as mock_check:
-        result = _get_available_gpus()
-        assert result == []
+        with pytest.raises(
+            RuntimeError, match="Failed to query local GPUs with nvidia-smi"
+        ):
+            _get_available_gpus()
         mock_check.assert_called_once()
-        assert "Error while getting GPU info" in caplog.text
+        assert mock_check.call_args.kwargs["timeout"] == 10
+
+
+def test_get_available_gpus_command_timeout():
+    """A hung nvidia-smi command fails closed with a clear bounded-time error."""
+    timeout = 0.25
+    with patch(
+        "subprocess.check_output",
+        side_effect=subprocess.TimeoutExpired("nvidia-smi", timeout),
+    ) as mock_check:
+        with pytest.raises(
+            RuntimeError, match="nvidia-smi timed out after 0.25 seconds"
+        ):
+            _get_available_gpus(command_timeout=timeout)
+    assert mock_check.call_args.kwargs["timeout"] == timeout
 
 
 def test_get_available_gpus_no_available_gpus():
     """测试所有 GPU 都被占用（无可用）"""
-    output = """0,950,1000
-1,850,1000
-2,900,1000"""
+    output = (
+        f"0,{GPU_UUID_0},950,1000\n"
+        f"1,{GPU_UUID_1},850,1000\n"
+        f"2,{GPU_UUID_2},900,1000"
+    )
     with patch("subprocess.check_output", return_value=output) as mock_check:
         result = _get_available_gpus(memory_percent_threshold=50)
         assert result == []  # 所有都 >50%，无可用
@@ -1467,26 +1590,110 @@ def test_get_available_gpus_no_available_gpus():
 
 def test_get_available_gpus_some_available():
     """测试部分 GPU 可用，验证排序和阈值过滤"""
-    output = """0,100,1000
-1,450,1000
-2,300,1000
-3,600,1000"""
+    output = (
+        f"0,{GPU_UUID_0},100,1000\n"
+        f"1,{GPU_UUID_1},450,1000\n"
+        f"2,{GPU_UUID_2},300,1000\n"
+        f"3,{GPU_UUID_3},600,1000"
+    )
     with patch("subprocess.check_output", return_value=output) as mock_check:
         result = _get_available_gpus(memory_percent_threshold=50)
-        # 应该返回：0(10%), 2(30%), 1(45%) —— 按负载升序
-        assert result == [0, 2, 1]  # 索引顺序按内存使用升序
+        # GPU UUIDs are returned in ascending memory usage order.
+        assert result == [GPU_UUID_0, GPU_UUID_2, GPU_UUID_1]
         mock_check.assert_called_once()
+        assert mock_check.call_args.args[0] == [
+            "nvidia-smi",
+            "--query-gpu=index,uuid,memory.used,memory.total",
+            "--format=csv,noheader,nounits",
+        ]
 
 
 def test_get_available_gpus_all_available():
     """测试所有 GPU 都可用"""
-    output = """0,50,1000
-1,150,1000
-2,250,1000"""
+    output = (
+        f"0,{GPU_UUID_0},50,1000\n"
+        f"1,{GPU_UUID_1},150,1000\n"
+        f"2,{GPU_UUID_2},250,1000"
+    )
     with patch("subprocess.check_output", return_value=output) as mock_check:
         result = _get_available_gpus(memory_percent_threshold=100)
-        assert result == [0, 1, 2]  # 按负载排序
+        assert result == [GPU_UUID_0, GPU_UUID_1, GPU_UUID_2]
         mock_check.assert_called_once()
+
+
+def test_parse_cuda_visible_devices_uuids_normalizes_case():
+    assert parse_cuda_visible_devices_uuids(GPU_UUID_1.lower()) == {GPU_UUID_1}
+
+
+def test_resolve_allowed_gpu_uuids_without_masks(monkeypatch):
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    assert _resolve_allowed_gpu_uuids({}) is None
+
+
+def test_resolve_allowed_gpu_uuids_controller_mask_only(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", f"{GPU_UUID_2}, {GPU_UUID_3}")
+    assert _resolve_allowed_gpu_uuids({}) == {GPU_UUID_2, GPU_UUID_3}
+
+
+def test_resolve_allowed_gpu_uuids_resources_mask_only(monkeypatch):
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    assert _resolve_allowed_gpu_uuids(
+        {"CUDA_VISIBLE_DEVICES": f"{GPU_UUID_1}, {GPU_UUID_3}"}
+    ) == {GPU_UUID_1, GPU_UUID_3}
+
+
+def test_resolve_allowed_gpu_uuids_intersects_controller_and_resources(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", f"{GPU_UUID_1},{GPU_UUID_2}")
+    assert _resolve_allowed_gpu_uuids(
+        {"CUDA_VISIBLE_DEVICES": f"{GPU_UUID_2},{GPU_UUID_3}"}
+    ) == {GPU_UUID_2}
+
+
+def test_resolve_allowed_gpu_uuids_rejects_conflicting_masks(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", f"{GPU_UUID_0},{GPU_UUID_2}")
+    with pytest.raises(ValueError, match="no GPU UUIDs in common"):
+        _resolve_allowed_gpu_uuids(
+            {"CUDA_VISIBLE_DEVICES": f"{GPU_UUID_1},{GPU_UUID_3}"}
+        )
+
+
+@pytest.mark.parametrize("source", ["controller", "resources"])
+@pytest.mark.parametrize(
+    "mask",
+    [
+        "",
+        f"{GPU_UUID_0},",
+        "0,1",
+        "GPU-01234567-89ab-cdef-0123-456789abcdef-partial",
+        "MIG-GPU-deadbeef/1/0",
+    ],
+    ids=["empty", "empty-entry", "numeric-ordinal", "partial-gpu-uuid", "mig-uuid"],
+)
+def test_resolve_allowed_gpu_uuids_rejects_malformed_masks(
+    source: str, mask: str, monkeypatch
+):
+    if source == "controller":
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", mask)
+        resources_envs = {}
+    else:
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        resources_envs = {"CUDA_VISIBLE_DEVICES": mask}
+
+    with pytest.raises(ValueError, match="CUDA_VISIBLE_DEVICES"):
+        _resolve_allowed_gpu_uuids(resources_envs)
+
+
+def test_get_available_gpus_filters_to_allowed_ids():
+    output = (
+        f"0,{GPU_UUID_0},10,1000\n"
+        f"1,{GPU_UUID_1},200,1000\n"
+        f"2,{GPU_UUID_2},100,1000"
+    )
+    with patch("subprocess.check_output", return_value=output):
+        assert _get_available_gpus(
+            memory_percent_threshold=50,
+            allowed_gpu_uuids={GPU_UUID_1, GPU_UUID_2},
+        ) == [GPU_UUID_2, GPU_UUID_1]
 
 
 # ==================== 测试 _wait_for_gpu 私有函数 ====================
@@ -1495,16 +1702,19 @@ def test_wait_for_gpu_immediate_available(caplog):
     caplog.set_level(logging.INFO)
     with (
         patch(
-            "subprocess.check_output", return_value="0,10,1024\n1,45,1024"
+            "subprocess.check_output",
+            return_value=(
+                f"0,{GPU_UUID_0},10,1024\n1,{GPU_UUID_1},45,1024"
+            ),
         ) as mock_check,
         patch("time.sleep") as mock_sleep,
     ):
-        selected = _wait_for_gpu(memory_percent_threshold=50, wait_time=10)
-        assert selected == 0  # 最空闲的 GPU
+        selected = _wait_for_gpu(memory_percent_threshold=50, timeout=10)
+        assert selected == GPU_UUID_0
         mock_check.assert_called_once()  # 只调用一次，立即返回
         mock_sleep.assert_not_called()  # 没有等待
-        assert "Available GPU: [0, 1]" in caplog.text
-        assert "Using GPU: 0" in caplog.text
+        assert f"Available GPU: ['{GPU_UUID_0}', '{GPU_UUID_1}']" in caplog.text
+        assert f"Using GPU: {GPU_UUID_0}" in caplog.text
 
 
 def test_wait_for_gpu_wait_then_available(caplog):
@@ -1519,11 +1729,11 @@ def test_wait_for_gpu_wait_then_available(caplog):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return "0,1000,1000"  # 无 GPU
+            return f"0,{GPU_UUID_0},1000,1000"  # 无 GPU
         elif call_count == 2:
-            return "0,100,1000"  # 有 GPU
+            return f"0,{GPU_UUID_0},100,1000"  # 有 GPU
         else:
-            return "0,100,1000"
+            return f"0,{GPU_UUID_0},100,1000"
 
     side_effect.call_count = 0
 
@@ -1531,58 +1741,71 @@ def test_wait_for_gpu_wait_then_available(caplog):
         patch("subprocess.check_output", side_effect=side_effect) as mock_check,
         patch("time.sleep") as mock_sleep,
     ):
-        selected = _wait_for_gpu(memory_percent_threshold=50, wait_time=5)
-        assert "No available GPUs found. Waiting for 5 second ..." in caplog.text
+        selected = _wait_for_gpu(
+            memory_percent_threshold=50, timeout=10, poll_interval=5
+        )
+        assert "No available GPUs found. Waiting for 5 seconds ..." in caplog.text
         assert "Available GPU: []" in caplog.text
         mock_sleep.assert_called_once_with(5)
         assert mock_check.call_count == 2
-        assert selected == 0
-        assert "Available GPU: [0]" in caplog.text
-        assert "Using GPU: 0" in caplog.text
+        assert selected == GPU_UUID_0
+        assert f"Available GPU: ['{GPU_UUID_0}']" in caplog.text
+        assert f"Using GPU: {GPU_UUID_0}" in caplog.text
 
 
 def test_wait_for_gpu_timeout_no_gpu(caplog):
-    """测试等待超时仍无可用 GPU，函数应持续运行（无限循环）"""
+    """An unavailable GPU fails at the finite deadline without real sleeping."""
     caplog.set_level(logging.INFO)
+    elapsed = 0.0
 
-    # 1. 定义 side_effect，它会调用 3 次，第 4 次返回有效值（但不会执行）
-    call_count_check = 0  # 用于计数 check_output
+    def advance_time(seconds):
+        nonlocal elapsed
+        elapsed += seconds
 
-    def side_effect(*args, **kwargs):
-        nonlocal call_count_check
-        call_count_check += 1
-        if call_count_check <= 3:
-            return ""  # 模拟 nvidia-smi 失败
-        return "0,10,1024"  # 不会执行到这
-
-    # 2. 先 patch，再定义 sleep 的 side_effect，避免闭包捕获旧对象
     with (
-        patch("subprocess.check_output", side_effect=side_effect) as mock_check,
-        patch("time.sleep") as mock_sleep,
+        patch("ion_CSP.gen_opt.time.monotonic", side_effect=lambda: elapsed),
+        patch("ion_CSP.gen_opt.time.sleep", side_effect=advance_time) as mock_sleep,
+        patch("ion_CSP.gen_opt._get_available_gpus", return_value=[]) as mock_get,
     ):
-        # 3. 在 patch 内部定义 sleep 的 side_effect，确保它引用的是新 mock 对象
-        sleep_call_count = 0  # 本地计数器
+        with pytest.raises(
+            TimeoutError,
+            match="No local GPU below 50% memory usage became available within 12 seconds",
+        ):
+            _wait_for_gpu(
+                memory_percent_threshold=50, timeout=12, poll_interval=5
+            )
 
-        def mock_sleep_func(seconds):
-            nonlocal sleep_call_count
-            sleep_call_count += 1
-            if sleep_call_count >= 3:
-                raise KeyboardInterrupt("Test interrupt")
-            return None  # 防止返回值干扰
+    assert elapsed == 12
+    assert mock_get.call_count == 3
+    assert [call.args[0] for call in mock_get.call_args_list] == [50, 50, 50]
+    assert [call.args[0] for call in mock_sleep.call_args_list] == [5, 5, 2]
+    assert "No available GPUs found. Waiting for 2 seconds ..." in caplog.text
 
-        mock_sleep.side_effect = mock_sleep_func  # 动态绑定，确保是最新 mock
 
-        # 4. 执行函数
-        try:
-            _wait_for_gpu(memory_percent_threshold=50, wait_time=1)
-        except KeyboardInterrupt:
-            pass
+def test_wait_for_gpu_times_out_when_no_masked_gpu_is_available():
+    elapsed = 0.0
 
-        # 5. 验证
-        assert mock_check.call_count == 3  # 调用了 3 次
-        assert sleep_call_count == 3  # sleep 被调用了 3 次
-        assert "No available GPUs found. Waiting for 1 second ..." in caplog.text
-        assert "Unexpected error: invalid literal for int()" in caplog.text
+    def advance_time(seconds):
+        nonlocal elapsed
+        elapsed += seconds
+
+    with (
+        patch("ion_CSP.gen_opt.time.monotonic", side_effect=lambda: elapsed),
+        patch("ion_CSP.gen_opt.time.sleep", side_effect=advance_time),
+        patch(
+            "subprocess.check_output",
+            return_value=f"0,{GPU_UUID_0},0,1000\n1,{GPU_UUID_1},0,1000",
+        ) as query,
+    ):
+        with pytest.raises(TimeoutError, match="No local GPU below 40%"):
+            _wait_for_gpu(
+                timeout=2,
+                poll_interval=1,
+                allowed_gpu_uuids={GPU_UUID_2},
+            )
+
+    assert elapsed == 2
+    assert query.call_count == 2
 
 
 def test_dpdisp_mlp_tasks_keyboard_interrupt(crystal_generator: CrystalGenerator, tmp_path):

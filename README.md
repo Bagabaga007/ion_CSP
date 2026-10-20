@@ -196,6 +196,9 @@ pytest tests/system/      # 系统测试
 
 - [完整使用指南](docs/usage.md) - 与 V2.3.5 源码一致的 EE/CSP 配置和运行说明
 - [三端生产交付指南](docs/delivery.md) - core/MLP/external 预检、锁文件、wrapper 与发布 manifest
+- [客户计算资源配置](docs/compute_profiles.md) - 远程 Slurm 与本地工作站 CPU/GPU 的离线配置
+- [本地工作站就绪检查](docs/local_workstation.md) - 有界 CSP 小试预算、MLP 回执、VASP/MPI 与 GPU UUID 门禁
+- [共享账号机时归属](docs/dispatch_accounting.md) - Slurm 作业流水和实际用量证据的边界
 - [Docker 指南](DOCKER.md) - CPU/GPU 容器构建与外部程序限制
 - [EE 自动离子库链接](AUTO_LINKING_GUIDE.md) - 中央预优化离子库复用说明
 - [DPA4 后端](DPA4_BACKEND.md) / [MatterSim 后端](MATTERSIM_BACKEND.md) - 通用元素 MLP 配置

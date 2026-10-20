@@ -4,14 +4,16 @@ This module provides functionality for generating and optimizing crystal structu
 using various methods including CALYPSO, USPEX, and other crystal structure prediction tools.
 """
 
-import os
 import csv
+import os
+import re
 import time
 import shlex
 import shutil
 import psutil
 import logging
 import subprocess
+import math
 from typing import List
 from ase.io import read
 from pathlib import Path
@@ -19,6 +21,11 @@ from pyxtal import pyxtal
 from pyxtal.msg import Comp_CompatibilityError, Symm_CompatibilityError
 
 from ion_CSP.log_and_time import dpdisp_logging, machine_resources_prep
+
+
+_NVIDIA_SMI_COMMAND_TIMEOUT = 10
+_GPU_WAIT_TIMEOUT = 300
+_GPU_POLL_INTERVAL = 10
 
 
 class CrystalGenerator:
@@ -289,6 +296,10 @@ class CrystalGenerator:
             machine: The machine configuration file for dpdispatcher, can be in JSON or YAML format.
             resources: The resources configuration file for dpdispatcher, can be in JSON or YAML format.
             nodes: The number of nodes to be used for optimization, default is 1.
+
+        Local Shell GPU selection emits the selected nvidia-smi GPU UUID. Explicit
+        CUDA_VISIBLE_DEVICES masks must contain full GPU UUIDs; numeric ordinals
+        and MIG UUIDs are rejected because their mapping is ambiguous here.
         """
         # 读取machine和resources的参数
         machine, resources, parent = machine_resources_prep(
@@ -296,16 +307,29 @@ class CrystalGenerator:
         )
         machine_info = machine.serialize()
         resources_info = resources.serialize()
+        selected_gpu = None
         if (
             machine_info["batch_type"] == "Shell"
             and resources_info["gpu_per_node"] != 0
         ):
             if machine_info["context_type"] == "LocalContext":
+                gpu_per_node = resources_info["gpu_per_node"]
+                if gpu_per_node != 1 or nodes != 1:
+                    raise ValueError(
+                        "Local Shell GPU selection supports only "
+                        "gpu_per_node=1 with nodes=1; received "
+                        f"gpu_per_node={gpu_per_node}, nodes={nodes}"
+                    )
+                allowed_gpu_uuids = _resolve_allowed_gpu_uuids(
+                    resources_info.get("envs", {})
+                )
                 # 本地 Shell 任务根据本机显存占用率选择 GPU。
                 selected_gpu = _wait_for_gpu(
-                    memory_percent_threshold=40, wait_time=600
+                    memory_percent_threshold=40,
+                    timeout=_GPU_WAIT_TIMEOUT,
+                    poll_interval=_GPU_POLL_INTERVAL,
+                    allowed_gpu_uuids=allowed_gpu_uuids,
                 )
-                os.environ["CUDA_VISIBLE_DEVICES"] = str(selected_gpu)
             elif machine_info["context_type"] == "SSHContext":
                 # 远程 Shell 任务不能用本机 nvidia-smi 判断远端 GPU。
                 # GPU 选择由远端 resources/envs 或外部调度机制负责。
@@ -389,8 +413,11 @@ class CrystalGenerator:
                 command_parts.extend(["--device", device])
             if workers:
                 command_parts.extend(["--workers", str(workers)])
+            command = " ".join(shlex.quote(part) for part in command_parts)
+            if selected_gpu is not None:
+                command = f"CUDA_VISIBLE_DEVICES={selected_gpu} {command}"
             task = Task(
-                command=" ".join(shlex.quote(part) for part in command_parts),
+                command=command,
                 task_work_path=remote_task_dir,
                 forward_files=forward_files,
                 backward_files=backward_files,
@@ -588,58 +615,167 @@ class CrystalGenerator:
             logging.warning(f"Unknown context_type: {context_type}, cannot terminate tasks")
 
 
-def _get_available_gpus(memory_percent_threshold=40):
+_GPU_UUID_PATTERN = re.compile(
+    r"GPU-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.IGNORECASE
+)
+
+
+def parse_cuda_visible_devices_uuids(mask: str) -> set[str]:
+    """Parse full GPU UUIDs; numeric ordinals and MIG UUIDs are ambiguous here."""
+    if not isinstance(mask, str) or not mask.strip():
+        raise ValueError(
+            "CUDA_VISIBLE_DEVICES must be a non-empty comma-separated list of "
+            "full GPU UUIDs"
+        )
+
+    gpu_uuids = set()
+    for item in mask.split(","):
+        item = item.strip()
+        if not _GPU_UUID_PATTERN.fullmatch(item):
+            raise ValueError(
+                "CUDA_VISIBLE_DEVICES supports only full GPU UUIDs; "
+                "numeric ordinals and MIG UUIDs are unsupported"
+            )
+        gpu_uuids.add(item.upper())
+    return gpu_uuids
+
+
+def _resolve_allowed_gpu_uuids(resources_envs) -> set[str] | None:
+    """Intersect controller and resource UUID masks, or return None for auto-selection."""
+    if resources_envs is None:
+        resources_envs = {}
+    if not isinstance(resources_envs, dict):
+        raise ValueError("resources.envs must be a mapping for local GPU selection")
+
+    masks = []
+    if "CUDA_VISIBLE_DEVICES" in os.environ:
+        masks.append(parse_cuda_visible_devices_uuids(os.environ["CUDA_VISIBLE_DEVICES"]))
+    if "CUDA_VISIBLE_DEVICES" in resources_envs:
+        masks.append(
+            parse_cuda_visible_devices_uuids(resources_envs["CUDA_VISIBLE_DEVICES"])
+        )
+
+    if not masks:
+        return None
+
+    allowed_gpu_uuids = masks[0].copy()
+    for mask in masks[1:]:
+        allowed_gpu_uuids.intersection_update(mask)
+    if not allowed_gpu_uuids:
+        raise ValueError(
+            "controller and resources CUDA_VISIBLE_DEVICES masks have no GPU UUIDs in common"
+        )
+    return allowed_gpu_uuids
+
+
+def _get_available_gpus(
+    memory_percent_threshold=40,
+    command_timeout=_NVIDIA_SMI_COMMAND_TIMEOUT,
+    allowed_gpu_uuids: set[str] | None = None,
+):
     """
     Private method:
     Get available GPUs with memory usage below the specified threshold.
 
     params:
         memory_percent_threshold (int): The threshold for GPU memory usage percentage.
+        command_timeout (int): Maximum seconds to wait for nvidia-smi.
+        allowed_gpu_uuids (set[str] | None): Optional GPU UUID allowlist.
     """
     try:
         # 获取 nvidia-smi 的输出
         output = subprocess.check_output(
             [
                 "nvidia-smi",
-                "--query-gpu=index,memory.used,memory.total",
+                "--query-gpu=index,uuid,memory.used,memory.total",
                 "--format=csv,noheader,nounits",
             ],
             encoding="utf-8",
+            timeout=command_timeout,
         )
+        if not output.strip():
+            return []
         available_gpus = []
-        for line in output.strip().split("\n"):
-            index, memory_used, memory_total = map(int, line.split(","))
+        for line in output.strip().splitlines():
+            fields = [field.strip() for field in line.split(",")]
+            if len(fields) != 4:
+                raise ValueError("expected index, UUID, used memory, and total memory")
+            index = int(fields[0])
+            gpu_uuid = fields[1]
+            normalized_uuid = next(
+                iter(parse_cuda_visible_devices_uuids(gpu_uuid))
+            )
+            memory_used, memory_total = map(int, fields[2:])
             memory_used_percent = memory_used / memory_total * 100
             # 判断内存负载是否低于阈值
-            if memory_used_percent < memory_percent_threshold:
-                available_gpus.append((index, memory_used_percent))
+            if memory_used_percent < memory_percent_threshold and (
+                allowed_gpu_uuids is None or normalized_uuid in allowed_gpu_uuids
+            ):
+                available_gpus.append((gpu_uuid, index, memory_used_percent))
         # 根据内存负载百分比排序，负载小的优先
-        available_gpus.sort(key=lambda x: x[1])
-        # 只返回 GPU 索引
+        available_gpus.sort(key=lambda x: x[2])
         return [gpu[0] for gpu in available_gpus]
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"nvidia-smi timed out after {command_timeout} seconds while querying local GPUs"
+        ) from e
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error while getting GPU info: {e}")
-        return []
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}")
-        return []
+        raise RuntimeError(f"Failed to query local GPUs with nvidia-smi: {e}") from e
+    except OSError as e:
+        raise RuntimeError(f"Failed to query local GPUs with nvidia-smi: {e}") from e
+    except (ValueError, ZeroDivisionError) as e:
+        raise RuntimeError(f"Invalid GPU memory data from nvidia-smi: {e}") from e
 
 
-def _wait_for_gpu(memory_percent_threshold=40, wait_time=300):
+def _wait_for_gpu(
+    memory_percent_threshold=40,
+    timeout=_GPU_WAIT_TIMEOUT,
+    poll_interval=_GPU_POLL_INTERVAL,
+    allowed_gpu_uuids: set[str] | None = None,
+):
     """
     Private method:
     Wait until a GPU is available with memory usage below the specified threshold.
     params:
         memory_percent_threshold (int): The threshold for GPU memory usage percentage.
-        wait_time (int): The time to wait before checking again, in seconds.
+        timeout (int): Maximum total time to wait for an available GPU, in seconds.
+        poll_interval (int): Time between GPU availability checks, in seconds.
+        allowed_gpu_uuids (set[str] | None): Optional GPU UUID allowlist.
     """
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("GPU wait timeout must be a finite positive number of seconds")
+    if not math.isfinite(poll_interval) or poll_interval <= 0:
+        raise ValueError("GPU poll interval must be a finite positive number of seconds")
+
+    deadline = time.monotonic() + timeout
     while True:
-        available_gpus = _get_available_gpus(memory_percent_threshold)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        available_gpus = _get_available_gpus(
+            memory_percent_threshold,
+            command_timeout=min(_NVIDIA_SMI_COMMAND_TIMEOUT, remaining),
+            allowed_gpu_uuids=allowed_gpu_uuids,
+        )
         logging.info(f"Available GPU: {available_gpus}")
         if available_gpus:
+            if deadline - time.monotonic() <= 0:
+                break
             selected_gpu = available_gpus[0]
             logging.info(f"Using GPU: {selected_gpu}")
             return selected_gpu
-        else:
-            logging.info(f"No available GPUs found. Waiting for {wait_time} second ...")
-            time.sleep(wait_time)  # 等待指定时间后重试
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        sleep_time = min(poll_interval, remaining)
+        logging.info(
+            f"No available GPUs found. Waiting for {sleep_time:g} seconds ..."
+        )
+        time.sleep(sleep_time)
+
+    raise TimeoutError(
+        "No local GPU below "
+        f"{memory_percent_threshold}% memory usage became available within "
+        f"{timeout:g} seconds"
+    )

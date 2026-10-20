@@ -134,6 +134,39 @@ group_size: 1
 @patch("dpdispatcher.Submission.run_submission")
 @patch("dpdispatcher.Submission.__init__", return_value=None)
 @patch("dpdispatcher.Task.__init__", return_value=None)
+def test_dpdisp_vasp_optimization_skips_empty_node(
+    mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path
+):
+    """One screened structure on two configured nodes must create one task."""
+    (vasp_processor.for_vasp_opt_dir / "CONTCAR_001").write_text("dummy")
+    machine_path = tmp_path / "machine.yaml"
+    resources_path = tmp_path / "resources.yaml"
+    machine_path.write_text(
+        "context_type: LocalContext\nlocal_root: ./\n"
+        "remote_root: /your/remote/workplace\nbatch_type: Shell\n"
+    )
+    resources_path.write_text(
+        "number_node: 2\ncpu_per_node: 8\ngpu_per_node: 0\ngroup_size: 1\n"
+    )
+
+    vasp_processor.dpdisp_vasp_optimization_tasks(
+        machine_path=str(machine_path),
+        resources_path=str(resources_path),
+        nodes=2,
+    )
+
+    mock_task.assert_called_once()
+    assert mock_task.call_args.kwargs["task_work_path"] == "pop0"
+    assert "CONTCAR_001" in mock_task.call_args.kwargs["forward_files"]
+    submitted_tasks = mock_sub.call_args.kwargs["task_list"]
+    assert len(submitted_tasks) == 1
+    mock_run.assert_called_once()
+    assert not (vasp_processor.for_vasp_opt_dir / "pop1").exists()
+
+
+@patch("dpdispatcher.Submission.run_submission")
+@patch("dpdispatcher.Submission.__init__", return_value=None)
+@patch("dpdispatcher.Task.__init__", return_value=None)
 def test_dpdisp_vasp_optimization_tasks_no_files(
     mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path, caplog
 ):
@@ -940,11 +973,12 @@ def test_export_max_density_structure_with_relaxation(
         contcar.write_text(f"Final Structure {num}\n", encoding="utf-8")
 
     # 执行导出
-    vasp_processor.export_max_density_structure(relaxation=True)
+    exported = vasp_processor.export_max_density_structure(relaxation=True)
 
     # 验证 POSCAR 文件
     poscar = vasp_processor.base_dir / "POSCAR"
     assert poscar.exists()
+    assert exported == poscar
     content = poscar.read_text(encoding="utf-8")
     assert "Final Structure 003" in content
 
@@ -975,9 +1009,10 @@ def test_export_max_density_structure_no_valid_structure(
 002,-10.2,-11.6,-12.4,0.340,0.345,0.350,False,0.83
 """, encoding="utf-8")
 
-    vasp_processor.export_max_density_structure(relaxation=False)
+    exported = vasp_processor.export_max_density_structure(relaxation=False)
 
     assert "No valid structure found" in caplog.text
+    assert exported is None
 
 
 def test_export_max_density_structure_with_backup(
@@ -2238,4 +2273,3 @@ def test_log_max_densities_all_none(vasp_processor: VaspProcessing, caplog):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--cov=ion_CSP.vasp_processing"])
-    
