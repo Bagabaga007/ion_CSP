@@ -1,23 +1,23 @@
 {
   "artifacts": [
     {
-      "path": "dist/delivery-20260925/ion_csp-2.3.5-py3-none-any.whl",
+      "path": "dist/internal-freeze-20261028-85a9ab3/ion_csp-2.3.6-py3-none-any.whl",
       "required": true,
       "role": "wheel",
-      "sha256": "5231fda892fe2a5282ba03b9e1632549126a946b2376cf2eb93efdb529ee3eb4",
-      "size_bytes": 50182527
+      "sha256": "3205444fed631c8f9b5abbea75a13ed33406df71e6ae51ffa2594954a0963bcd",
+      "size_bytes": 50240269
     },
     {
-      "path": "dist/delivery-20260925/ion_csp-2.3.5.tar.gz",
+      "path": "dist/internal-freeze-20261028-85a9ab3/ion_csp-2.3.6.tar.gz",
       "required": true,
       "role": "sdist",
-      "sha256": "63dd208cd4c0d680000d50062058d46ed23bb0727cda585e5b58d2e6c67c0f70",
-      "size_bytes": 50180744
+      "sha256": "36d266670b41a91ec1754c611b4f8d27096ed4cbd508e7d953f4ad32a7e670de",
+      "size_bytes": 50568673
     }
   ],
   "config_contract": {
     "path": "delivery/config-contract.schema.json",
-    "sha256": "588228724aa5f4452417150d7921adf32989e4f251efc6e2021ceace0eb4c11d"
+    "sha256": "7cc70ba12d2f0814dde5b5ca760177486e5ad0b993cfc82c485932ddc905a454"
   },
   "endpoint_receipts": {
     "captured": [],
@@ -28,9 +28,9 @@
       "external"
     ]
   },
-  "generated_at": "2026-09-25T02:45:24.345991+00:00",
+  "generated_at": "2026-10-28T08:21:46.062791+00:00",
   "generated_by": {
-    "python": "3.12.10",
+    "python": "3.11.16",
     "schema_version": 1,
     "tool": "ion_CSP.release_manifest"
   },
@@ -41,7 +41,7 @@
       "gpu_stack_excluded": true,
       "lock_index": "delivery/locks/core.lock.json",
       "lock_index_sha256": "ca950a71d1ba2699eb09d9190352c0e9ab60f0780b7715a46753be6fbbb29f01",
-      "lock_sha256": "360944005693436e50c129bb766b69cfb1d6eb86fbebb11d30e03e437f9884f1",
+      "lock_sha256": "e63c5c5371c702aecab20bbc626097c04c95e0bf5b34ce2ca0677286649977f3",
       "python": "3.11.x",
       "resolved_package_count": 75,
       "resolved_packages": [
@@ -195,7 +195,7 @@
         "size_bytes": 24649402
       },
       "cuda_boundary": {
-        "boundary": "Torch and DeePMD are one ABI unit; do not upgrade Torch or change its CUDA wheel independently.",
+        "boundary": "Torch, Triton and DeePMD are one runtime/ABI unit; do not upgrade any component or change the CUDA wheel independently.",
         "policy": "runtime-receipt-required",
         "required_evidence": [
           "torch.version.cuda",
@@ -204,38 +204,99 @@
           "GPU model and driver from the MLP endpoint receipt"
         ]
       },
-      "lock_sha256": "233532b1713b59cead36fbc26869b1b2e5e13ac1b28eeca22bc79f56e78222a5",
+      "lock_sha256": "756f9c86086ead4ad5ade3ba316c9b2790f45079fff6a3159d8d9c208b83c413",
       "pairing": {
         "ase": "3.23.0",
         "deepmd-kit": "3.2.0",
         "python": "3.12.x",
-        "torch": "2.11.0"
+        "torch": "2.11.0",
+        "triton": "3.6.0"
       },
       "receipt_required": true,
       "requirements": "delivery/locks/mlp-requirements.txt",
-      "requirements_sha256": "d13c2dd3b653701d0d4739f9ecf04201d30eedd8f5db77435348fdd3d9befe0d",
+      "requirements_sha256": "def3b169cb0e7575b4f327f63c05ab5422f5be7c7be6962e30d2a02b0d097292",
       "role": "MLP structure optimization worker"
     }
   },
   "project": "ion_CSP",
   "schema_version": 1,
   "source_revision": {
-    "content_sha256": "99fc1c183c279df0d0d58a96b2ce2a21ac31dc1081f022cd7c4c2aa1eba926b1",
+    "content_sha256": "544c4ddd38c7c5e1d940d74fa1b4d0ff8dbdac1facb78e4ff3292a19382cde8b",
     "dirty": false,
     "dirty_entries": [],
-    "git_head": "bd4b6362082a54274f7894b0c0615135ff7a3447"
+    "git_head": "85a9ab3b6a384f5a432da3d2009e6a9657156bfc"
   },
   "source_validation": {
     "inventory": [
       {
+        "path": ".dockerignore",
+        "sha256": "c55d45977d6935ce84d718e1e01ce9f3b8ac08d3e154f6dc28466bcbc7fa7cf0",
+        "size_bytes": 535
+      },
+      {
+        "path": "AUTO_LINKING_GUIDE.md",
+        "sha256": "88e7e1cf6af0ec642a7a2af9c4ebd44299f58cd021326e7c1e6fea0cdefaf6a6",
+        "size_bytes": 3870
+      },
+      {
+        "path": "CHANGELOG.md",
+        "sha256": "b321b6625f6688b2f00648e797ba3186467a9f388e1e455bea9fd7eb60bee22d",
+        "size_bytes": 14986
+      },
+      {
+        "path": "DOCKER.md",
+        "sha256": "5f7935ed01e28d79b54bb5daedf540131cac1f401d95f73805a71e4805d16223",
+        "size_bytes": 4619
+      },
+      {
+        "path": "DPA4_BACKEND.md",
+        "sha256": "7d22f370ab4f948ca6ebf920210b8e0ddb669ae887d6abe829d352bd9667b71d",
+        "size_bytes": 1597
+      },
+      {
+        "path": "Dockerfile",
+        "sha256": "cf68d433900a17cec8ffddf6abac4c1a808b8ed01c1845fe1977a112e3995f88",
+        "size_bytes": 3683
+      },
+      {
+        "path": "Dockerfile.gpu",
+        "sha256": "9a85eda7a32dee245a94ded01951d38a4667466915b9290226d26b7bf7e5fb8c",
+        "size_bytes": 1824
+      },
+      {
+        "path": "LICENSE",
+        "sha256": "c9e2fd3ec858feb180b7718aaa7f14ecd69f1e27e99998a96fe3b0bb40c3ac7a",
+        "size_bytes": 1070
+      },
+      {
         "path": "MANIFEST.in",
-        "sha256": "a2d51502ea10b9b14b1627ad2c8000b563ac37fe1c3b918344b140f93ffc6a8a",
-        "size_bytes": 483
+        "sha256": "ee49a74c3d85671c72d33c2d4e2bc90331f1cd5f2470dba2ff38bd0eeff284d7",
+        "size_bytes": 956
+      },
+      {
+        "path": "MATTERSIM_BACKEND.md",
+        "sha256": "01bbc6c5ae7663bc97cbe026e7cda449a3e9fee1692219c1f7166ae97a8478f4",
+        "size_bytes": 973
       },
       {
         "path": "README.md",
-        "sha256": "d363c7f6e19420ba009996c2210b412994350ae5e5dda8646a8b468496f3bd72",
-        "size_bytes": 14433
+        "sha256": "70dc32becafe82a3a657edd4acb1bbb68fd7e2172f89767fb1c6681910b2ef7b",
+        "size_bytes": 15785
+      },
+      {
+        "path": "config/complete_config.yaml",
+        "sha256": "7199802c4cdb1defa2124d05939b07644fd3ed5876b6fdec27efdfc7d81e57c9",
+        "size_bytes": 3965
+      },
+      {
+        "path": "config/simple_config.yaml",
+        "sha256": "d48194c5840ce1750ce6d52b9ceac96fe9bd8fd7bf9e4c085c8f8917548eba11",
+        "size_bytes": 2252
+      },
+      {
+        "path": "config/usage.md",
+        "sha256": "8cfcca987dac18243e5fa06429174a2183d7db465a0371d5bb01db874eb46890",
+        "size_bytes": 1379
       },
       {
         "path": "delivery/README.md",
@@ -244,8 +305,8 @@
       },
       {
         "path": "delivery/config-contract.schema.json",
-        "sha256": "588228724aa5f4452417150d7921adf32989e4f251efc6e2021ceace0eb4c11d",
-        "size_bytes": 3151
+        "sha256": "7cc70ba12d2f0814dde5b5ca760177486e5ad0b993cfc82c485932ddc905a454",
+        "size_bytes": 3730
       },
       {
         "path": "delivery/external-software.json",
@@ -259,33 +320,128 @@
       },
       {
         "path": "delivery/locks/mlp-deepmd-torch.lock.toml",
-        "sha256": "233532b1713b59cead36fbc26869b1b2e5e13ac1b28eeca22bc79f56e78222a5",
-        "size_bytes": 1038
+        "sha256": "756f9c86086ead4ad5ade3ba316c9b2790f45079fff6a3159d8d9c208b83c413",
+        "size_bytes": 1079
       },
       {
         "path": "delivery/locks/mlp-requirements.txt",
-        "sha256": "d13c2dd3b653701d0d4739f9ecf04201d30eedd8f5db77435348fdd3d9befe0d",
-        "size_bytes": 173
+        "sha256": "def3b169cb0e7575b4f327f63c05ab5422f5be7c7be6962e30d2a02b0d097292",
+        "size_bytes": 187
+      },
+      {
+        "path": "docker-compose.yml",
+        "sha256": "641951833b1df57c840ec9ec45a6183804e28af756195f10ecd359d06634bd7f",
+        "size_bytes": 934
+      },
+      {
+        "path": "docs/TEST_REPORT.md",
+        "sha256": "771c62528e36f220c20759b47e0310e96d755d186754418dededa5e52c01ef44",
+        "size_bytes": 10909
+      },
+      {
+        "path": "docs/compute_profiles.md",
+        "sha256": "521c1010b04377dc779d3748c121ac4574e2e9de6295bd1eedb4c55b7e06730e",
+        "size_bytes": 5031
       },
       {
         "path": "docs/delivery.md",
-        "sha256": "1b5648bee1bfcc38e1a61fb967540ae94fe3d81538067f3ede99dbb0fd4687ed",
-        "size_bytes": 7262
+        "sha256": "4e5b09dd746d416188dc729b04da1db178226c72a3d6dd331a24e7549f054a91",
+        "size_bytes": 10536
+      },
+      {
+        "path": "docs/dispatch_accounting.md",
+        "sha256": "ce80a7113c92986dd526b2ba72993382acadc0406ce89b5e82cc22401941aed7",
+        "size_bytes": 3354
+      },
+      {
+        "path": "docs/example_usage_CSP.py",
+        "sha256": "f35f1e75a50153a8156a28f5e0977d70e9d78ac6f1dbce9e7c19b82701a97c0a",
+        "size_bytes": 577
+      },
+      {
+        "path": "docs/example_usage_EE.py",
+        "sha256": "f1e8a5ee4aebf6e41f87b128420358a8e12b9642de24fcfa6ed014c529d551d2",
+        "size_bytes": 568
+      },
+      {
+        "path": "docs/index.md",
+        "sha256": "8b67428fbc2c2fc614596a8f465ec3f826f0efe959dad32ad15c835c0b79bd6b",
+        "size_bytes": 5151
+      },
+      {
+        "path": "docs/local_smoke_validation.md",
+        "sha256": "4d231f70089d6317963187e0a18570b777b27074420638cc33137cfac746faba",
+        "size_bytes": 2289
+      },
+      {
+        "path": "docs/local_workstation.md",
+        "sha256": "09507581367139a680d038e65df9ff6d932aac4b7f5adee27f7421a09dcf5015",
+        "size_bytes": 5563
+      },
+      {
+        "path": "docs/usage.md",
+        "sha256": "83c3cc081bee4225dbcf4f4b9cb81612d723583570a65246cc8a3114c15886e5",
+        "size_bytes": 28126
       },
       {
         "path": "environment-mlp.yml",
-        "sha256": "fc4504c1804ac02a26169aea60e1b7c2aac8da6381ec190c66e0bec6ba9ec93e",
-        "size_bytes": 517
+        "sha256": "7453ad5454f3a404fbc98fc9f1a8f9314eba2dfa6653319fa890fb06ea543840",
+        "size_bytes": 537
       },
       {
         "path": "environment.yml",
-        "sha256": "004eaee15ba3638f0d9cd0c33c83bee9c88de0f1b07a38426070a28598f5b2d5",
-        "size_bytes": 740
+        "sha256": "7725ca98623ec24217847f53a2b5c55bf9c1433fa6f6a363b4c069f342996207",
+        "size_bytes": 749
+      },
+      {
+        "path": "examples/example_1/config.yaml",
+        "sha256": "7356682d2ff0e99fd3537913a62bc18c20bcbaf90471594de379ac8164d3a7cb",
+        "size_bytes": 2456
+      },
+      {
+        "path": "examples/example_1/ions.csv",
+        "sha256": "05dc5d8dc1605921931f014b55b6b673c75f95656f796ebd0ca4e0af961a0e30",
+        "size_bytes": 350
+      },
+      {
+        "path": "examples/example_2/combo_1/ACEGUL.gjf",
+        "sha256": "3a88d922ee28690ee6c3fd4aeb621f7853e9c22f415b61f695bd7309f00f3257",
+        "size_bytes": 2135
+      },
+      {
+        "path": "examples/example_2/combo_1/AGIDOM.gjf",
+        "sha256": "ca4bcc22adf34b341cd8ce007a1250923968b5456157b5fec4e58e42c173d6f3",
+        "size_bytes": 985
+      },
+      {
+        "path": "examples/example_2/combo_1/config.yaml",
+        "sha256": "72f7eee447298c40c7146d06ac096a7823d01c6e67e50480086723a5c17db43b",
+        "size_bytes": 830
+      },
+      {
+        "path": "examples/example_usage.py",
+        "sha256": "bc34baa2575799d23f5812f36806c84585d25193d1281a71c2cf0e82fc297a97",
+        "size_bytes": 77
+      },
+      {
+        "path": "examples/server/example_local_machine.yaml",
+        "sha256": "cca15e2fbca0e5b623e246fbaf44751f6a384059a0539cde6dc421c48f17486d",
+        "size_bytes": 858
+      },
+      {
+        "path": "examples/server/example_local_resources.yaml",
+        "sha256": "e53822d2f76f3e8f9dc4bddc2f23588d7231dde2c1ba66df9fbfd22e5c30f297",
+        "size_bytes": 386
+      },
+      {
+        "path": "examples/server/example_remote_resources.yaml",
+        "sha256": "f2acc14e5fc13f7fd041ac931f4ce7257cae6d07c8e17b20ac87583289d24fc6",
+        "size_bytes": 1258
       },
       {
         "path": "pyproject.toml",
-        "sha256": "41f072fd9f136f8d3e66b7420d5db43a5c34dd3f7e8944073e24b370d75d0957",
-        "size_bytes": 2443
+        "sha256": "bf39dd03dee8f4316a5d3ddebb1f065f98e5950e22558ca6edf6f8a2587d18f2",
+        "size_bytes": 2606
       },
       {
         "path": "scripts/CLI.py",
@@ -301,6 +457,16 @@
         "path": "scripts/build_release_manifest.py",
         "sha256": "1e09fac2ba49977349e28582d60d1f7548728646e0dd5d8bfb753ceafc22b120",
         "size_bytes": 415
+      },
+      {
+        "path": "scripts/ion_csp_local_check.py",
+        "sha256": "7c02aec3bf40980ba036425a968abcc4935e7896d56deea75af5d0d4cd770908",
+        "size_bytes": 423
+      },
+      {
+        "path": "scripts/ion_csp_profile.py",
+        "sha256": "5926817f7711b177443c5c0a4c8c052b5ef00c2fa3507557e0446910b223eddf",
+        "size_bytes": 171
       },
       {
         "path": "scripts/ion_csp_workflow.py",
@@ -338,9 +504,24 @@
         "size_bytes": 23800
       },
       {
+        "path": "scripts/verify_local_csp_smoke.py",
+        "sha256": "548d97886559623967f2feaddc3b4e79b563768a30f127fcbca3e67795f0caaf",
+        "size_bytes": 190
+      },
+      {
+        "path": "setup.py",
+        "sha256": "a52855420e36613f2ea76b2ff9734db6a469cb1063d6ae0f47087134e1fe8247",
+        "size_bytes": 146
+      },
+      {
+        "path": "src/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size_bytes": 0
+      },
+      {
         "path": "src/ion_CSP/__init__.py",
-        "sha256": "7c11d777dfb6cc53734aaff2940cbb5aa33775c0db3e7533bfcb08b89676f056",
-        "size_bytes": 356
+        "sha256": "492fb4cb6f2d214b4fa3cce317f9912109d975094b81cd0a1d3a06a27c474055",
+        "size_bytes": 127
       },
       {
         "path": "src/ion_CSP/__main__.py",
@@ -348,9 +529,24 @@
         "size_bytes": 74
       },
       {
+        "path": "src/ion_CSP/backfill_vesta_snapshots.py",
+        "sha256": "3bc35fef6f42ff4122557ffed96b30d5a5d98e3e2a5411fcdbec96820579407c",
+        "size_bytes": 16085
+      },
+      {
+        "path": "src/ion_CSP/compute_profile.py",
+        "sha256": "945d3bde3b6d8b33a0cba9c912a26ab803c9777448153f3671e0fa0df30ef086",
+        "size_bytes": 26669
+      },
+      {
         "path": "src/ion_CSP/convert_SMILES.py",
         "sha256": "e2ea43c4f4207dcddf52bd10ed3f4fe6f900584aab4b6ef610f349c6bcad3847",
         "size_bytes": 26399
+      },
+      {
+        "path": "src/ion_CSP/dispatch_accounting.py",
+        "sha256": "07f80b72281d2e4f1ad2359ca36cb3d840f6a1e8ef7d0761d148924772aa632f",
+        "size_bytes": 28005
       },
       {
         "path": "src/ion_CSP/empirical_estimate.py",
@@ -359,13 +555,18 @@
       },
       {
         "path": "src/ion_CSP/gen_opt.py",
-        "sha256": "09c9901b36508a638af57cfbc849631dee4a1d4287f63a180f03c0e9777cc57e",
-        "size_bytes": 30910
+        "sha256": "1c362d3a72f06effd9361dfb79b0769bb7b975591ce59ef09108401a6e91a855",
+        "size_bytes": 39768
       },
       {
         "path": "src/ion_CSP/identify_molecules.py",
         "sha256": "f91dff493c8d3e433a473e6c58da3d1b8afbacbe7cbb1aceaee204adcd5f825e",
         "size_bytes": 4436
+      },
+      {
+        "path": "src/ion_CSP/local_readiness.py",
+        "sha256": "c927e22f7ac1f172397e7fff4fa65300bb60e164f54488b9e6199fd12e59a7bd",
+        "size_bytes": 28474
       },
       {
         "path": "src/ion_CSP/log_and_time.py",
@@ -374,8 +575,13 @@
       },
       {
         "path": "src/ion_CSP/mlp_opt.py",
-        "sha256": "1a88b5be3727ab45487ff3d7e608b239d2faeb4d3006c388d2438bb6be7737b3",
-        "size_bytes": 13933
+        "sha256": "22c5e5c06bae6dc25378471831143e056f9c9e504e18e10c194638f76ee43fec",
+        "size_bytes": 25295
+      },
+      {
+        "path": "src/ion_CSP/mlp_receipt.py",
+        "sha256": "895af691b18571ec4bdfdfc933e69b1998f2fa52bbc41135f0d49d4c1e6451d2",
+        "size_bytes": 12112
       },
       {
         "path": "src/ion_CSP/model/dpa4_ion_ft_v1.pt",
@@ -464,8 +670,8 @@
       },
       {
         "path": "src/ion_CSP/preflight.py",
-        "sha256": "acfcca86a88fd85259b839561d334af1c34ffdfdd5c02f361dbeeb06695dc259",
-        "size_bytes": 22686
+        "sha256": "976b2ff33c3d998036c0f311aab2aa41507bb836e0abb246591c9077bb0c3259",
+        "size_bytes": 44209
       },
       {
         "path": "src/ion_CSP/read_mlp_density.py",
@@ -474,8 +680,8 @@
       },
       {
         "path": "src/ion_CSP/release_manifest.py",
-        "sha256": "d9c1c6def437040be63de202f5ed8f2acf9186583ce1967ccb698d399a6d790e",
-        "size_bytes": 14090
+        "sha256": "afaba63fda7fbce4b496a28e13fc5fe843888b1bcb8aa0aaae615bad5e898942",
+        "size_bytes": 15399
       },
       {
         "path": "src/ion_CSP/run/__init__.py",
@@ -484,8 +690,8 @@
       },
       {
         "path": "src/ion_CSP/run/main_CSP.py",
-        "sha256": "4c5fbdfaa119eb1554c8640a362681cf0c50b0c95f6608ce79e5a64819a273df",
-        "size_bytes": 6999
+        "sha256": "7bbff4935943d4312265e965ea29fe65864f9960ed25fca0de42f808b79f9069",
+        "size_bytes": 7651
       },
       {
         "path": "src/ion_CSP/run/main_EE.py",
@@ -504,8 +710,8 @@
       },
       {
         "path": "src/ion_CSP/run/run_gen_opt.py",
-        "sha256": "641a92c49482022d6cce06c8847004d72b3223353b3652bf89cd9df94cddce3e",
-        "size_bytes": 3389
+        "sha256": "1a843143c62e108f96de5d03ecbf3bb4a1389bf37efd748b1ad36e9c328fc660",
+        "size_bytes": 3537
       },
       {
         "path": "src/ion_CSP/run/run_read_mlp_density.py",
@@ -516,6 +722,11 @@
         "path": "src/ion_CSP/run/run_vasp_processing.py",
         "sha256": "e018388e4ff4f30d22a26d0345a6871fff01cb3a247ce830bf52031ae571f1ec",
         "size_bytes": 1625
+      },
+      {
+        "path": "src/ion_CSP/smoke_validation.py",
+        "sha256": "ecf310c1e462db2eeb920ee629b0904fbbb0aca33e5767384d2cce65684c2c3a",
+        "size_bytes": 48137
       },
       {
         "path": "src/ion_CSP/structure_snapshots.py",
@@ -534,8 +745,13 @@
       },
       {
         "path": "src/ion_CSP/vasp_processing.py",
-        "sha256": "5223b36fd5e1733c4d28de55e4d86aac2f786fa1ba1887aca36e61ed7ad8110f",
-        "size_bytes": 45538
+        "sha256": "5ac45f4597beb5f0dac2d19297ff2780c11a187d5aca2a0b2597d7ec5aae461d",
+        "size_bytes": 47959
+      },
+      {
+        "path": "src/ion_CSP/vesta_snapshots.py",
+        "sha256": "9e75b4047a9d7275548a6c878136097ed0260e0d358e6602709a9c3e132855da",
+        "size_bytes": 14455
       },
       {
         "path": "src/ion_CSP/workflow_cli.py",
@@ -543,17 +759,217 @@
         "size_bytes": 2415
       },
       {
+        "path": "tests/README.md",
+        "sha256": "c413534eb0c89f76f9dba67b51c668c35ddf76f5249215564cf753ce7c1701f2",
+        "size_bytes": 7161
+      },
+      {
+        "path": "tests/ci/test_config_validation.py",
+        "sha256": "bd0cacbd6ca64cd6c3a4fa9d1cbb285c66268177524147544305abeeb51bc4cc",
+        "size_bytes": 2685
+      },
+      {
+        "path": "tests/ci/test_configuration_item.py",
+        "sha256": "5d99c4367a64dd1090717bdf02c6304b85c25402164f338dcf1a210cb3462108",
+        "size_bytes": 15581
+      },
+      {
+        "path": "tests/ci/test_delivery_contract.py",
+        "sha256": "6bf813f7e7fdaf6e7b033baf64c7a7bf56497c078e5cb21833a68dcf41f6019c",
+        "size_bytes": 7869
+      },
+      {
+        "path": "tests/conftest.py",
+        "sha256": "b59744e8f532d54d9e0100f3480d7e23bbdbf646546c310cba88f92bf3e267d2",
+        "size_bytes": 1977
+      },
+      {
+        "path": "tests/integration/__init__.py",
+        "sha256": "f7a2f8f0711cd73894e23a7bdc10ea1f033b0fd250fadf4a45a1edc2b12e2819",
+        "size_bytes": 222
+      },
+      {
+        "path": "tests/integration/test_run_convert_SMILES.py",
+        "sha256": "ef481ae9a2b308a9ed585a24048e7d1e3ccd2eda279f30ca4ac725206bd862c3",
+        "size_bytes": 7599
+      },
+      {
+        "path": "tests/integration/test_run_empirical_estimate.py",
+        "sha256": "06d38c7453033fc74980321993b78bac12b2e6df8c94c3a48e51e50a9d1832dc",
+        "size_bytes": 7385
+      },
+      {
+        "path": "tests/integration/test_run_gen_opt.py",
+        "sha256": "da14f5cbfb68590571a903a046d480431f8c61c267d937850f8c212830a7c182",
+        "size_bytes": 12299
+      },
+      {
+        "path": "tests/integration/test_run_main_CSP.py",
+        "sha256": "86aa8839392a1702fb2facf859e2b64555d7bc61c795d9ae1b5885de2168c006",
+        "size_bytes": 11161
+      },
+      {
+        "path": "tests/integration/test_run_main_EE.py",
+        "sha256": "849811eb64eadf5bd50149f0f53644ded8d0aa6fb36d8d708a3a64a335546628",
+        "size_bytes": 18866
+      },
+      {
+        "path": "tests/integration/test_run_read_mlp_density.py",
+        "sha256": "90b964ffd863ba96bd0b15649c5a778421bfd54d967312ba1ec9b44dd439c73b",
+        "size_bytes": 7647
+      },
+      {
+        "path": "tests/integration/test_run_vasp_processing.py",
+        "sha256": "1f57aa8cf8c18a726dc506e03d21429842047dc740f841fa673b7d3e2369dd50",
+        "size_bytes": 5895
+      },
+      {
+        "path": "tests/system/test_csp_workflow.py",
+        "sha256": "dc58b1eb01f34a8637b11c5613cdb154f5b6efd4bc64cc3866178fbd45538cbc",
+        "size_bytes": 5205
+      },
+      {
+        "path": "tests/system/test_delivery_scripts.py",
+        "sha256": "64cd6290abf08a72d7b6bde4db1974bcc5f210fda02ed891a85206c2140dc175",
+        "size_bytes": 1351
+      },
+      {
+        "path": "tests/system/test_ee_workflow.py",
+        "sha256": "ed463ef169fc82325e76588bb83fce1e7241b74850b66fdaf8ba011b3cac05a4",
+        "size_bytes": 4074
+      },
+      {
+        "path": "tests/unit/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size_bytes": 0
+      },
+      {
+        "path": "tests/unit/test_backfill_vesta_snapshots.py",
+        "sha256": "39c70aa5eb7dafd3abb4f83426f91162f740a3e3cec69d1adc8f8ae86ffc7f28",
+        "size_bytes": 4451
+      },
+      {
+        "path": "tests/unit/test_compute_profile.py",
+        "sha256": "6dc1f5a9e852ae7ee22b05b90f86951ddf3e7cdb2adc82a7a0e523c813f5a6a3",
+        "size_bytes": 18913
+      },
+      {
+        "path": "tests/unit/test_convert_SMILES.py",
+        "sha256": "4ba35dea164bdc3b66552c157678a6b2c038334d27adcd609fae267556b556e6",
+        "size_bytes": 39030
+      },
+      {
+        "path": "tests/unit/test_delivery_archive.py",
+        "sha256": "fb294e0fa95d808d85d69fd0a6fb8e1253f852965de8c16b57aa907ca2e9f106",
+        "size_bytes": 4119
+      },
+      {
+        "path": "tests/unit/test_delivery_manifest.py",
+        "sha256": "0f7ace0de16875442fcca5152c8cf95de818065061fe146f21ad26be8e7a76a8",
+        "size_bytes": 6724
+      },
+      {
+        "path": "tests/unit/test_delivery_preflight.py",
+        "sha256": "f1c0276676eb05b9d9d8211a54150c3453a1017be5abe96e0da9bcff61430e6c",
+        "size_bytes": 21387
+      },
+      {
+        "path": "tests/unit/test_dispatch_accounting.py",
+        "sha256": "24808b8ab158ce757f405a0a1254e5146a62eb64bf06ea0df39ec7f51bd6bf32",
+        "size_bytes": 14318
+      },
+      {
+        "path": "tests/unit/test_empirical_estimate.py",
+        "sha256": "c50d32118be1529e472f0aefaf3749ebaa673bc728bba63aec080e602e4e7bba",
+        "size_bytes": 60682
+      },
+      {
+        "path": "tests/unit/test_gen_opt.py",
+        "sha256": "34fa96f8e83f134e94c52553aa001ba11996a67696631d994a591eaee1ea4a1e",
+        "size_bytes": 76374
+      },
+      {
+        "path": "tests/unit/test_identify_molecules.py",
+        "sha256": "a325ec6561ddeba1de0103b23ac3ea45e599f4abd1db5324963ee1646ebb1b4f",
+        "size_bytes": 12706
+      },
+      {
+        "path": "tests/unit/test_local_readiness.py",
+        "sha256": "38576fcfb11b8d8259f337d404f61bbfc5b5e47954ab670936b41994e6fc80b1",
+        "size_bytes": 32826
+      },
+      {
+        "path": "tests/unit/test_log_and_time.py",
+        "sha256": "985690bdacb7848d2b8db6c5010df6ad90d503c465e9907a416af17f6fb62dcb",
+        "size_bytes": 30831
+      },
+      {
+        "path": "tests/unit/test_mlp_opt.py",
+        "sha256": "52976144874ff68a4bfd013311daaafa49fb892976037b60b2d01d55ca063e59",
+        "size_bytes": 30578
+      },
+      {
+        "path": "tests/unit/test_mlp_receipt.py",
+        "sha256": "a1a7b6f2e8552bf6909b8f9c4aaf3089ed468213b5f60929fee21df7c65d9bf4",
+        "size_bytes": 9595
+      },
+      {
+        "path": "tests/unit/test_read_mlp_density.py",
+        "sha256": "3ae5136f3a32009f5869ef630fb186345b0dc65c2274061c9b6a67fcb9b3ebb7",
+        "size_bytes": 30447
+      },
+      {
+        "path": "tests/unit/test_smoke_validation.py",
+        "sha256": "a5d874ef40fcbbb22b9603e7a67a3181664b239bee433db71f48e2f6b96c9e28",
+        "size_bytes": 15071
+      },
+      {
+        "path": "tests/unit/test_structure_snapshots.py",
+        "sha256": "24098644ce1edcb23b1e93c895dcf5b5242716845a9853064cf7d75701607632",
+        "size_bytes": 2524
+      },
+      {
+        "path": "tests/unit/test_task_manager.py",
+        "sha256": "52a54a44c9aa7194e5c7e6c63204794a256e900851a851503049659331aa5be7",
+        "size_bytes": 47952
+      },
+      {
+        "path": "tests/unit/test_topology_validation.py",
+        "sha256": "7fa8ebd91fc5d22aab0b9171a627bcdca83735534e8ec87adc3e2f86c2664461",
+        "size_bytes": 2857
+      },
+      {
+        "path": "tests/unit/test_vasp_processing.py",
+        "sha256": "320c561138293a5622f636cfe0117fb3d0bbe17aebae90061f24a1d0899fa728",
+        "size_bytes": 79502
+      },
+      {
+        "path": "tests/unit/test_vasp_scripts.py",
+        "sha256": "3d471e07897d76f09c4536377b51e51848879d1658c4ed6702382c4dc0657475",
+        "size_bytes": 10480
+      },
+      {
+        "path": "tests/unit/test_vesta_snapshots.py",
+        "sha256": "c469cc33dc85165311d93dacce19ca7a3dc206c6bef770b0f45416fc4d2c8f91",
+        "size_bytes": 3925
+      },
+      {
+        "path": "tests/unit/test_workflow_cli.py",
+        "sha256": "21322990c4a7343f8dc4b0366cfce7277506dd2ce2b9ecb50d11e4d5085d4fdf",
+        "size_bytes": 1925
+      },
+      {
         "path": "uv.lock",
-        "sha256": "360944005693436e50c129bb766b69cfb1d6eb86fbebb11d30e03e437f9884f1",
+        "sha256": "e63c5c5371c702aecab20bbc626097c04c95e0bf5b34ce2ca0677286649977f3",
         "size_bytes": 471085
       }
     ],
     "python_parse": {
       "failures": [],
-      "file_count": 24,
+      "file_count": 31,
       "parser": "python.ast.parse",
       "status": "pass"
     }
   },
-  "version": "2.3.5"
+  "version": "2.3.6"
 }
