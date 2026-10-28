@@ -30,8 +30,10 @@ python -m pip install uv
 uv sync --frozen --no-dev
 ~~~
 
-`environment.yml` 只承担 Conda/Python 启动环境；依赖冻结以 `uv.lock` 为准。文件使用
-完整 channel URL 和 `nodefaults`，避免目标机器的隐式 defaults/channel 配置改变解析。
+`environment.yml` 只承担 Conda/Python 启动环境，其中核心科学包声明的是最低版本；依赖冻结和
+可复现交付以 `uv.lock` 为准。文件使用完整 channel URL 和 `nodefaults`，避免目标机器的隐式
+defaults/channel 配置改变解析。重新解析核心依赖后必须同步更新 `uv.lock`，不要把它当作可选的
+缓存文件。
 
 ### MLP
 
@@ -41,6 +43,7 @@ uv sync --frozen --no-dev
 Python 3.12.x
 deepmd-kit[torch] 3.2.0
 torch 2.11.0
+triton 3.6.0
 ASE 3.23.0
 ~~~
 
@@ -52,7 +55,8 @@ conda activate ion-csp-mlp
 python -m pip check
 ~~~
 
-Torch、DeepMD 和 Torch wheel 内的 CUDA runtime 构成一个 ABI 单元。禁止只升级 Torch，
+Torch 2.11.0 的 Linux 发行元数据要求 Triton 3.6.0。Torch、Triton、DeepMD 和
+Torch wheel 内的 CUDA runtime 构成一个运行时单元。禁止只升级其中一个组件，
 也不能把某台节点的 CUDA wheel 当作所有节点通用锁。每个实际 MLP 节点必须保存预检
 receipt，其中记录 `torch.version.cuda`、`torch.cuda.is_available()` 和 GPU/驱动可见性。
 DPA4 使用自有模型时还要绑定模型哈希；MatterSim 属于 BYO profile，必须另外冻结其
@@ -93,19 +97,36 @@ python scripts/release_preflight.py \
 
 ### MLP 节点
 
-在 dpdispatcher 最终运行 `mlp_opt.py` 的相同节点和环境执行：
+在 dpdispatcher 最终运行 `mlp_opt.py` 的相同计算节点、调度器分配和 Python 环境中执行。
+以下命令必须放入 Slurm/PBS 等批处理作业脚本中；不要在集群登录节点直接运行。
+`--probe-poscar` 使用一个属于实际待算体系、且原子数较小的代表性结构：
 
 ~~~bash
-python scripts/release_preflight.py \
+/absolute/path/to/mlp-python scripts/release_preflight.py \
   --target mlp \
   --backend deepmd \
   --model /srv/ion_CSP/mlp/model.pt \
+  --probe-poscar /data/ion_CSP/acceptance/POSCAR \
   --require-gpu \
   --writable-dir /scratch/ion_CSP \
   --json-output /srv/ion_CSP/receipts/mlp.json
 ~~~
 
-CPU 验证环境可以去掉 `--require-gpu`；生产 GPU profile 不应去掉。
+CPU 验证环境可以去掉 `--require-gpu`；生产 GPU profile 不应去掉。显式 runtime probe
+会在读取实际模型后计算力、应力并运行至多一步受限的晶胞优化；没有调度器作业分配标记时
+默认拒绝执行，避免误在登录节点启动模型。只有专用本地工作站的操作者可以显式使用
+`--allow-noncompute-probe`；若该 receipt 要用于正式提交，还必须在配置中显式设置
+`mlp_allow_unallocated_probe: true`，并且 machine 必须为 `LocalContext + Shell`。
+集群 SSH/Slurm 路径不接受此例外。将通过的 JSON receipt 复制回控制端，并在每个组合的
+`config.yaml` 中设置 `gen_opt.mlp_preflight_receipt` 为该文件的绝对路径，同时将
+`gen_opt.mlp_python` 设为实际计算端 Python 的绝对路径。DeepMD/DPA4 的提交门禁会
+核对 receipt 的成功状态、计算探针、Torch/Triton/DeepMD 版本、解释器路径和模型
+SHA-256；缺失或不匹配时不会创建批量优化任务。环境、模型或解释器变化后必须重新
+运行计算节点预检。每个生产任务启动时也会对首个 POSCAR 再做力/应力检查，阻止
+receipt 生成后发生的运行时漂移进入大批量优化。任务启动时还会核对当前节点的
+DeepMD/Torch/Triton/ASE 版本；完整 receipt 不会被复制到远端任务目录。
+MLP 任务对确定性失败关闭 dpdispatcher 的默认重复提交，并在失败时单独回收
+`log`、`err` 和 `mlp_worker_failures.jsonl`，不要求尚未生成的 CONTCAR/OUTCAR。
 
 ### Gaussian 节点
 
@@ -151,7 +172,13 @@ wrapper 固定读取且只读取：
 <work_dir>/config.yaml
 ~~~
 
-它先执行 core 环境和配置合同检查，通过后才调用现有
+只读 CSP 小试结果验收器也随交付包提供。wheel 安装后可直接运行
+`ion-csp-verify-local-smoke <completed-smoke-dir>`；源码包同时包含
+`scripts/verify_local_csp_smoke.py`、实现模块 `src/ion_CSP/smoke_validation.py`
+和操作说明 `docs/local_smoke_validation.md`。验收器只读取已完成任务的产物；默认将
+验证结果写到 stdout，需要归档时再显式指定 `--json-output` 或 `--write-cif`。
+
+工作流 wrapper 先执行 core 环境和配置合同检查，通过后才调用现有
 `python -m ion_CSP.run.main_EE` 或 `main_CSP`。完整机器可读合同位于
 `delivery/config-contract.schema.json`，额外执行以下语义检查：
 
@@ -178,6 +205,7 @@ python scripts/build_release_manifest.py create \
 manifest 至少绑定：
 
 - Git revision、dirty 状态和发布源文件聚合 SHA-256；
+- `src/ion_CSP`、交付脚本、锁与合同、配置、文档、示例、测试以及纳入源码包的根级构建与操作文件；
 - 全部 `src/ion_CSP` Python 文件的 AST 解析结果；
 - wheel、sdist 的路径、大小、角色和 SHA-256；
 - core `uv.lock` 的 SHA-256 与解析包清单；
@@ -198,6 +226,11 @@ manifest，不能手工修改哈希。
 
 `release-manifest.json` 是与 wheel/sdist 并列的验签文件，不嵌入它所描述的 sdist，
 从而避免 manifest 对自身形成不可收敛的哈希循环。
+
+sdist 会排除 `.claude/`、`.github/`、`.vscode/`、`docs/history/` 和
+`examples/server/example_remote_machine.yaml`。服务器示例中的连接配置可能包含
+仅供维护者使用的主机信息，应使用 `example_local_machine.yaml` 或
+`example_remote_resources.yaml` 作为客户配置起点。
 
 ## 5. 发布门禁
 

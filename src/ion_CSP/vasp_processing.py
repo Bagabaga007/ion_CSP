@@ -163,8 +163,11 @@ class VaspProcessing:
                 forward_files.append(contcar.name)
                 vasp_dir_name = contcar.name.split("CONTCAR_")[1]
                 # 每个POSCAR文件在优化后都取回对应的CONTCAR和OUTCAR输出文件
-                backward_files.append(f"{vasp_dir_name}/fine/*")
-                backward_files.append(f"{vasp_dir_name}/*")
+                # Download the candidate directory as one tree. dpdispatcher's
+                # LocalContext does not create parents for nested glob matches;
+                # requesting fine/* first fails when popN/<candidate>/fine is
+                # absent locally, even after VASP completed successfully.
+                backward_files.append(vasp_dir_name)
                 dst = task_dir / contcar.name
                 shutil.copyfile(str(contcar), str(dst))
 
@@ -178,6 +181,9 @@ class VaspProcessing:
             )
             task_list.append(task)
 
+        # The stage shell already has an explicit attempt cap. Prevent
+        # dpdispatcher from silently resubmitting the same costly VASP job.
+        machine.retry_count = 0
         submission = Submission(
             work_base=str(self.for_vasp_opt_dir),
             machine=machine,
@@ -305,9 +311,10 @@ class VaspProcessing:
                 shutil.copyfile(str(fine_contcar_path), str(dst))
                 forward_files.append(fine_optimized_file)
                 # 每个POSCAR文件在优化后都取回对应的CONTCAR和OUTCAR输出文件
-                backward_files.append(f"{vasp_dir_name}/*")
-                backward_files.append(f"{vasp_dir_name}/fine/*")
-                backward_files.append(f"{vasp_dir_name}/fine/final/*")
+                # The local task has a staged fine/CONTCAR. Downloading the
+                # complete candidate tree replaces it with the authoritative
+                # remote rough/fine/final results without nested-glob parents.
+                backward_files.append(vasp_dir_name)
 
             remote_task_dir = f"{parent}pop{pop}"
             command = "chmod +x sub_supple.sh && ./sub_supple.sh"
@@ -319,6 +326,7 @@ class VaspProcessing:
             )
             task_list.append(task)
 
+        machine.retry_count = 0
         submission = Submission(
             work_base=str(self.vasp_optimized_dir),
             machine=machine,

@@ -30,10 +30,12 @@ gen_opt:
   num_per_group: 10                             # 每个空间群要生成的晶体结构数量
   space_groups_limit: 15                         # 空间群搜索的限制
   mlp_backend: 'deepmd'                          # 可选 deepmd、dpa4、dpa4_ion_ft 或 mattersim
-  mlp_python: 'python'                           # DPA4/MatterSim 建议使用独立 Python 3.12 环境
+  mlp_python: '/absolute/path/to/mlp-python'     # 与计算节点验收 receipt 中的解释器路径一致
   mlp_model: 'model.pt'                          # 本地模型文件或官方预训练模型名
   mlp_device:                                    # 例如 cuda；留空由后端自动选择
-  mlp_workers: 0                                 # 0=自动；DPA4/MatterSim 必须设为 1
+  mlp_workers: 1                                 # GPU MLP 默认单进程；CPU 并行须显式配置并校验资源
+  mlp_preflight_receipt: '/absolute/path/to/mlp-receipt.json'  # DeepMD/DPA4 提交前必需的计算节点验收记录
+  mlp_allow_unallocated_probe: False            # 仅专用本地工作站可显式设 True；集群保持 False
   machine: '/your/gpu/machine/config/path'       # 进行机器学习势优化计算的机器参数，建议GPU
   resources: '/your/gpu/resources/config/path'   # 进行机器学习势优化计算的资源参数
   nodes: 1  # 占用GPU节点数

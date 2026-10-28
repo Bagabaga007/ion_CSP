@@ -7,17 +7,27 @@ machine learning potentials such as DeePMD, MACE, and other ML-based force field
 """
 
 import os
+import re
 
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "3"
-# os.environ["DP_INTRA_OP_PARALLELISM_THREADS"] = "3"
-# os.environ["DP_INTER_OP_PARALLELISM_THREADS"] = "2"
+def _configure_thread_defaults():
+    """Set safe numerical-thread defaults without overriding a scheduler."""
+    # These values must be set before DeepMD/Torch is imported in a spawn
+    # child process.
+    for _thread_env_name in ("MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS", "OMP_NUM_THREADS"):
+        os.environ.setdefault(_thread_env_name, "1")
+
+
+# Keep the worker safe on a new machine while respecting scheduler/container
+# settings supplied by the caller.
+_configure_thread_defaults()
 
 import sys
 import time
 import argparse
+import json
+import importlib.metadata
 import shutil
+import traceback
 import numpy as np
 import multiprocessing
 from ase.optimize import LBFGS
@@ -30,6 +40,210 @@ except ImportError:
 
 base_dir = os.path.dirname(__file__)
 pool = None  # 用于KeyboardInterrupt处理中终止进程池
+_FAILURE_LOG_NAME = "mlp_worker_failures.jsonl"
+_DEEPMD_BACKENDS = {"deepmd", "dpa4", "dpa4_ion_ft"}
+_SUPPORTED_RUNTIME_VERSIONS = {
+    "deepmd-kit": "3.2.0",
+    "torch": "2.11.0",
+    "triton": "3.6.0",
+    "ase": "3.23.0",
+}
+_SUPPORTED_TORCH_VERSION = re.compile(
+    r"^2\.11\.0(?:\+[0-9A-Za-z]+(?:[-_.][0-9A-Za-z]+)*)?$",
+    re.IGNORECASE,
+)
+
+
+def _is_supported_torch_version(version):
+    """Accept Torch 2.11.0 and its PEP 440 local CUDA build suffixes.
+
+    Keep this helper local and stdlib-only: ``mlp_opt.py`` is copied into
+    dispatcher task directories and must not import the ion_CSP package just
+    to validate runtime metadata.
+    """
+
+    return isinstance(version, str) and _SUPPORTED_TORCH_VERSION.fullmatch(version) is not None
+
+
+class MLPWorkerError(RuntimeError):
+    """A worker failure represented only by serializable primitive values."""
+
+    def __init__(
+        self,
+        index,
+        error_type: str,
+        message: str,
+        traceback_text: str,
+    ):
+        self.index = index
+        self.error_type = str(error_type)
+        self.message = str(message)
+        self.traceback = str(traceback_text)
+        location = f"POSCAR_{index}" if index is not None else "MLP worker pool"
+        super().__init__(f"{location} failed with {self.error_type}: {self.message}")
+
+    @classmethod
+    def from_record(cls, record):
+        return cls(
+            record.get("index"),
+            record.get("error_type", "UnknownError"),
+            record.get("message", ""),
+            record.get("traceback", ""),
+        )
+
+
+def _safe_exception_text(error):
+    """Convert a possibly unusual exception to a plain string."""
+    try:
+        return str(error)
+    except Exception:  # pragma: no cover - pathological third-party exception
+        return f"<{type(error).__name__} could not be rendered>"
+
+
+def _runtime_distribution_versions(backend):
+    """Read installed distribution metadata without importing Torch/DeepMD."""
+    if backend not in _DEEPMD_BACKENDS:
+        return {}
+    versions = {}
+    for distribution in _SUPPORTED_RUNTIME_VERSIONS:
+        try:
+            versions[distribution] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            versions[distribution] = None
+        except Exception as error:  # pragma: no cover - unusual metadata backend
+            versions[distribution] = f"<metadata error: {_safe_exception_text(error)}>"
+    return versions
+
+
+def _verify_runtime_metadata(*, index, backend, model_path, device=None):
+    """Fail closed when the active DeepMD/Torch runtime is not supported."""
+    backend = backend.lower()
+    if backend not in _DEEPMD_BACKENDS:
+        return {}
+    python_actual = f"{sys.version_info[0]}.{sys.version_info[1]}"
+    mismatches = {}
+    if tuple(sys.version_info[:2]) != (3, 12):
+        mismatches["python"] = {
+            "expected": "3.12.x",
+            "actual": python_actual,
+        }
+    actual = _runtime_distribution_versions(backend)
+    for package, expected in _SUPPORTED_RUNTIME_VERSIONS.items():
+        actual_version = actual.get(package)
+        matches = (
+            _is_supported_torch_version(actual_version)
+            if package == "torch"
+            else actual_version == expected
+        )
+        if not matches:
+            mismatches[package] = {
+                "expected": expected,
+                "actual": actual_version,
+            }
+    if mismatches:
+        details = "; ".join(
+            f"{package} expected {values['expected']}, found {values['actual']!r}"
+            for package, values in mismatches.items()
+        )
+        raise RuntimeError(
+            f"POSCAR_{index}: unsupported MLP runtime for backend={backend}, "
+            f"model={model_path!r}, device={device!r}; {details}; "
+            f"python={sys.executable}"
+        )
+    return actual
+
+
+def _failure_record(index, error, *, backend=None, model=None, device=None):
+    """Build a JSON-serializable worker failure record."""
+    return {
+        "ok": False,
+        "index": int(index) if isinstance(index, (int, np.integer)) else index,
+        "error_type": type(error).__name__,
+        "message": _safe_exception_text(error),
+        "traceback": traceback.format_exc(),
+        "backend": backend,
+        "model": model,
+        "device": device,
+    }
+
+
+def _write_failure_record(record, *, output_dir=None):
+    """Append a failure record and flush it durably before the pool is stopped."""
+    destination_dir = base_dir if output_dir is None else output_dir
+    destination = os.path.join(destination_dir, _FAILURE_LOG_NAME)
+    payload = dict(record)
+    payload["logged_at"] = time.time()
+    payload["pid"] = os.getpid()
+    try:
+        with open(destination, "a", encoding="utf-8") as failure_file:
+            failure_file.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+            failure_file.flush()
+            os.fsync(failure_file.fileno())
+    except OSError as error:
+        # Preserve the scientific failure as the exception propagated to the
+        # caller, but make inability to write the diagnostic visible.
+        print(f"Unable to persist MLP worker failure report {destination}: {error}")
+
+
+def _run_opt_worker(task):
+    """Run one structure and return only plain data across multiprocessing."""
+    if len(task) == 5:
+        index, output_dir, backend, model_path, device = task
+        probe = False
+    else:
+        index, output_dir, backend, model_path, device, probe = task
+    try:
+        calculator = None
+        if probe:
+            _verify_runtime_metadata(
+                index=index,
+                backend=backend,
+                model_path=model_path,
+                device=device,
+            )
+            calculator = _probe_calculator(
+                index,
+                backend=backend,
+                model_path=model_path,
+                device=device,
+            )
+        run_opt(
+            index,
+            output_dir=output_dir,
+            backend=backend,
+            model_path=model_path,
+            device=device,
+            calculator=calculator,
+        )
+    except Exception as error:
+        return _failure_record(
+            index,
+            error,
+            backend=backend,
+            model=model_path,
+            device=device,
+        )
+    return {
+        "ok": True,
+        "index": int(index) if isinstance(index, (int, np.integer)) else index,
+    }
+
+
+def _shutdown_pool(*, terminate):
+    """Close or terminate the global pool exactly once and wait for children."""
+    global pool
+    active_pool = pool
+    pool = None
+    if active_pool is None:
+        return False
+    try:
+        if terminate:
+            active_pool.terminate()
+        else:
+            active_pool.close()
+    finally:
+        active_pool.join()
+    return True
 
 
 def get_mlp_calc(relative_path="./model.pt", backend="deepmd", device=None):
@@ -63,6 +277,23 @@ def get_mlp_calc(relative_path="./model.pt", backend="deepmd", device=None):
             kwargs["device"] = device
         return MatterSimCalculator(**kwargs)
     raise ValueError(f"Unsupported MLP backend: {backend}")
+
+
+def _probe_calculator(index, *, backend, model_path, device, calculator=None):
+    """Exercise forces and stress before the bulk optimizer is started."""
+    atoms = read_vasp("POSCAR_" + str(index))
+    if calculator is None:
+        calculator = get_mlp_calc(
+            relative_path=model_path,
+            backend=backend,
+            device=device,
+        )
+    atoms.calc = calculator
+    # These calls deliberately cover the DeepMD/Torch neighbor-list and
+    # stress paths that a package-import-only preflight cannot validate.
+    atoms.get_forces()
+    atoms.get_stress()
+    return calculator
 
 
 def get_element_num(elements):
@@ -260,110 +491,188 @@ def _parse_args(argv):
     )
     parser.add_argument("--model", default="./model.pt")
     parser.add_argument("--device", default=None)
-    parser.add_argument("--workers", type=int, default=0)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="number of MLP workers (default: 1; set explicitly for CPU parallelism)",
+    )
     return parser.parse_args(argv)
+
+
+def _resolve_workers(requested, backend):
+    """Resolve the safe worker default while preserving explicit CPU parallelism."""
+    if not isinstance(requested, int):
+        raise ValueError("workers must be a positive integer")
+    # Configuration files from older releases used 0 for "automatic".  Keep
+    # that input compatible, but make its effective value the safe default of
+    # one worker instead of the old DeepMD value of eight.
+    workers = 1 if requested == 0 else requested
+    if workers < 1:
+        raise ValueError("workers must be a positive integer")
+    if backend in {"dpa4", "dpa4_ion_ft", "mattersim"} and workers != 1:
+        raise ValueError(
+            f"{backend} currently requires workers=1 to reuse one GPU model"
+        )
+    return workers
 
 
 def main(argv=None):
     """
-    Main function to run the optimization in parallel.
-    It initializes a multiprocessing pool and maps the run_opt function to the indexes of POSCAR files.
+    Main function to run the optimization with a bounded worker default.
+
+    A real force/stress calculation is performed on the first POSCAR before
+    bulk optimization.  Multiprocessing workers return only plain diagnostic
+    dictionaries, allowing the parent to preserve the original traceback and
+    terminate the pool immediately without retrying the batch serially.
     """
+    global pool
     options = _parse_args([] if argv is None else argv)
-    gpu_backends = {"dpa4", "dpa4_ion_ft", "mattersim"}
-    workers = options.workers or (1 if options.backend in gpu_backends else 8)
-    if workers < 1:
-        raise ValueError("workers must be a positive integer")
-    if options.backend in gpu_backends and workers != 1:
-        raise ValueError(
-            f"{options.backend} currently requires workers=1 to reuse one GPU model"
-        )
+    workers = _resolve_workers(options.workers, options.backend)
     total_start = time.time()
-    # 不再注册信号处理器 - 让父进程的StatusLogger统一处理
-    # 子进程会自动继承父进程的信号处理行为
-    # signal.signal(signal.SIGINT, stop_handler)
-    # signal.signal(signal.SIGTERM, stop_handler)
 
     # 获取需要优化的结构索引
+    # dpdispatcher collects this path even when every optimization succeeds.
+    # Keep previous-attempt diagnostics intact if the same task is resumed.
+    with open(os.path.join(base_dir, _FAILURE_LOG_NAME), "a", encoding="utf-8"):
+        pass
     indexes = get_indexes()
     if not indexes:
         print("No POSCAR_*.vasp files found. Nothing to optimize.")
         return
 
+    failure_recorded = False
+    had_pool = False
+    pool_cleanup_message = None
     try:
-        # 初始化进程池
         print(
             f"Starting optimization for {len(indexes)} structures with "
             f"backend={options.backend}, workers={workers}..."
         )
         if workers == 1:
-            calculator = get_mlp_calc(
-                relative_path=options.model,
-                backend=options.backend,
-                device=options.device,
-            )
-            for index in indexes:
-                run_opt(
-                    index,
+            # Reuse the probed calculator for serial optimization so the exact
+            # object that passed the force/stress gate performs the work.
+            current_index = indexes[0]
+            try:
+                _verify_runtime_metadata(
+                    index=current_index,
                     backend=options.backend,
                     model_path=options.model,
                     device=options.device,
-                    calculator=calculator,
                 )
+                calculator = _probe_calculator(
+                    current_index,
+                    backend=options.backend,
+                    model_path=options.model,
+                    device=options.device,
+                )
+                for index in indexes:
+                    current_index = index
+                    run_opt(
+                        index,
+                        backend=options.backend,
+                        model_path=options.model,
+                        device=options.device,
+                        calculator=calculator,
+                    )
+            except Exception as error:
+                record = _failure_record(
+                    current_index,
+                    error,
+                    backend=options.backend,
+                    model=options.model,
+                    device=options.device,
+                )
+                _write_failure_record(record)
+                failure_recorded = True
+                raise
         else:
             ctx = multiprocessing.get_context("spawn")
-            global pool
             pool = ctx.Pool(workers)
-            if (
-                options.backend == "deepmd"
-                and options.model == "./model.pt"
-                and options.device is None
-            ):
-                pool.map(func=run_opt, iterable=indexes)
-            else:
-                pool.starmap(
-                    run_opt,
-                    [
-                        (index, None, options.backend, options.model, options.device)
-                        for index in indexes
-                    ],
+            had_pool = True
+
+            # Run the gate in a real pool worker and include the first
+            # optimization in that same worker invocation.  No bulk task can
+            # start until this calculator has successfully produced forces and
+            # stress, which catches Triton/ABI/CUDA failures before fan-out.
+            first_task = (
+                indexes[0],
+                None,
+                options.backend,
+                options.model,
+                options.device,
+                True,
+            )
+            first_result = pool.apply(_run_opt_worker, (first_task,))
+            if not isinstance(first_result, dict) or not first_result.get("ok"):
+                if not isinstance(first_result, dict):
+                    raise RuntimeError("MLP worker returned a malformed probe result")
+                _write_failure_record(first_result)
+                failure_recorded = True
+                raise MLPWorkerError.from_record(first_result)
+
+            tasks = [
+                (
+                    index,
+                    None,
+                    options.backend,
+                    options.model,
+                    options.device,
+                    False,
                 )
+                for index in indexes[1:]
+            ]
+            for result in pool.imap_unordered(_run_opt_worker, tasks):
+                if not isinstance(result, dict):
+                    raise RuntimeError("MLP worker returned a malformed result")
+                if not result.get("ok"):
+                    _write_failure_record(result)
+                    failure_recorded = True
+                    raise MLPWorkerError.from_record(result)
+
+            _shutdown_pool(terminate=False)
+            pool_cleanup_message = "Process pool cleaned up successfully."
         print("All optimizations completed successfully.")
     except KeyboardInterrupt:
         # 捕获KeyboardInterrupt，优雅地关闭进程池
         print("\nReceived KeyboardInterrupt, shutting down gracefully...")
         if pool is not None:
             print("Terminating multiprocessing pool...")
-            pool.terminate()
-            pool.join()
+            _shutdown_pool(terminate=True)
+            pool_cleanup_message = "Process pool terminated after interruption."
+        elif had_pool:
+            # The pool may already have been stopped while propagating the
+            # signal; retain the user-facing cleanup message.
+            print("Terminating multiprocessing pool...")
+            pool_cleanup_message = "Process pool terminated after interruption."
         print("All child processes terminated.")
-        raise  # 重新抛出，让父进程处理
-    except (MemoryError, OSError, PermissionError) as e:
-        print("Falling back to serial execution due to resource constraints:", e)
-        for index in indexes:
-            if (
-                options.backend == "deepmd"
-                and options.model == "./model.pt"
-                and options.device is None
-            ):
-                run_opt(index)
-            else:
-                run_opt(
-                    index,
-                    backend=options.backend,
-                    model_path=options.model,
-                    device=options.device,
-                )
-        print("All optimizations completed successfully in serial mode.")
-    except Exception as e:
-        # worker 抛回的异常或池初始化失败都应向上传播，避免把失败的优化误报为成功
-        print("Unexpected error during multiprocessing optimization:", e)
+        raise
+    except Exception as error:
+        # A worker or pool error is terminal for this batch.  In particular,
+        # do not rerun the same structures serially after an OSError/MemoryError
+        # from a broken runtime or an exhausted GPU.
+        if not failure_recorded:
+            record = _failure_record(
+                None,
+                error,
+                backend=options.backend,
+                model=options.model,
+                device=options.device,
+            )
+            _write_failure_record(record)
+            failure_recorded = True
+        print("Unexpected error during multiprocessing optimization:", error)
+        if pool is not None:
+            print("Terminating multiprocessing pool...")
+            _shutdown_pool(terminate=True)
+            pool_cleanup_message = "Process pool terminated after failure."
         raise
     finally:
         if pool is not None:
-            pool.close()
-            pool.join()
-            print("Process pool cleaned up successfully.")
+            _shutdown_pool(terminate=True)
+            pool_cleanup_message = pool_cleanup_message or "Process pool terminated during cleanup."
+        if pool_cleanup_message:
+            print(pool_cleanup_message)
         else:
             print("No process pool to clean up.")
     total_stop = time.time()

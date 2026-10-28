@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import socket
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -111,6 +114,8 @@ def _profile_and_workdir(
                 "mlp_backend": "deepmd",
                 "mlp_python": "python-mlp",
                 "mlp_model": "model.pt",
+                "mlp_preflight_receipt": str((root / "mlp-receipt.json").resolve()),
+                "mlp_allow_unallocated_probe": True,
                 "machine": str(machine),
                 "resources": str(mlp_resources),
             },
@@ -141,9 +146,13 @@ def _mlp_receipt(
         "python.mlp_profile",
         "python.distribution.ase",
         "python.import.deepmd",
+        "python.import.deepmd.calculator",
         "python.distribution.deepmd-kit",
         "python.distribution.torch",
+        "python.distribution.triton",
+        "python.import.triton",
         "mlp.model",
+        "mlp.runtime_probe",
     ]
     if gpu:
         check_ids.extend(("mlp.cuda", "mlp.nvidia_smi"))
@@ -156,17 +165,68 @@ def _mlp_receipt(
         "facts": {
             "backend": backend,
             "pairing": {
-                "expected": {"python": "3.12", "deepmd-kit": "3.2.0", "torch": "2.11.0"},
-                "actual": {"deepmd-kit": "3.2.0", "torch": "2.11.0"},
+                "expected": {
+                    "python": "3.12",
+                    "deepmd-kit": "3.2.0",
+                    "torch": "2.11.0",
+                    "triton": "3.6.0",
+                },
+                "actual": {
+                    "deepmd-kit": "3.2.0",
+                    "torch": "2.11.0",
+                    "triton": "3.6.0",
+                },
             },
-            "cuda": {"required": gpu, "available": gpu},
+            "model": {
+                "path": str(model_path.resolve()),
+                "sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),
+                "size_bytes": model_path.stat().st_size,
+            },
+            "cuda": {
+                "required": gpu,
+                "available": gpu,
+                "torch_runtime": "12.8" if gpu else None,
+                "nvidia_smi": {
+                    "resolved": "/usr/bin/nvidia-smi",
+                    "gpus": (
+                        [
+                            {
+                                "index": 0,
+                                "uuid": GPU_UUID_1,
+                                "name": "NVIDIA Test GPU",
+                                "driver_version": "575.57.08",
+                            }
+                        ]
+                        if gpu
+                        else []
+                    ),
+                },
+            },
+            "probe": {
+                "requested": True,
+                "status": "pass",
+                "backend": backend,
+                "model_sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),
+                "forces": {"shape": [1, 3], "finite": True},
+                "stress": {"shape": [6], "finite": True},
+                "unit_cell_filter": "pass",
+                "optimizer_steps_completed": 1,
+                "allocation": {"scheduler_env": None, "job_id": None},
+                "noncompute_override": True,
+            },
         },
         "checks": [
             {
                 "check_id": check_id,
                 "status": "pass",
                 **(
-                    {"details": {"path": str(model_path.resolve())}}
+                    {
+                        "details": {
+                            "path": str(model_path.resolve()),
+                            "sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),
+                            "size_bytes": model_path.stat().st_size,
+                        }
+                    }
                     if check_id == "mlp.model"
                     else {}
                 ),
@@ -203,6 +263,35 @@ def _mock_core(monkeypatch):
     monkeypatch.setattr(local_readiness, "check_core", lambda **_kwargs: report)
     monkeypatch.setattr(local_readiness.os, "cpu_count", lambda: 64)
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+
+    uuid_pattern = re.compile(r"GPU-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.I)
+
+    def resolve_gpu_uuids(resources_envs):
+        masks = []
+        if "CUDA_VISIBLE_DEVICES" in os.environ:
+            masks.append(os.environ["CUDA_VISIBLE_DEVICES"])
+        if isinstance(resources_envs, dict) and "CUDA_VISIBLE_DEVICES" in resources_envs:
+            masks.append(resources_envs["CUDA_VISIBLE_DEVICES"])
+        parsed = []
+        for mask in masks:
+            values = mask.split(",")
+            if not values or any(not uuid_pattern.fullmatch(value.strip()) for value in values):
+                raise ValueError("invalid test GPU UUID mask")
+            parsed.append({value.strip().upper() for value in values})
+        if not parsed:
+            return None
+        allowed = parsed[0]
+        for mask in parsed[1:]:
+            allowed.intersection_update(mask)
+        if not allowed:
+            raise ValueError("incompatible test GPU UUID masks")
+        return allowed
+
+    monkeypatch.setitem(
+        sys.modules,
+        "ion_CSP.gen_opt",
+        SimpleNamespace(_resolve_allowed_gpu_uuids=resolve_gpu_uuids),
+    )
 
 
 def _mock_executables(monkeypatch, *, missing: set[str] | None = None):
@@ -244,7 +333,7 @@ def test_cpu_mlp_and_cpu_vasp_pass_without_network_or_scientific_execution(tmp_p
 
     result = local_readiness.check_local_readiness(profile, workdir, receipt)
 
-    assert result["status"] == "PASS"
+    assert result["status"] == "PASS", json.dumps(result, indent=2)
     assert result["ready_for_bounded_smoke"] is True
     assert result["workload"] == "CPU_MLP_PLUS_CPU_VASP"
     assert result["requested_generation_scale"] == 6
@@ -279,7 +368,7 @@ def test_gpu_mlp_queries_driver_with_bounded_timeout_only(tmp_path, monkeypatch)
 
     result = local_readiness.check_local_readiness(profile, workdir, receipt)
 
-    assert result["status"] == "PASS"
+    assert result["status"] == "PASS", json.dumps(result, indent=2)
     assert result["workload"] == "GPU_MLP_PLUS_CPU_VASP"
     assert result["requested_generation_scale"] == 6
     assert _status(result, "gpu_driver") == "PASS"
@@ -341,7 +430,7 @@ def test_compatible_gpu_uuid_masks_pass_without_selecting_a_device(tmp_path, mon
 
     result = local_readiness.check_local_readiness(profile, workdir, receipt)
 
-    assert result["status"] == "PASS"
+    assert result["status"] == "PASS", json.dumps(result, indent=2)
     assert _status(result, "gpu_mask_compatibility") == "PASS"
     assert len(commands) == 1
 
@@ -442,7 +531,42 @@ def test_mismatched_mlp_runtime_pair_fails(tmp_path, monkeypatch):
 
     assert result["status"] == "FAIL"
     assert _status(result, "mlp_receipt") == "FAIL"
-    assert "2.13.0" not in json.dumps(result)
+    assert "2.13.0" in json.dumps(result)
+
+
+def test_torch_cuda_local_version_is_accepted_in_mlp_receipt(tmp_path, monkeypatch):
+    _mock_core(monkeypatch)
+    _mock_executables(monkeypatch)
+    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: pytest.fail("no GPU query expected"))
+    profile, workdir, receipt = _profile_and_workdir(tmp_path, gpu=False)
+    _mlp_receipt(receipt, gpu=False)
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["facts"]["pairing"]["actual"]["torch"] = "2.11.0+cu126"
+    receipt.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = local_readiness.check_local_readiness(profile, workdir, receipt)
+
+    assert result["status"] == "PASS"
+    assert _status(result, "mlp_receipt") == "PASS"
+
+
+def test_gpu_mlp_receipt_requires_recorded_cuda_runtime(tmp_path, monkeypatch):
+    _mock_core(monkeypatch)
+    _mock_executables(monkeypatch)
+    monkeypatch.setattr(local_readiness, "_query_gpu_driver", lambda _path: (True, "mock GPU available"))
+    profile, workdir, receipt = _profile_and_workdir(tmp_path, gpu=True)
+    _mlp_receipt(receipt, gpu=True)
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    del payload["facts"]["cuda"]["torch_runtime"]
+    receipt.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = local_readiness.check_local_readiness(profile, workdir, receipt)
+
+    assert result["status"] == "FAIL"
+    assert _status(result, "mlp_receipt") == "FAIL"
+    assert "CUDA runtime" in next(
+        item["message"] for item in result["checks"] if item["check_id"] == "mlp_receipt"
+    )
 
 
 def test_mlp_receipt_interpreter_keeps_distinct_venv_symlink_identity(tmp_path):
@@ -465,26 +589,17 @@ def test_mlp_receipt_interpreter_keeps_distinct_venv_symlink_identity(tmp_path):
     assert env_a.samefile(env_b)
 
     receipt_path = tmp_path / "mlp.json"
-    receipt_path.write_text(
-        json.dumps(
-            {
-                "target": "mlp",
-                "ok": True,
-                "facts": {"backend": "deepmd"},
-                "host": {
-                    "python_version": "3.12.4",
-                    "python_executable": str(env_paths[1]),
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    _mlp_receipt(receipt_path, python=str(env_paths[1]), gpu=False)
     status, _message = local_readiness._check_mlp_receipt(
         receipt_path,
+        configured_receipt_path=str(receipt_path),
         backend="deepmd",
         configured_executable=env_a,
-        effective_model_path=None,
+        effective_model_path=(
+            Path(local_readiness.__file__).resolve().parent / "model" / "model.pt"
+        ),
         require_gpu=False,
+        allow_noncompute_probe=True,
     )
     assert status == "FAIL"
 
@@ -581,6 +696,102 @@ def test_missing_mlp_receipt_is_not_run_and_never_ready(tmp_path, monkeypatch):
     assert result["status"] == "NOT RUN"
     assert result["ready_for_bounded_smoke"] is False
     assert _status(result, "mlp_receipt") == "NOT RUN"
+
+
+def test_mlp_receipt_cli_path_must_match_configured_path(tmp_path, monkeypatch):
+    _mock_core(monkeypatch)
+    _mock_executables(monkeypatch)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("CPU-only readiness must not execute a command"),
+    )
+    profile, workdir, receipt = _profile_and_workdir(tmp_path, gpu=False)
+    _mlp_receipt(receipt, gpu=False)
+    other_receipt = tmp_path / "other-receipt.json"
+    other_receipt.write_bytes(receipt.read_bytes())
+    config_path = workdir / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["gen_opt"]["mlp_preflight_receipt"] = str(other_receipt.resolve())
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    result = local_readiness.check_local_readiness(profile, workdir, receipt)
+
+    assert result["status"] == "FAIL"
+    assert _status(result, "mlp_receipt") == "FAIL"
+    assert "does not match" in next(
+        item["message"] for item in result["checks"] if item["check_id"] == "mlp_receipt"
+    )
+
+
+def test_local_profile_requires_explicit_noncompute_probe_opt_in(tmp_path, monkeypatch):
+    _mock_core(monkeypatch)
+    _mock_executables(monkeypatch)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("CPU-only readiness must not execute a command"),
+    )
+    profile, workdir, receipt = _profile_and_workdir(tmp_path, gpu=False)
+    _mlp_receipt(receipt, gpu=False)
+    config_path = workdir / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["gen_opt"]["mlp_allow_unallocated_probe"] = False
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    result = local_readiness.check_local_readiness(profile, workdir, receipt)
+
+    assert result["status"] == "FAIL"
+    assert _status(result, "mlp_local_probe_opt_in") == "FAIL"
+    assert _status(result, "mlp_receipt") == "FAIL"
+
+
+def test_visibility_only_receipt_cannot_pass_local_readiness(tmp_path, monkeypatch):
+    _mock_core(monkeypatch)
+    _mock_executables(monkeypatch)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("CPU-only readiness must not execute a command"),
+    )
+    profile, workdir, receipt = _profile_and_workdir(tmp_path, gpu=False)
+    _mlp_receipt(receipt, gpu=False)
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["facts"].pop("probe")
+    receipt.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = local_readiness.check_local_readiness(profile, workdir, receipt)
+
+    assert result["status"] == "FAIL"
+    assert _status(result, "mlp_receipt") == "FAIL"
+    assert "probe" in next(
+        item["message"] for item in result["checks"] if item["check_id"] == "mlp_receipt"
+    )
+
+
+def test_gpu_local_readiness_rejects_receipt_missing_triton_import(tmp_path, monkeypatch):
+    _mock_core(monkeypatch)
+    _mock_executables(monkeypatch)
+    monkeypatch.setattr(
+        local_readiness,
+        "_query_gpu_driver",
+        lambda _path: (True, "mock GPU available"),
+    )
+    profile, workdir, receipt = _profile_and_workdir(tmp_path, gpu=True)
+    _mlp_receipt(receipt, gpu=True)
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    for check in payload["checks"]:
+        if check["check_id"] == "python.import.triton":
+            check["status"] = "fail"
+    receipt.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = local_readiness.check_local_readiness(profile, workdir, receipt)
+
+    assert result["status"] == "FAIL"
+    assert _status(result, "mlp_receipt") == "FAIL"
+    assert "triton" in next(
+        item["message"] for item in result["checks"] if item["check_id"] == "mlp_receipt"
+    )
 
 
 def test_missing_explicit_generation_budget_is_not_run_without_assuming_defaults(

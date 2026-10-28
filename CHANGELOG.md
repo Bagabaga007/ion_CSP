@@ -2,6 +2,17 @@
 
 ## Latest Changes
 
+### V2.3.6 (2026-10-23)
+
+- Pin the Linux MLP runtime to DeepMD 3.2.0, Torch 2.11.0 and Triton 3.6.0; reject incompatible Python/ASE/runtime versions before bulk optimization.
+- Add an opt-in, scheduler-allocation-gated POSCAR probe that exercises the actual model's forces, stress and bounded cell optimizer; bind successful receipts to the model hash and interpreter before DeepMD/DPA4 submission.
+- Default to one MLP worker, preserve scheduler thread settings, capture serializable per-POSCAR tracebacks, stop on the first worker failure and disable dpdispatcher resubmission for unchanged MLP jobs.
+- Recover only diagnostic logs after failed dispatch and cancel sibling scheduler Jobs using dpdispatcher's actual Job objects. Local unallocated-probe acceptance remains explicit and disabled for SSH cluster execution.
+- Relax nine core scientific Python dependencies from exact pins to inclusive minimum versions in `pyproject.toml` and `environment.yml`; keep `uv.lock` as the reproducible resolution and the DeepMD/Torch/Triton MLP runtime as an exact ABI pairing.
+- Accept official Torch 2.11 CUDA wheel local-version suffixes such as `2.11.0+cu126` in MLP preflight, receipt validation, local readiness and worker checks while preserving the exact public-version ABI gate.
+- Record full runtime-probe tracebacks and failed/completed stage markers in MLP receipts, preserving original exception types and immutable C-extension exception chains; normalize unexpected CUDA metadata to JSON-safe values.
+- Local regression suite: 731 tests passed with the existing core environment; the first GPU probe returned `StopIteration` and a bounded diagnostic retest remains to be evaluated.
+
 ### b741a15 (2026-09-25)
 
 chore: record verified ion_CSP release manifest
@@ -443,4 +454,3 @@ ok
 ### 2bef3e2 (2024-12-12)
 
 committed
-

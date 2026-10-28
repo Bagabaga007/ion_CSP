@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'win32'",
@@ -835,7 +835,7 @@ wheels = [
 
 [[package]]
 name = "ion-csp"
-version = "2.3.5"
+version = "2.3.6"
 source = { editable = "." }
 dependencies = [
     { name = "ase" },
@@ -872,7 +872,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ase", specifier = "==3.23.0" },
+    { name = "ase", specifier = ">=3.23.0" },
     { name = "cryptography", specifier = ">=50,<51" },
     { name = "dpdispatcher", specifier = ">=1.1,<2" },
     { name = "filelock", specifier = ">=3.20.3,<4" },
@@ -881,22 +881,22 @@ requires-dist = [
     { name = "lxml", specifier = ">=6.1,<7" },
     { name = "matplotlib", specifier = ">=3.10,<4" },
     { name = "networkx", specifier = ">=3.0" },
-    { name = "numpy", specifier = "==1.26.4" },
-    { name = "pandas", specifier = "==2.2.3" },
+    { name = "numpy", specifier = ">=1.26.4" },
+    { name = "pandas", specifier = ">=2.2.3" },
     { name = "paramiko", specifier = ">=5,<6" },
-    { name = "phonopy", specifier = "==2.34.1" },
+    { name = "phonopy", specifier = ">=2.34.1" },
     { name = "pillow", specifier = ">=12.3,<13" },
-    { name = "psutil", specifier = "==7.0.0" },
+    { name = "psutil", specifier = ">=7.0.0" },
     { name = "pygments", specifier = ">=2.20,<3" },
     { name = "pymatgen", specifier = ">=2025.10.7,<2027" },
     { name = "pynacl", specifier = ">=1.6.2,<2" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.3,<10" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=7.1,<8" },
-    { name = "pyxtal", specifier = "==1.0.4" },
-    { name = "pyyaml", specifier = "==6.0.2" },
-    { name = "rdkit", specifier = "==2024.3.3" },
+    { name = "pyxtal", specifier = ">=1.0.4" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "rdkit", specifier = ">=2024.3.3" },
     { name = "requests", specifier = ">=2.33,<3" },
-    { name = "scipy", specifier = "==1.15.2" },
+    { name = "scipy", specifier = ">=1.15.2" },
     { name = "urllib3", specifier = ">=2.7,<3" },
 ]
 provides-extras = ["test"]

@@ -19,19 +19,38 @@ SOURCE_ROOTS = (
     "src/ion_CSP",
     "scripts",
     "delivery",
+    "config",
+    "docs",
+    "examples",
+    "tests",
 )
 ROOT_FILES = (
+    "src/__init__.py",
     "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "LICENSE",
+    "CHANGELOG.md",
     "uv.lock",
     "environment.yml",
     "environment-mlp.yml",
     "MANIFEST.in",
     "README.md",
-    "docs/delivery.md",
-    "docs/compute_profiles.md",
-    "docs/dispatch_accounting.md",
-    "docs/local_workstation.md",
+    "AUTO_LINKING_GUIDE.md",
+    "DOCKER.md",
+    "DPA4_BACKEND.md",
+    "MATTERSIM_BACKEND.md",
+    "Dockerfile",
+    "Dockerfile.gpu",
+    "docker-compose.yml",
+    ".dockerignore",
 )
+
+SOURCE_EXCLUDED_DIRS = ("docs/history",)
+SOURCE_EXCLUDED_FILES = {
+    "delivery/release-manifest.json",
+    "examples/server/example_remote_machine.yaml",
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -65,9 +84,22 @@ def _source_paths(root: Path, manifest_path: Path) -> list[Path]:
             # Internal candidate receipts are generated *after* builds. They
             # are not source inputs and must not invalidate earlier manifests
             # or leak into a later distributable source archive.
-            if relative == "delivery" and "candidate-manifests" in candidate.relative_to(directory).parts:
+            if (
+                relative == "delivery"
+                and "candidate-manifests" in candidate.relative_to(directory).parts
+            ):
                 continue
-            if "__pycache__" in candidate.parts or candidate.suffix in {".pyc", ".pyo", ".orig"}:
+            candidate_relative = candidate.relative_to(root).as_posix()
+            if candidate_relative in SOURCE_EXCLUDED_FILES or any(
+                candidate_relative.startswith(f"{excluded}/")
+                for excluded in SOURCE_EXCLUDED_DIRS
+            ):
+                continue
+            if (
+                "__pycache__" in candidate.parts
+                or candidate.suffix in {".pyc", ".pyo", ".orig"}
+                or candidate.name == ".DS_Store"
+            ):
                 continue
             paths.add(candidate)
     return sorted(paths, key=lambda item: _relative(item, root))

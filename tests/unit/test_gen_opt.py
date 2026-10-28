@@ -91,6 +91,16 @@ def crystal_generator(tmp_path: Path):
     yield crystal_generator
 
 
+@pytest.fixture
+def accepted_mlp_receipt(monkeypatch, tmp_path: Path):
+    """Let dispatcher tests focus on task handling after the receipt gate."""
+    monkeypatch.setattr(
+        "ion_CSP.mlp_receipt.validate_mlp_receipt",
+        lambda *args, **kwargs: (True, "accepted test receipt"),
+    )
+    return str(tmp_path / "mlp-receipt.json")
+
+
 # ==================== 测试 __init__ ====================
 def test_crystal_generator_init(crystal_generator: CrystalGenerator, tmp_path: Path):
     """测试初始化逻辑"""
@@ -759,6 +769,110 @@ def test_phonopy_processing_with_deletions(crystal_generator: CrystalGenerator, 
 
 # ==================== 测试 dpdisp_mlp_tasks ====================
 @pytest.mark.parametrize(
+    "receipt, validation, expected",
+    [
+        (None, None, "mlp_preflight_receipt"),
+        ("/tmp/invalid-mlp-receipt.json", (False, "TritonMissing"), "TritonMissing"),
+    ],
+)
+def test_mlp_submission_fails_before_gpu_wait_or_task_creation(
+    crystal_generator,
+    receipt,
+    validation,
+    expected,
+):
+    machine = MagicMock()
+    machine.serialize.return_value = {"batch_type": "Shell", "context_type": "LocalContext"}
+    resources = MagicMock()
+    resources.serialize.return_value = {"cpu_per_node": 6, "gpu_per_node": 1}
+    with (
+        patch("ion_CSP.gen_opt.machine_resources_prep", return_value=(machine, resources, "")),
+        patch("ion_CSP.gen_opt._wait_for_gpu") as gpu_wait,
+        patch("dpdispatcher.Task") as task,
+        patch("dpdispatcher.Submission") as submission,
+        patch("ion_CSP.mlp_receipt.validate_mlp_receipt", return_value=validation) as validate,
+    ):
+        with pytest.raises(ValueError, match=expected):
+            crystal_generator.dpdisp_mlp_tasks(
+                machine_path="machine.json",
+                resources_path="resources.json",
+                preflight_receipt=receipt,
+            )
+    gpu_wait.assert_not_called()
+    task.assert_not_called()
+    submission.assert_not_called()
+    if receipt is None:
+        validate.assert_not_called()
+    else:
+        validate.assert_called_once()
+
+
+@pytest.mark.parametrize("workers, expected", [(2, "exactly one worker"), (7, "exceeds cpu_per_node")])
+def test_mlp_submission_rejects_gpu_worker_oversubscription_before_tasks(
+    crystal_generator,
+    workers,
+    expected,
+):
+    machine = MagicMock()
+    machine.serialize.return_value = {"batch_type": "Slurm", "context_type": "SSHContext"}
+    resources = MagicMock()
+    resources.serialize.return_value = {"cpu_per_node": 6, "gpu_per_node": 1}
+    with (
+        patch("ion_CSP.gen_opt.machine_resources_prep", return_value=(machine, resources, "")),
+        patch("dpdispatcher.Task") as task,
+        patch("dpdispatcher.Submission") as submission,
+    ):
+        with pytest.raises(ValueError, match=expected):
+            crystal_generator.dpdisp_mlp_tasks(
+                machine_path="machine.json",
+                resources_path="resources.json",
+                workers=workers,
+            )
+    task.assert_not_called()
+    submission.assert_not_called()
+
+
+def test_unallocated_probe_opt_in_is_rejected_for_remote_scheduler(crystal_generator):
+    machine = MagicMock()
+    machine.serialize.return_value = {"batch_type": "Slurm", "context_type": "SSHContext"}
+    resources = MagicMock()
+    resources.serialize.return_value = {"cpu_per_node": 6, "gpu_per_node": 1}
+    with (
+        patch("ion_CSP.gen_opt.machine_resources_prep", return_value=(machine, resources, "")),
+        patch("dpdispatcher.Submission") as submission,
+    ):
+        with pytest.raises(ValueError, match="local workstation"):
+            crystal_generator.dpdisp_mlp_tasks(
+                machine_path="machine.json",
+                resources_path="resources.json",
+                allow_unallocated_mlp_probe=True,
+            )
+    submission.assert_not_called()
+
+
+def test_failed_submission_recovers_only_existing_diagnostics(crystal_generator):
+    task = MagicMock()
+    task.task_work_path = "data/pop0"
+    task.backward_files = ["CONTCAR_0", "OUTCAR_0", "err"]
+    submission = MagicMock()
+    submission.belonging_tasks = [task]
+    crystal_generator._submission = submission
+
+    crystal_generator._recover_failure_diagnostics()
+
+    download = submission.machine.context.download
+    download.assert_called_once()
+    view = download.call_args.args[0]
+    assert view.backward_common_files == []
+    assert len(view.belonging_tasks) == 1
+    assert view.belonging_tasks[0].task_work_path == "data/pop0"
+    assert view.belonging_tasks[0].backward_files == [
+        "log", "err", "mlp_worker_failures.jsonl"
+    ]
+    assert download.call_args.kwargs == {"check_exists": True, "mark_failure": False}
+
+
+@pytest.mark.parametrize(
     "context_type, nodes, parent, gpu",
     [
         ("LocalContext", 1, "", 1),
@@ -789,6 +903,7 @@ def test_dpdisp_mlp_tasks_local_and_remote(
     tmp_path: Path,
     caplog,
     monkeypatch,
+    accepted_mlp_receipt,
 ):
     """测试本地 GPU 和远程 SSH 模式"""
     caplog.set_level(logging.INFO)
@@ -888,6 +1003,7 @@ def test_dpdisp_mlp_tasks_local_and_remote(
             machine_path=str(machine_path),
             resources_path=str(resources_path),
             nodes=nodes,
+            preflight_receipt=accepted_mlp_receipt,
         )
 
     if context_type == "LocalContext" and gpu != 0:
@@ -956,6 +1072,7 @@ def test_dpdisp_mlp_tasks_local_and_remote(
 
     # 15. 验证 dpdispatcher 被调用
     mock_sub.assert_called()
+    assert mock_sub.call_args.kwargs["machine"].retry_count == 0
     mock_task.assert_called()
     mock_run.assert_called_once()
 
@@ -1037,6 +1154,7 @@ def test_dpdisp_mlp_tasks_remote_exception(
     crystal_generator: CrystalGenerator,
     tmp_path: Path,
     caplog,
+    accepted_mlp_receipt,
 ):
     """测试 dpdisp_mlp_tasks 在提交失败时的异常处理"""
     # 1. 准备文件
@@ -1085,6 +1203,7 @@ def test_dpdisp_mlp_tasks_remote_exception(
             machine_path=str(machine_path),
             resources_path=str(resources_path),
             nodes=1,
+            preflight_receipt=accepted_mlp_receipt,
         )
 
     # 验证日志中记录了错误
@@ -1109,7 +1228,7 @@ def test_dpdisp_mlp_tasks_remote_exception(
 # 该变量），改为「dpdispatcher 官方 kill 接口 + 按 cmdline/cwd 兜底匹配 mlp_opt.py」。
 
 
-def _make_submission(context_type, remote_root="/workplace/yz/autodpgen", belonging_tasks=None, remote_profile=None):
+def _make_submission(context_type, remote_root="/workplace/yz/autodpgen", belonging_tasks=None, belonging_jobs=None, remote_profile=None):
     """构造一个模拟的 submission，供 _terminate_tasks 测试复用"""
     mock_submission = MagicMock()
     serialized = {"context_type": context_type}
@@ -1118,6 +1237,7 @@ def _make_submission(context_type, remote_root="/workplace/yz/autodpgen", belong
     mock_submission.machine.serialize.return_value = serialized
     mock_submission.machine.context.remote_root = remote_root
     mock_submission.belonging_tasks = belonging_tasks if belonging_tasks is not None else []
+    mock_submission.belonging_jobs = belonging_jobs if belonging_jobs is not None else []
     return mock_submission
 
 
@@ -1150,27 +1270,46 @@ def test_terminate_tasks_serialize_raises_attribute_error(
 
 
 def test_terminate_tasks_dpdispatcher_kill_success(caplog, crystal_generator):
-    """dpdispatcher 官方 kill 接口成功终止有 job_id 的 task"""
+    """dpdispatcher 官方 kill 接口终止真正持有 job_id 的 Job。"""
     caplog.set_level(logging.INFO)
+    job = MagicMock()
+    job.job_id = "12345"
+    job.job_hash = "abc123"
     task = MagicMock()
-    task.job_id = "12345"
-    task.task_hash = "abc123"
-    submission = _make_submission("LocalContext", belonging_tasks=[task])
+    task.job_id = "not-the-scheduler-job"
+    submission = _make_submission("LocalContext", belonging_tasks=[task], belonging_jobs=[job])
     crystal_generator._submission = submission
 
     with patch("psutil.process_iter", return_value=[]):
         crystal_generator._terminate_tasks()
 
-    submission.machine.kill.assert_called_once_with(task)
-    assert "Killed task abc123 (job_id: 12345)" in caplog.text
+    submission.machine.kill.assert_called_once_with(job)
+    assert "Killed job abc123 (job_id: 12345)" in caplog.text
+
+
+def test_terminate_tasks_cancels_sibling_jobs_after_first_kill_failure(crystal_generator):
+    first_job = MagicMock(job_id="100", job_hash="first")
+    sibling_job = MagicMock(job_id="101", job_hash="sibling")
+    submission = _make_submission(
+        "LocalContext", belonging_jobs=[first_job, sibling_job]
+    )
+    submission.machine.kill.side_effect = [RuntimeError("already ended"), None]
+    crystal_generator._submission = submission
+
+    with patch("psutil.process_iter", return_value=[]):
+        crystal_generator._terminate_tasks()
+
+    assert submission.machine.kill.call_count == 2
+    assert submission.machine.kill.call_args_list[0].args == (first_job,)
+    assert submission.machine.kill.call_args_list[1].args == (sibling_job,)
 
 
 def test_terminate_tasks_dpdispatcher_kill_task_without_job_id(caplog, crystal_generator):
-    """task 没有 job_id 时应跳过，不调用 machine.kill"""
+    """Job 没有 job_id 时应跳过，不调用 machine.kill。"""
     caplog.set_level(logging.INFO)
-    task = MagicMock()
-    task.job_id = ""  # 空 job_id
-    submission = _make_submission("LocalContext", belonging_tasks=[task])
+    job = MagicMock()
+    job.job_id = ""
+    submission = _make_submission("LocalContext", belonging_jobs=[job])
     crystal_generator._submission = submission
 
     with patch("psutil.process_iter", return_value=[]):
@@ -1180,27 +1319,27 @@ def test_terminate_tasks_dpdispatcher_kill_task_without_job_id(caplog, crystal_g
 
 
 def test_terminate_tasks_dpdispatcher_kill_task_raises(caplog, crystal_generator):
-    """单个 task kill 抛异常时记录 warning，不中断流程"""
+    """单个 Job kill 抛异常时记录 warning，不中断流程。"""
     caplog.set_level(logging.WARNING)
-    task = MagicMock()
-    task.job_id = "12345"
-    task.task_hash = "abc123"
-    submission = _make_submission("LocalContext", belonging_tasks=[task])
+    job = MagicMock()
+    job.job_id = "12345"
+    job.job_hash = "abc123"
+    submission = _make_submission("LocalContext", belonging_jobs=[job])
     submission.machine.kill.side_effect = RuntimeError("kill failed")
     crystal_generator._submission = submission
 
     with patch("psutil.process_iter", return_value=[]):
         crystal_generator._terminate_tasks()
 
-    assert "Failed to kill task abc123: kill failed" in caplog.text
+    assert "Failed to kill job abc123: kill failed" in caplog.text
 
 
 def test_terminate_tasks_dpdispatcher_kill_outer_exception(caplog, crystal_generator):
-    """遍历 belonging_tasks 本身抛异常时记录 warning"""
+    """遍历 belonging_jobs 本身抛异常时记录 warning。"""
     caplog.set_level(logging.WARNING)
     submission = _make_submission("LocalContext")
-    # 让 belonging_tasks 迭代时抛异常
-    type(submission).belonging_tasks = property(
+    # 让 belonging_jobs 迭代时抛异常
+    type(submission).belonging_jobs = property(
         lambda self: (_ for _ in ()).throw(RuntimeError("iter boom"))
     )
     crystal_generator._submission = submission
@@ -1485,7 +1624,7 @@ def test_recover_optimized_outputs_many_missing_truncated(crystal_generator, cap
 
 
 # ==================== 测试 dpdisp_mlp_tasks 的 SystemExit 中断路径 ====================
-def test_dpdisp_mlp_tasks_system_exit(crystal_generator: CrystalGenerator, tmp_path):
+def test_dpdisp_mlp_tasks_system_exit(crystal_generator: CrystalGenerator, tmp_path, accepted_mlp_receipt):
     """
     测试收到 SIGTERM/SIGINT（StatusLogger 信号处理器抛 SystemExit）时：
     - 调用 _terminate_tasks() 终止子进程
@@ -1512,11 +1651,15 @@ def test_dpdisp_mlp_tasks_system_exit(crystal_generator: CrystalGenerator, tmp_p
              patch.object(crystal_generator, "_recover_optimized_outputs") as mock_recover, \
              patch("ion_CSP.gen_opt.machine_resources_prep") as mock_prep, \
              patch("dpdispatcher.Task"):
-            mock_prep.return_value = (MagicMock(), MagicMock(), "test_parent")
+            mock_machine, mock_resources = MagicMock(), MagicMock()
+            mock_machine.serialize.return_value = {"batch_type": "Slurm", "context_type": "SSHContext"}
+            mock_resources.serialize.return_value = {"cpu_per_node": 4, "gpu_per_node": 0}
+            mock_prep.return_value = (mock_machine, mock_resources, "test_parent")
 
             with pytest.raises(SystemExit):
                 crystal_generator.dpdisp_mlp_tasks(
-                    machine_path="m.yaml", resources_path="r.yaml"
+                    machine_path="m.yaml", resources_path="r.yaml",
+                    preflight_receipt=accepted_mlp_receipt,
                 )
 
             # 验证：终止被调用，回收被跳过（aborted=True）
@@ -1808,7 +1951,7 @@ def test_wait_for_gpu_times_out_when_no_masked_gpu_is_available():
     assert query.call_count == 2
 
 
-def test_dpdisp_mlp_tasks_keyboard_interrupt(crystal_generator: CrystalGenerator, tmp_path):
+def test_dpdisp_mlp_tasks_keyboard_interrupt(crystal_generator: CrystalGenerator, tmp_path, accepted_mlp_receipt):
     """测试 dpdisp_mlp_tasks 在 submission.run_submission() 时收到 KeyboardInterrupt"""
     # 创建必要的文件和目录
     model_dir = crystal_generator.base_dir / "model"
@@ -1843,6 +1986,8 @@ def test_dpdisp_mlp_tasks_keyboard_interrupt(crystal_generator: CrystalGenerator
             with patch("ion_CSP.gen_opt.machine_resources_prep") as mock_prep:
                 mock_machine = MagicMock()
                 mock_resources = MagicMock()
+                mock_machine.serialize.return_value = {"batch_type": "Slurm", "context_type": "SSHContext"}
+                mock_resources.serialize.return_value = {"cpu_per_node": 4, "gpu_per_node": 0}
                 mock_prep.return_value = (mock_machine, mock_resources, "test_parent")
 
                 # 4. 模拟 Task 类
@@ -1853,7 +1998,8 @@ def test_dpdisp_mlp_tasks_keyboard_interrupt(crystal_generator: CrystalGenerator
                     try:
                         crystal_generator.dpdisp_mlp_tasks(
                             machine_path="dummy_machine.yaml",
-                            resources_path="dummy_resources.yaml"
+                            resources_path="dummy_resources.yaml",
+                            preflight_receipt=accepted_mlp_receipt,
                         )
                         assert False, "Expected KeyboardInterrupt to be raised"
                     except KeyboardInterrupt:

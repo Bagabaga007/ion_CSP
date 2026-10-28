@@ -1,20 +1,37 @@
+prune .claude
+prune .github
+prune .vscode
+
 include README.md
 include LICENSE
+include CHANGELOG.md
+include MANIFEST.in
+include pyproject.toml
+include setup.py
+include setup.cfg
+include uv.lock
 include environment.yml
 include environment-mlp.yml
-include docs/delivery.md
-include docs/compute_profiles.md
-include docs/dispatch_accounting.md
-include docs/local_workstation.md
-recursive-include delivery *.json *.toml *.txt *.md
+include AUTO_LINKING_GUIDE.md
+include DOCKER.md
+include DPA4_BACKEND.md
+include MATTERSIM_BACKEND.md
+include Dockerfile
+include Dockerfile.gpu
+include docker-compose.yml
+include .dockerignore
+recursive-include config *
+recursive-include docs *
+recursive-include examples *
+recursive-include tests *
+recursive-include scripts *
+recursive-include delivery *
 exclude delivery/release-manifest.json
 prune delivery/candidate-manifests
-include scripts/release_preflight.py
-include scripts/ion_csp_workflow.py
-include scripts/ion_csp_profile.py
-include scripts/ion_csp_local_check.py
-include scripts/build_release_manifest.py
-recursive-include src/ion_CSP/run *.py
-recursive-include src/ion_CSP/param *
-recursive-exclude src/ion_CSP/param *.orig
-recursive-include src/ion_CSP/model *.pt *.md
+recursive-include src/ion_CSP *
+prune docs/history
+exclude examples/server/example_remote_machine.yaml
+exclude .coveragerc .gitignore pyrightconfig.json
+exclude CODE_OF_CONDUCT.md CONTRIBUTING.md SECURITY.md
+exclude makefile run_tests.sh
+global-exclude *.orig *.pyc *.pyo .DS_Store

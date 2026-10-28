@@ -15,6 +15,7 @@ import logging
 import subprocess
 import math
 from typing import List
+from types import SimpleNamespace
 from ase.io import read
 from pathlib import Path
 from pyxtal import pyxtal
@@ -288,6 +289,8 @@ class CrystalGenerator:
         model: str = "model.pt",
         device: str = None,
         workers: int = 0,
+        preflight_receipt: str | None = None,
+        allow_unallocated_mlp_probe: bool = False,
     ):
         """
         Based on the dpdispatcher module, prepare and submit files for optimization on remote server or local machine.
@@ -307,37 +310,41 @@ class CrystalGenerator:
         )
         machine_info = machine.serialize()
         resources_info = resources.serialize()
-        selected_gpu = None
+        if type(allow_unallocated_mlp_probe) is not bool:
+            raise ValueError("allow_unallocated_mlp_probe must be a boolean")
+        if allow_unallocated_mlp_probe and not (
+            machine_info["context_type"] == "LocalContext"
+            and machine_info["batch_type"] == "Shell"
+        ):
+            raise ValueError(
+                "unallocated MLP probe receipts are allowed only for an explicitly "
+                "configured local workstation"
+            )
+        if type(workers) is not int or workers < 0:
+            raise ValueError("MLP workers must be a non-negative integer")
+        effective_workers = workers or 1
+        cpu_per_node = resources_info["cpu_per_node"]
+        gpu_per_node = resources_info["gpu_per_node"]
+        if effective_workers > cpu_per_node:
+            raise ValueError(
+                f"MLP workers={effective_workers} exceeds cpu_per_node={cpu_per_node}"
+            )
+        if gpu_per_node and effective_workers != 1:
+            raise ValueError(
+                "GPU MLP tasks require exactly one worker per task; "
+                f"received workers={effective_workers}"
+            )
         if (
             machine_info["batch_type"] == "Shell"
-            and resources_info["gpu_per_node"] != 0
+            and gpu_per_node
+            and machine_info["context_type"] == "LocalContext"
+            and (gpu_per_node != 1 or nodes != 1)
         ):
-            if machine_info["context_type"] == "LocalContext":
-                gpu_per_node = resources_info["gpu_per_node"]
-                if gpu_per_node != 1 or nodes != 1:
-                    raise ValueError(
-                        "Local Shell GPU selection supports only "
-                        "gpu_per_node=1 with nodes=1; received "
-                        f"gpu_per_node={gpu_per_node}, nodes={nodes}"
-                    )
-                allowed_gpu_uuids = _resolve_allowed_gpu_uuids(
-                    resources_info.get("envs", {})
-                )
-                # 本地 Shell 任务根据本机显存占用率选择 GPU。
-                selected_gpu = _wait_for_gpu(
-                    memory_percent_threshold=40,
-                    timeout=_GPU_WAIT_TIMEOUT,
-                    poll_interval=_GPU_POLL_INTERVAL,
-                    allowed_gpu_uuids=allowed_gpu_uuids,
-                )
-            elif machine_info["context_type"] == "SSHContext":
-                # 远程 Shell 任务不能用本机 nvidia-smi 判断远端 GPU。
-                # GPU 选择由远端 resources/envs 或外部调度机制负责。
-                logging.info(
-                    "Skipping local GPU selection for remote Shell task; "
-                    "using the remote resource environment."
-                )
-
+            raise ValueError(
+                "Local Shell GPU selection supports only "
+                "gpu_per_node=1 with nodes=1; received "
+                f"gpu_per_node={gpu_per_node}, nodes={nodes}"
+            )
         from dpdispatcher import Task, Submission
 
         # 准备dpdispatcher运行所需的文件，将其复制到primitive_cell文件夹中
@@ -358,6 +365,42 @@ class CrystalGenerator:
         if backend != "deepmd" and model_path.is_file():
             self.required_files.append(model_path)
             model_argument = model_path.name
+        if backend in {"deepmd", "dpa4", "dpa4_ion_ft"}:
+            if not preflight_receipt:
+                raise ValueError(
+                    "MLP submission requires gen_opt.mlp_preflight_receipt from a "
+                    "successful compute-node runtime probe"
+                )
+            from ion_CSP.mlp_receipt import validate_mlp_receipt
+
+            staged_model = self.model_file if backend == "deepmd" else model_path
+            receipt_ok, receipt_reason = validate_mlp_receipt(
+                preflight_receipt,
+                backend=backend,
+                python_executable=python_executable,
+                model_path=staged_model,
+                require_gpu=bool(gpu_per_node),
+                allow_noncompute_probe=allow_unallocated_mlp_probe,
+            )
+            if not receipt_ok:
+                raise ValueError(f"MLP submission preflight failed: {receipt_reason}")
+        selected_gpu = None
+        if machine_info["batch_type"] == "Shell" and gpu_per_node:
+            if machine_info["context_type"] == "LocalContext":
+                allowed_gpu_uuids = _resolve_allowed_gpu_uuids(
+                    resources_info.get("envs", {})
+                )
+                selected_gpu = _wait_for_gpu(
+                    memory_percent_threshold=40,
+                    timeout=_GPU_WAIT_TIMEOUT,
+                    poll_interval=_GPU_POLL_INTERVAL,
+                    allowed_gpu_uuids=allowed_gpu_uuids,
+                )
+            elif machine_info["context_type"] == "SSHContext":
+                logging.info(
+                    "Skipping local GPU selection for remote Shell task; "
+                    "using the remote resource environment."
+                )
         for file in self.required_files:
             shutil.copy(str(file), str(dpdisp_base))
         # 依次读取primitive_cell文件夹中的所有POSCAR文件和对应的序号
@@ -377,7 +420,7 @@ class CrystalGenerator:
         for pop in range(nodes):
             remote_task_dir = f"{parent}pop{pop}"
             forward_files = [file.name for file in self.required_files]
-            backward_files = ["log", "err"]
+            backward_files = ["log", "err", "mlp_worker_failures.jsonl"]
 
             # 将mlp_opt.py和model.pt复制一份到task_dir下
             task_dir = dpdisp_base / f"{parent}pop{pop}"
@@ -411,8 +454,7 @@ class CrystalGenerator:
             ]
             if device:
                 command_parts.extend(["--device", device])
-            if workers:
-                command_parts.extend(["--workers", str(workers)])
+            command_parts.extend(["--workers", str(effective_workers)])
             command = " ".join(shlex.quote(part) for part in command_parts)
             if selected_gpu is not None:
                 command = f"CUDA_VISIBLE_DEVICES={selected_gpu} {command}"
@@ -425,6 +467,10 @@ class CrystalGenerator:
             task_list.append(task)
 
         # 创建 submission 实例并保存为实例变量（用于后续终止）
+        # dpdispatcher otherwise resubmits a terminated job up to three times.
+        # MLP runtime/ABI failures are deterministic for this allocation, so
+        # do not burn GPU time retrying an unchanged task/environment.
+        machine.retry_count = 0
         self._submission = Submission(
             work_base=str(dpdisp_base),
             machine=machine,
@@ -461,6 +507,13 @@ class CrystalGenerator:
         except Exception as e:
             logging.error(f"Submission failed with error: {e}")
             self._terminate_tasks()
+            try:
+                self._recover_failure_diagnostics()
+            except Exception as diagnostic_error:
+                logging.warning(
+                    "Could not recover MLP diagnostic logs after submission failure: %s",
+                    diagnostic_error,
+                )
             raise
         else:
             # 仅在提交正常结束时回收优化结果
@@ -474,6 +527,36 @@ class CrystalGenerator:
             logging.info("Batch optimization completed!!!")
             # 清理内部引用
             self._submission = None
+
+
+    def _recover_failure_diagnostics(self):
+        """Download only optional task logs after a failed dispatcher submission.
+
+        dpdispatcher skips its normal result download when a job terminates.
+        Downloading the original task would demand thousands of unproduced
+        CONTCAR/OUTCAR files, so present the context with a diagnostics-only
+        view and skip absent log files without creating failure tags.
+        """
+        submission = self._submission
+        if submission is None:
+            return
+        diagnostics = ("log", "err", "mlp_worker_failures.jsonl")
+        diagnostic_tasks = [
+            SimpleNamespace(
+                task_work_path=task.task_work_path,
+                backward_files=list(diagnostics),
+            )
+            for task in submission.belonging_tasks
+        ]
+        view = SimpleNamespace(
+            belonging_tasks=diagnostic_tasks,
+            backward_common_files=[],
+        )
+        submission.machine.context.download(
+            view,
+            check_exists=True,
+            mark_failure=False,
+        )
 
 
     def _recover_optimized_outputs(self, dpdisp_base: Path, parent: str, nodes: int):
@@ -542,13 +625,13 @@ class CrystalGenerator:
         # 1. 优先调用 dpdispatcher 的官方 kill 接口（针对记录的 job_id）
         try:
             logging.info("Terminating tasks via dpdispatcher.Submission...")
-            for task in self._submission.belonging_tasks:
-                if hasattr(task, "job_id") and task.job_id:
+            for job in self._submission.belonging_jobs:
+                if getattr(job, "job_id", None):
                     try:
-                        self._submission.machine.kill(task)
-                        logging.info(f"Killed task {task.task_hash} (job_id: {task.job_id})")
+                        self._submission.machine.kill(job)
+                        logging.info(f"Killed job {job.job_hash} (job_id: {job.job_id})")
                     except Exception as e:
-                        logging.warning(f"Failed to kill task {task.task_hash}: {e}")
+                        logging.warning(f"Failed to kill job {job.job_hash}: {e}")
         except Exception as e:
             logging.warning(f"dpdispatcher kill failed: {e}")
 

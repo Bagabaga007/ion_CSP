@@ -72,8 +72,22 @@
             "machine": {"$ref": "#/$defs/absoluteConfigPath"},
             "resources": {"$ref": "#/$defs/absoluteConfigPath"},
             "nodes": {"$ref": "#/$defs/positiveInteger"},
-            "mlp_backend": {"enum": ["deepmd", "dpa4", "dpa4_ion_ft", "mattersim"]}
-          }
+            "mlp_backend": {"enum": ["deepmd", "dpa4", "dpa4_ion_ft", "mattersim"]},
+            "mlp_python": {"type": "string", "pattern": "^/"},
+            "mlp_workers": {"$ref": "#/$defs/positiveInteger"},
+            "mlp_preflight_receipt": {"type": "string", "pattern": "^/.*\\.json$"},
+            "mlp_allow_unallocated_probe": {"type": "boolean"}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "mlp_backend": {"enum": ["deepmd", "dpa4", "dpa4_ion_ft"]}
+                }
+              },
+              "then": {"required": ["mlp_python", "mlp_preflight_receipt"]}
+            }
+          ]
         },
         "read_mlp_density": {"type": "object"},
         "vasp_processing": {

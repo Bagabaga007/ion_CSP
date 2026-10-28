@@ -12,7 +12,7 @@ DEFAULT_CONFIG = {
         "mlp_python": "python",
         "mlp_model": "model.pt",
         "mlp_device": None,
-        "mlp_workers": 0,
+        "mlp_workers": 1,
     }
 }
 
@@ -58,6 +58,8 @@ def main(work_dir, config):
                     "mlp_model": "model",
                     "mlp_device": "device",
                     "mlp_workers": "workers",
+                    "mlp_preflight_receipt": "preflight_receipt",
+                    "mlp_allow_unallocated_probe": "allow_unallocated_mlp_probe",
                 }
                 for config_key, argument_name in optional_keys.items():
                     if config_key in config["gen_opt"]:

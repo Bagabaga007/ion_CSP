@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from pathlib import Path
 import pytest
 import numpy as np
@@ -13,8 +14,23 @@ sys.modules["deepmd"] = MagicMock()
 sys.modules["deepmd.calculator"] = MagicMock()
 sys.modules["deepmd.calculator"].DP = MagicMock()
 
-from ion_CSP.mlp_opt import (get_mlp_calc, get_element_num, write_CONTCAR, write_OUTCAR,
-                             get_indexes, run_opt, main)
+from ion_CSP.mlp_opt import (
+    MLPWorkerError,
+    _probe_calculator,
+    _configure_thread_defaults,
+    _is_supported_torch_version,
+    _runtime_distribution_versions,
+    _resolve_workers,
+    _run_opt_worker,
+    _verify_runtime_metadata,
+    get_mlp_calc,
+    get_element_num,
+    write_CONTCAR,
+    write_OUTCAR,
+    get_indexes,
+    run_opt,
+    main,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -281,18 +297,235 @@ def test_run_opt_with_existing_outcar(
     # 注意：我们没有实际创建 OUTCAR，但 mock_move 已验证行为
 
 
+# ==================== 测试 worker 诊断与实际计算探针 ====================
+def test_worker_failure_is_json_serializable_and_keeps_traceback(monkeypatch):
+    """Worker failures must not carry an unpicklable exception object."""
+
+    class UnpicklableTritonError(RuntimeError):
+        def __reduce__(self):
+            raise TypeError("cannot pickle this synthetic exception")
+
+    with patch(
+        "ion_CSP.mlp_opt.run_opt",
+        side_effect=UnpicklableTritonError("TritonMissing: compiler unavailable"),
+    ):
+        result = _run_opt_worker((17, None, "deepmd", "./model.pt", None))
+
+    # This is the exact boundary sent through multiprocessing's result queue.
+    json.dumps(result)
+    assert result["ok"] is False
+    assert result["index"] == 17
+    assert result["error_type"] == "UnpicklableTritonError"
+    assert "TritonMissing" in result["message"]
+    assert "UnpicklableTritonError" in result["traceback"]
+
+
+@patch("ion_CSP.mlp_opt.run_opt")
+@patch("ion_CSP.mlp_opt._probe_calculator")
+def test_worker_probe_reuses_calculator_for_first_structure(
+    mock_probe, mock_run_opt
+):
+    calculator = MagicMock(name="calculator")
+    mock_probe.return_value = calculator
+
+    with patch("ion_CSP.mlp_opt._verify_runtime_metadata") as mock_verify:
+        result = _run_opt_worker((3, None, "deepmd", "./model.pt", "cuda", True))
+
+    assert result == {"ok": True, "index": 3}
+    mock_verify.assert_called_once_with(
+        index=3,
+        backend="deepmd",
+        model_path="./model.pt",
+        device="cuda",
+    )
+    mock_probe.assert_called_once_with(
+        3,
+        backend="deepmd",
+        model_path="./model.pt",
+        device="cuda",
+    )
+    mock_run_opt.assert_called_once_with(
+        3,
+        output_dir=None,
+        backend="deepmd",
+        model_path="./model.pt",
+        device="cuda",
+        calculator=calculator,
+    )
+
+
+@patch("ion_CSP.mlp_opt.read_vasp")
+@patch("ion_CSP.mlp_opt.get_mlp_calc")
+def test_probe_exercises_forces_and_stress(mock_get_calc, mock_read_vasp):
+    atoms = MagicMock()
+    calculator = MagicMock(name="calculator")
+    mock_read_vasp.return_value = atoms
+    mock_get_calc.return_value = calculator
+
+    result = _probe_calculator(
+        5,
+        backend="deepmd",
+        model_path="./model.pt",
+        device="cuda",
+    )
+
+    assert result is calculator
+    mock_read_vasp.assert_called_once_with("POSCAR_5")
+    mock_get_calc.assert_called_once_with(
+        relative_path="./model.pt",
+        backend="deepmd",
+        device="cuda",
+    )
+    atoms.get_forces.assert_called_once_with()
+    atoms.get_stress.assert_called_once_with()
+
+
+def test_resolve_workers_uses_safe_default_and_preserves_cpu_parallelism():
+    assert _resolve_workers(0, "deepmd") == 1
+    assert _resolve_workers(1, "deepmd") == 1
+    assert _resolve_workers(4, "deepmd") == 4
+    assert _resolve_workers(0, "mattersim") == 1
+    with pytest.raises(ValueError, match="positive integer"):
+        _resolve_workers(-1, "deepmd")
+    with pytest.raises(ValueError, match="requires workers=1"):
+        _resolve_workers(2, "mattersim")
+
+
+def test_runtime_metadata_accepts_supported_deepmd_pair(monkeypatch):
+    expected = {
+        "deepmd-kit": "3.2.0",
+        "torch": "2.11.0",
+        "triton": "3.6.0",
+        "ase": "3.23.0",
+    }
+
+    def version(name):
+        return expected[name]
+
+    monkeypatch.setattr("ion_CSP.mlp_opt.importlib.metadata.version", version)
+    monkeypatch.setattr("ion_CSP.mlp_opt.sys.version_info", (3, 12))
+
+    assert _runtime_distribution_versions("deepmd") == expected
+    assert _verify_runtime_metadata(
+        index=12,
+        backend="dpa4",
+        model_path="./model.pt",
+        device="cuda",
+    ) == expected
+
+
+def test_runtime_metadata_accepts_torch_cuda_local_version_and_preserves_it(monkeypatch):
+    actual = {
+        "deepmd-kit": "3.2.0",
+        "torch": "2.11.0+cu126",
+        "triton": "3.6.0",
+        "ase": "3.23.0",
+    }
+    monkeypatch.setattr(
+        "ion_CSP.mlp_opt.importlib.metadata.version",
+        lambda name: actual[name],
+    )
+    monkeypatch.setattr("ion_CSP.mlp_opt.sys.version_info", (3, 12))
+
+    assert _is_supported_torch_version("2.11.0+cu126")
+    assert _runtime_distribution_versions("deepmd")["torch"] == "2.11.0+cu126"
+    assert _verify_runtime_metadata(
+        index=13,
+        backend="deepmd",
+        model_path="./model.pt",
+        device="cuda",
+    ) == actual
+
+
+def test_runtime_metadata_fails_with_poscar_context_on_torch_drift(monkeypatch):
+    actual = {
+        "deepmd-kit": "3.2.0",
+        "torch": "2.12.0",
+        "triton": "3.6.0",
+        "ase": "3.23.0",
+    }
+    monkeypatch.setattr(
+        "ion_CSP.mlp_opt.importlib.metadata.version",
+        lambda name: actual[name],
+    )
+    monkeypatch.setattr("ion_CSP.mlp_opt.sys.version_info", (3, 12))
+
+    with pytest.raises(RuntimeError, match="POSCAR_12.*torch expected 2.11.0"):
+        _verify_runtime_metadata(
+            index=12,
+            backend="deepmd",
+            model_path="./model.pt",
+            device="cuda",
+        )
+
+
+def test_runtime_metadata_requires_triton_distribution(monkeypatch):
+    actual = {
+        "deepmd-kit": "3.2.0",
+        "torch": "2.11.0",
+        "ase": "3.23.0",
+    }
+
+    def version(name):
+        if name == "triton":
+            from importlib.metadata import PackageNotFoundError
+
+            raise PackageNotFoundError(name)
+        return actual[name]
+
+    monkeypatch.setattr("ion_CSP.mlp_opt.importlib.metadata.version", version)
+    monkeypatch.setattr("ion_CSP.mlp_opt.sys.version_info", (3, 12))
+
+    with pytest.raises(RuntimeError, match="triton expected 3.6.0, found None"):
+        _verify_runtime_metadata(
+            index=2,
+            backend="deepmd",
+            model_path="./model.pt",
+        )
+
+
+def test_runtime_metadata_rejects_python_311(monkeypatch):
+    expected = {
+        "deepmd-kit": "3.2.0",
+        "torch": "2.11.0",
+        "triton": "3.6.0",
+        "ase": "3.23.0",
+    }
+    monkeypatch.setattr(
+        "ion_CSP.mlp_opt.importlib.metadata.version",
+        lambda name: expected[name],
+    )
+    monkeypatch.setattr("ion_CSP.mlp_opt.sys.version_info", (3, 11))
+
+    with pytest.raises(RuntimeError, match="POSCAR_9.*python expected 3.12.x"):
+        _verify_runtime_metadata(
+            index=9,
+            backend="deepmd",
+            model_path="./model.pt",
+        )
+
+
+def test_thread_defaults_honor_scheduler_environment(monkeypatch):
+    """Import-time defaults must not overwrite an allocated job's settings."""
+    monkeypatch.setenv("OMP_NUM_THREADS", "7")
+    monkeypatch.setenv("MKL_NUM_THREADS", "5")
+    monkeypatch.setenv("NUMEXPR_NUM_THREADS", "3")
+
+    _configure_thread_defaults()
+
+    assert os.environ["OMP_NUM_THREADS"] == "7"
+    assert os.environ["MKL_NUM_THREADS"] == "5"
+    assert os.environ["NUMEXPR_NUM_THREADS"] == "3"
+
+
 # ==================== 测试 main 函数 ====================
 @patch("multiprocessing.get_context")
 @patch("ion_CSP.mlp_opt.get_indexes")
-@patch("ion_CSP.mlp_opt.sys.exit")
 def test_main_normal_exit(
-    mock_exit,
     mock_get_indexes,
     mock_get_context,
-    tmp_path,
-    monkeypatch,
 ):
-    """测试 main 函数在正常情况下（无中断）的完整流程"""
+    """显式 CPU 并行仍可用，且首个任务先通过真实探针。"""
     # 1. 模拟 get_indexes 返回任务
     mock_get_indexes.return_value = [1, 2]
 
@@ -303,20 +536,103 @@ def test_main_normal_exit(
     # 3. 在 mock 上下文中，mock .Pool 方法（这是关键！）
     mock_pool_instance = MagicMock()
     mock_context.Pool.return_value = mock_pool_instance
-    mock_pool_instance.map.return_value = None  # 模拟 map 完成
 
     # 4. 调用 main
-    main()
+    mock_pool_instance.apply.return_value = {"ok": True, "index": 1}
+    mock_pool_instance.imap_unordered.return_value = [{"ok": True, "index": 2}]
+    main(["--workers", "2"])
 
     # 5. 验证调用顺序
     mock_get_context.assert_called_once_with("spawn")
 
     # 6. 验证 Pool 和 map 调用
-    mock_context.Pool.assert_called_once_with(8)
-    mock_pool_instance.map.assert_called_once_with(func=run_opt, iterable=[1, 2])
+    mock_context.Pool.assert_called_once_with(2)
+    mock_pool_instance.apply.assert_called_once_with(
+        _run_opt_worker,
+        ((1, None, "deepmd", "./model.pt", None, True),),
+    )
+    mock_pool_instance.imap_unordered.assert_called_once_with(
+        _run_opt_worker,
+        [(2, None, "deepmd", "./model.pt", None, False)],
+    )
     mock_pool_instance.close.assert_called_once()
     mock_pool_instance.join.assert_called_once()
-    mock_exit.assert_not_called()
+
+
+@patch("ion_CSP.mlp_opt.get_indexes")
+@patch("ion_CSP.mlp_opt.run_opt")
+@patch("ion_CSP.mlp_opt._probe_calculator")
+def test_main_default_deepmd_uses_one_worker(
+    mock_probe,
+    mock_run_opt,
+    mock_get_indexes,
+):
+    """The implicit DeepMD default is serial, avoiding GPU/model fan-out."""
+    mock_get_indexes.return_value = [1, 2]
+    calculator = MagicMock(name="calculator")
+    mock_probe.return_value = calculator
+
+    with patch("ion_CSP.mlp_opt._verify_runtime_metadata") as mock_verify:
+        main()
+
+    mock_verify.assert_called_once_with(
+        index=1,
+        backend="deepmd",
+        model_path="./model.pt",
+        device=None,
+    )
+    mock_probe.assert_called_once_with(
+        1,
+        backend="deepmd",
+        model_path="./model.pt",
+        device=None,
+    )
+    assert mock_run_opt.call_count == 2
+    assert all(call.kwargs["calculator"] is calculator for call in mock_run_opt.call_args_list)
+
+
+@patch("multiprocessing.get_context")
+@patch("ion_CSP.mlp_opt.get_indexes")
+@patch("ion_CSP.mlp_opt.run_opt")
+def test_main_worker_failure_terminates_without_serial_retry(
+    mock_run_opt,
+    mock_get_indexes,
+    mock_get_context,
+):
+    """A worker runtime failure is terminal and is not retried serially."""
+    mock_get_indexes.return_value = [4, 5]
+    mock_context = MagicMock()
+    mock_get_context.return_value = mock_context
+    mock_pool = MagicMock()
+    mock_context.Pool.return_value = mock_pool
+    mock_pool.apply.return_value = {"ok": True, "index": 4}
+    mock_pool.imap_unordered.return_value = [
+        {
+            "ok": False,
+            "index": 5,
+            "error_type": "TritonMissing",
+            "message": "Triton compiler unavailable",
+            "traceback": "Traceback ... TritonMissing",
+            "backend": "deepmd",
+            "model": "./model.pt",
+            "device": None,
+        }
+    ]
+
+    with pytest.raises(MLPWorkerError, match="POSCAR_5") as raised:
+        main(["--workers", "2"])
+
+    assert raised.value.index == 5
+    assert raised.value.error_type == "TritonMissing"
+    mock_pool.terminate.assert_called_once()
+    mock_pool.join.assert_called_once()
+    mock_pool.close.assert_not_called()
+    mock_run_opt.assert_not_called()
+
+    failure_log = Path(sys.modules["ion_CSP.mlp_opt"].base_dir) / "mlp_worker_failures.jsonl"
+    record = json.loads(failure_log.read_text(encoding="utf-8").splitlines()[-1])
+    assert record["index"] == 5
+    assert record["error_type"] == "TritonMissing"
 
 
 @patch("multiprocessing.get_context")
@@ -337,6 +653,9 @@ def test_main_no_files(
     # 3. 验证进程池没有启动
     mock_get_context.assert_not_called()
     # 由于 get_context 没被调用，Pool 也不会被调用，无需额外验证
+    failure_log = Path(sys.modules["ion_CSP.mlp_opt"].base_dir) / "mlp_worker_failures.jsonl"
+    assert failure_log.exists()
+    assert failure_log.read_text(encoding="utf-8") == ""
 
 
 @patch("multiprocessing.get_context")
@@ -349,7 +668,7 @@ def test_main_pool_creation_fails(
     tmp_path,
     monkeypatch,
 ):
-    """测试当 ctx.Pool 创建失败时，main() 降级为串行执行"""
+    """池创建失败时应直接失败，不隐式串行重跑整个批次。"""
     # 1. 模拟有任务
     mock_get_indexes.return_value = [1, 2]
 
@@ -360,16 +679,21 @@ def test_main_pool_creation_fails(
     # 3. 关键：模拟 ctx.Pool 方法抛异常
     mock_context.Pool.side_effect = MemoryError("Failed to create process pool")
 
-    # 4. 调用 main()
-    main()
+    # 4. 调用 main()；资源/运行时错误是终态错误
+    with pytest.raises(MemoryError, match="Failed to create process pool"):
+        main(["--workers", "2"])
 
     # 5. 验证：ctx.Pool 被调用一次
-    mock_context.Pool.assert_called_once_with(8)
+    mock_context.Pool.assert_called_once_with(2)
 
-    # 6. 验证：run_opt 被调用了 2 次（串行执行）
-    assert mock_run_opt.call_count == 2
-    mock_run_opt.assert_any_call(1)
-    mock_run_opt.assert_any_call(2)
+    # 6. 验证：不进入串行 fallback
+    mock_run_opt.assert_not_called()
+
+    failure_log = Path(sys.modules["ion_CSP.mlp_opt"].base_dir) / "mlp_worker_failures.jsonl"
+    assert failure_log.exists()
+    record = json.loads(failure_log.read_text(encoding="utf-8").splitlines()[-1])
+    assert record["index"] is None
+    assert "Failed to create process pool" in record["message"]
 
 
 @patch("multiprocessing.get_context")
@@ -396,7 +720,7 @@ def test_main_finally_block_pool_is_none(
 
     # 4. 执行测试：异常应向上传播（不再被静默吞掉）
     with pytest.raises(RuntimeError, match="Simulated failure during context acquisition"):
-        main()
+        main(["--workers", "2"])
 
     # 5. 验证关键行为
     # 5.1 验证 get_context 被调用过（尝试创建 pool）
@@ -430,7 +754,7 @@ def test_main_finally_else_branch(
 
         # 4. 执行 main()：异常应向上传播（不再被静默吞掉）
         with pytest.raises(RuntimeError, match="Simulated failure during context acquisition"):
-            main()
+            main(["--workers", "2"])
 
         # 5. 获取打印输出
         output = captured_output.getvalue()
@@ -472,15 +796,16 @@ def test_main_keyboard_interrupt(
     mock_pool_instance = MagicMock()
     mock_context.Pool.return_value = mock_pool_instance
 
-    # 4. 关键：让 pool.map 抛出 KeyboardInterrupt
-    mock_pool_instance.map.side_effect = KeyboardInterrupt("User interrupted")
+    # 4. 关键：让首个探针后的批量迭代抛出 KeyboardInterrupt
+    mock_pool_instance.apply.return_value = {"ok": True, "index": 1}
+    mock_pool_instance.imap_unordered.side_effect = KeyboardInterrupt("User interrupted")
 
     # 5. 捕获 stdout
     captured_output = StringIO()
     with patch("sys.stdout", new=captured_output):
         # 6. 执行 main()，应该捕获并重新抛出 KeyboardInterrupt
         try:
-            main()
+            main(["--workers", "2"])
             assert False, "Expected KeyboardInterrupt to be raised"
         except KeyboardInterrupt:
             pass  # 预期的异常
@@ -489,10 +814,20 @@ def test_main_keyboard_interrupt(
         output = captured_output.getvalue()
 
         # 8. 验证：Pool 被创建
-        mock_context.Pool.assert_called_once_with(8)
+        mock_context.Pool.assert_called_once_with(2)
 
-        # 9. 验证：pool.map 被调用
-        mock_pool_instance.map.assert_called_once_with(func=run_opt, iterable=[1, 2, 3])
+        # 9. 验证：首个任务先执行探针，随后进入批量迭代
+        mock_pool_instance.apply.assert_called_once_with(
+            _run_opt_worker,
+            ((1, None, "deepmd", "./model.pt", None, True),),
+        )
+        mock_pool_instance.imap_unordered.assert_called_once_with(
+            _run_opt_worker,
+            [
+                (2, None, "deepmd", "./model.pt", None, False),
+                (3, None, "deepmd", "./model.pt", None, False),
+            ],
+        )
 
         # 10. 验证：KeyboardInterrupt 处理逻辑被执行
         assert "Received KeyboardInterrupt, shutting down gracefully..." in output
@@ -501,7 +836,7 @@ def test_main_keyboard_interrupt(
 
         # 11. 验证：pool.terminate() 和 pool.join() 被调用
         mock_pool_instance.terminate.assert_called_once()
-        mock_pool_instance.join.assert_called()  # 可能被调用两次（except 和 finally）
+        mock_pool_instance.join.assert_called_once()
 
 
 @patch("multiprocessing.get_context")
@@ -522,7 +857,7 @@ def test_main_keyboard_interrupt_pool_none(
     with patch("sys.stdout", new=captured_output):
         # 4. 执行 main()，应该捕获并重新抛出 KeyboardInterrupt
         try:
-            main()
+            main(["--workers", "2"])
             assert False, "Expected KeyboardInterrupt to be raised"
         except KeyboardInterrupt:
             pass  # 预期的异常
@@ -560,11 +895,11 @@ sys.modules['deepmd'] = MagicMock()
 sys.modules['deepmd.calculator'] = MagicMock()
 sys.modules['deepmd.calculator'].DP = MagicMock()
 
-# 模拟 get_indexes 返回空列表
+# 模拟 get_indexes 返回空列表，并把运行目录隔离到临时脚本所在位置
+from ion_CSP import mlp_opt
+mlp_opt.base_dir = __import__('os').path.dirname(__file__)
 with patch('ion_CSP.mlp_opt.get_indexes', return_value=[]):
-    # 直接运行模块
-    import runpy
-    runpy.run_module('ion_CSP.mlp_opt', run_name='__main__')
+    mlp_opt.main()
 """)
 
     result = subprocess.run(

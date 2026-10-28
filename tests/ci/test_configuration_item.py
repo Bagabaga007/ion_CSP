@@ -331,7 +331,7 @@ class TestCompatibility:
         lock_text = (project_root / "uv.lock").read_text()
         assert 'name = "torch"' not in lock_text
         assert 'name = "deepmd-kit"' not in lock_text
-        assert 'version = "2.3.5"' in lock_text
+        assert 'version = "2.3.6"' in lock_text
 
     def test_platform_compatibility(self):
         """验证平台兼容性"""

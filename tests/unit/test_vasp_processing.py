@@ -1,12 +1,14 @@
 import pytest
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
 
 from ion_CSP.vasp_processing import VaspProcessing  # 替换为你的模块名
+from dpdispatcher.contexts.local_context import LocalContext
 
 
 def _mock_relaxed_atoms():
@@ -129,6 +131,11 @@ group_size: 1
     mock_sub.assert_called()
     mock_task.assert_called()
     mock_run.assert_called_once()
+    assert mock_sub.call_args.kwargs["machine"].retry_count == 0
+    for call in mock_task.call_args_list:
+        backward_files = call.kwargs["backward_files"]
+        assert not any("/" in name or "*" in name for name in backward_files)
+        assert any(name in {"000", "001", "002"} for name in backward_files)
 
 
 @patch("dpdispatcher.Submission.run_submission")
@@ -259,6 +266,41 @@ group_size: 1
     assert "outputs returned for validation" in caplog.text
     mock_sub.assert_called()
     mock_run.assert_called_once()
+    assert mock_sub.call_args.kwargs["machine"].retry_count == 0
+    for call in mock_task.call_args_list:
+        backward_files = call.kwargs["backward_files"]
+        assert not any("/" in name or "*" in name for name in backward_files)
+        assert any(name.startswith("2.876_") for name in backward_files)
+
+
+def test_local_dispatcher_can_download_nested_vasp_tree_without_parent_dirs(tmp_path: Path):
+    """Real LocalContext used to fail on fine/* before its parent existed."""
+    local_root = tmp_path / "local"
+    remote_root = tmp_path / "remote"
+    candidate = "1.272_0"
+    local_task = local_root / "pop0"
+    remote_task = remote_root / "pop0" / candidate / "fine" / "final"
+    local_task.mkdir(parents=True)
+    staged = local_task / candidate / "fine"
+    staged.mkdir(parents=True)
+    (staged / "CONTCAR").write_text("staged-input", encoding="utf-8")
+    remote_task.mkdir(parents=True)
+    (remote_root / "pop0" / candidate / "CONTCAR").write_text("rough", encoding="utf-8")
+    (remote_root / "pop0" / candidate / "fine" / "CONTCAR").write_text("fine", encoding="utf-8")
+    (remote_task / "CONTCAR").write_text("final", encoding="utf-8")
+    context = LocalContext(str(local_root), str(remote_root), {"symlink": False})
+    context.local_root = str(local_root)
+    context.remote_root = str(remote_root)
+    submission = SimpleNamespace(
+        belonging_tasks=[
+            SimpleNamespace(task_work_path="pop0", backward_files=[candidate])
+        ],
+        backward_common_files=[],
+    )
+    context.download(submission)
+    assert (local_task / candidate / "CONTCAR").read_text() == "rough"
+    assert (local_task / candidate / "fine" / "CONTCAR").read_text() == "fine"
+    assert (local_task / candidate / "fine" / "final" / "CONTCAR").read_text() == "final"
 
 
 @patch("dpdispatcher.Submission.run_submission")

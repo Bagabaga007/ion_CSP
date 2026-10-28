@@ -285,7 +285,7 @@ def test_run_gen_opt_default_config():
     assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_python"] == "python"
     assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_model"] == "model.pt"
     assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_device"] is None
-    assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_workers"] == 0
+    assert run_gen_opt.DEFAULT_CONFIG["gen_opt"]["mlp_workers"] == 1
 
 
 @patch("ion_CSP.run.run_gen_opt.get_work_dir_and_config")

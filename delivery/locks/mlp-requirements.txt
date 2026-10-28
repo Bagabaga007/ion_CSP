@@ -3,3 +3,4 @@
 ase==3.23.0
 deepmd-kit[torch]==3.2.0
 torch==2.11.0
+triton==3.6.0

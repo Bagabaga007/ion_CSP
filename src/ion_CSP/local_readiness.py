@@ -20,12 +20,12 @@ from typing import Any, Callable
 import yaml
 
 from ion_CSP.compute_profile import ProfileError, ProfilePlan, StagePlan, load_profile
+from ion_CSP.mlp_receipt import validate_mlp_receipt
 from ion_CSP.preflight import check_core
 
 
 SCHEMA_VERSION = 1
 MLP_BACKENDS = {"deepmd", "dpa4", "dpa4_ion_ft", "mattersim"}
-DEEPMD_TORCH_PAIR = {"deepmd-kit": "3.2.0", "torch": "2.11.0"}
 NVIDIA_SMI_TIMEOUT_SECONDS = 5
 REQUIRED_CSP_STAGES = ("gen_opt", "vasp_processing")
 DEFAULT_LOCAL_GENERATION_LIMIT = 100
@@ -314,136 +314,46 @@ def _config_resources_match(value: Any, stage: StagePlan) -> bool:
         return False
 
 
-def _valid_pairing(receipt: dict[str, Any], backend: str) -> bool:
-    if backend not in {"deepmd", "dpa4", "dpa4_ion_ft"}:
-        return True
-    facts = receipt.get("facts")
-    pairing = facts.get("pairing") if isinstance(facts, dict) else None
-    actual = pairing.get("actual") if isinstance(pairing, dict) else None
-    return (
-        isinstance(actual, dict)
-        and actual.get("deepmd-kit") == DEEPMD_TORCH_PAIR["deepmd-kit"]
-        and actual.get("torch") == DEEPMD_TORCH_PAIR["torch"]
-    )
-
-
-def _receipt_checks(receipt: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
-    raw_checks = receipt.get("checks")
-    if not isinstance(raw_checks, list):
-        return None
-    output: dict[str, dict[str, Any]] = {}
-    for item in raw_checks:
-        if not isinstance(item, dict) or not isinstance(item.get("check_id"), str):
-            return None
-        check_id = item["check_id"]
-        if check_id in output:
-            return None
-        output[check_id] = item
-    return output
-
-
 def _check_mlp_receipt(
     receipt_path: str | Path | None,
     *,
+    configured_receipt_path: Any,
     backend: str | None,
     configured_executable: Path | None,
     effective_model_path: Path | None,
     require_gpu: bool,
+    allow_noncompute_probe: bool,
 ) -> tuple[str, str]:
     if receipt_path is None:
         return "NOT RUN", "No MLP preflight receipt was supplied."
     path = Path(receipt_path)
     if not path.is_absolute():
         return "FAIL", "The MLP preflight receipt path must be absolute."
+    if not isinstance(configured_receipt_path, str) or not Path(configured_receipt_path).is_absolute():
+        return "FAIL", "gen_opt.mlp_preflight_receipt must be an absolute path."
     try:
-        receipt = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return "FAIL", "The MLP preflight receipt could not be read as JSON."
-    if not isinstance(receipt, dict):
-        return "FAIL", "The MLP preflight receipt has an unsupported format."
-    if receipt.get("target") != "mlp" or receipt.get("ok") is not True:
-        return "FAIL", "The MLP preflight receipt did not pass for the MLP target."
-    facts = receipt.get("facts")
-    receipt_backend = facts.get("backend") if isinstance(facts, dict) else None
-    if backend not in MLP_BACKENDS or receipt_backend != backend:
+        if Path(configured_receipt_path).resolve(strict=True) != path.resolve(strict=True):
+            return "FAIL", "The CLI receipt path does not match gen_opt.mlp_preflight_receipt."
+    except (OSError, RuntimeError):
+        return "FAIL", "The configured or supplied MLP receipt file is unavailable."
+    if backend not in MLP_BACKENDS:
         return "FAIL", "The MLP receipt backend does not match the work directory."
-
-    host = receipt.get("host")
-    if not isinstance(host, dict):
-        return "FAIL", "The MLP receipt is missing interpreter metadata."
-    python_version = host.get("python_version")
-    if not isinstance(python_version, str) or not python_version.startswith("3.12."):
-        return "FAIL", "The MLP receipt does not report the documented Python 3.12 runtime."
-    receipt_executable = host.get("python_executable")
-    if (
-        not isinstance(receipt_executable, str)
-        or not Path(receipt_executable).is_absolute()
-        or configured_executable is None
-    ):
+    if configured_executable is None:
         return "FAIL", "The MLP receipt cannot be matched to gen_opt.mlp_python."
-    receipt_interpreter = _invocation_path(Path(receipt_executable))
-    same_executable = receipt_interpreter == configured_executable
-    if not same_executable:
-        return "FAIL", "The MLP receipt interpreter does not match gen_opt.mlp_python."
-
-    checks = _receipt_checks(receipt)
-    if checks is None:
-        return "FAIL", "The MLP receipt checks are missing or ambiguous."
-    required_ids = [
-        "python.mlp_profile",
-        "python.distribution.ase",
-        "mlp.model",
-    ]
-    if backend in {"deepmd", "dpa4", "dpa4_ion_ft"}:
-        required_ids.extend(
-            (
-                "python.import.deepmd",
-                "python.distribution.deepmd-kit",
-                "python.distribution.torch",
-            )
-        )
-    else:
-        required_ids.extend(
-            (
-                "python.import.mattersim",
-                "python.distribution.mattersim",
-                "python.distribution.torch",
-            )
-        )
-    if require_gpu:
-        required_ids.extend(("mlp.cuda", "mlp.nvidia_smi"))
-        cuda = facts.get("cuda") if isinstance(facts, dict) else None
-        if not isinstance(cuda, dict) or cuda.get("required") is not True or cuda.get("available") is not True:
-            return "FAIL", "The GPU MLP receipt does not confirm CUDA visibility."
-    if any(checks.get(check_id, {}).get("status") != "pass" for check_id in required_ids):
-        return "FAIL", "One or more required MLP runtime or model checks did not pass."
-    if not _valid_pairing(receipt, backend):
-        return "FAIL", "The MLP receipt does not match the documented DeepMD/Torch version pair."
     if effective_model_path is None:
         return "NOT RUN", "The model staged by gen_opt could not be resolved."
-    model_check = checks.get("mlp.model")
-    model_details = model_check.get("details") if isinstance(model_check, dict) else None
-    receipt_model_value = model_details.get("path") if isinstance(model_details, dict) else None
-    if not isinstance(receipt_model_value, str) or not Path(receipt_model_value).is_absolute():
-        return "NOT RUN", "The MLP receipt does not identify a readable model file."
-    try:
-        staged_model = effective_model_path.resolve(strict=True)
-        receipt_model = Path(receipt_model_value).resolve(strict=True)
-    except (OSError, RuntimeError):
-        return "NOT RUN", "The staged or receipted model file is unavailable."
-    staged_hash = _model_sha256(staged_model)
-    if staged_hash is None:
-        return "NOT RUN", "The staged model is empty, unreadable, or exceeds the 512 MiB hash limit."
-    receipt_hash = (
-        staged_hash
-        if receipt_model == staged_model
-        else _model_sha256(receipt_model)
+
+    valid, reason = validate_mlp_receipt(
+        path,
+        backend=backend,
+        python_executable=configured_executable,
+        model_path=effective_model_path,
+        require_gpu=require_gpu,
+        allow_noncompute_probe=allow_noncompute_probe,
     )
-    if receipt_hash is None:
-        return "NOT RUN", "The receipted model is unreadable or exceeds the 512 MiB hash limit."
-    if receipt_hash != staged_hash:
-        return "FAIL", "The receipted model bytes do not match the model staged by gen_opt."
-    return "PASS", "The MLP receipt matches the configured interpreter and required runtime metadata."
+    if not valid:
+        return "FAIL", reason
+    return "PASS", "The MLP receipt matches the configured receipt path, runtime, probe, and staged model."
 
 
 def _query_gpu_driver(path: str) -> tuple[bool, str]:
@@ -680,6 +590,38 @@ def check_local_readiness(
     )
 
     gpu_required = gen_stage is not None and gen_stage.resource_class == "gpu"
+    local_shell_profile = bool(
+        plan is not None
+        and plan.mode == "local"
+        and gen_stage is not None
+        and gen_stage.machine.get("context_type") == "LocalContext"
+        and isinstance(gen_stage.machine.get("batch_type"), str)
+        and gen_stage.machine["batch_type"].lower() == "shell"
+    )
+    local_probe_opt_in = bool(
+        local_shell_profile
+        and gen_config is not None
+        and gen_config.get("mlp_allow_unallocated_probe") is True
+    )
+    if local_shell_profile:
+        _add_check(
+            checks,
+            "mlp_local_probe_opt_in",
+            "PASS" if local_probe_opt_in else "FAIL",
+            (
+                "gen_opt.mlp_allow_unallocated_probe explicitly enables the local workstation probe."
+                if local_probe_opt_in
+                else "LocalContext + Shell requires gen_opt.mlp_allow_unallocated_probe: true."
+            ),
+        )
+    else:
+        _add_check(
+            checks,
+            "mlp_local_probe_opt_in",
+            "PASS",
+            "The noncompute MLP probe exception is limited to LocalContext + Shell.",
+            required=False,
+        )
     mask_status, mask_message, mask_details = _gpu_mask_compatibility(gen_stage)
     _add_check(
         checks,
@@ -767,10 +709,14 @@ def check_local_readiness(
 
     receipt_status, receipt_message = _check_mlp_receipt(
         mlp_receipt_path,
+        configured_receipt_path=(
+            gen_config.get("mlp_preflight_receipt") if gen_config else None
+        ),
         backend=backend,
         configured_executable=mlp_executable,
         effective_model_path=effective_model_path,
         require_gpu=gpu_required,
+        allow_noncompute_probe=local_probe_opt_in,
     )
     _add_check(checks, "mlp_receipt", receipt_status, receipt_message)
     _add_check(

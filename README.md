@@ -1,10 +1,10 @@
-# 基于分子/离子构型的晶体结构设计软件 V2.3.5
+# 基于分子/离子构型的晶体结构设计软件 V2.3.6
 
-[![Version](https://img.shields.io/badge/version-2.3.5-blue.svg)](https://github.com/Bagabaga007/ion_CSP)
+[![Version](https://img.shields.io/badge/version-2.3.6-blue.svg)](https://github.com/Bagabaga007/ion_CSP)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
-> 测试徽章和下方统计是 V2.3.0 的历史基线；V2.3.5 的修复和验证记录见 [CHANGELOG.md](CHANGELOG.md)。
+> 测试徽章和下方统计是 V2.3.0 的历史基线；V2.3.6 的修复和验证记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 项目概述
 
@@ -62,24 +62,25 @@
 | 组件        | 最低版本 |
 |-------------|----------|
 | Python      | 3.11     |
-| psutil      | 7.0.0    |
+| psutil      | >=7.0.0  |
 | Docker      | 20.10    |
-| ase         | 3.23.0   |
+| ase         | >=3.23.0|
 | matplotlib  | 3.10     |
-| deepmd-kit  | 3.2.0（MLP 节点） |
-| torch       | 2.11.0（MLP 节点）|
-| dpdispatcher| 1.1.0     |
-| numpy       | 1.26.4   |
-| pandas      | 2.2.3    |
+| deepmd-kit  | 3.2.0（MLP 节点，精确配对） |
+| torch       | 2.11.0（MLP 节点，精确配对）|
+| triton      | 3.6.0（Linux MLP 节点，精确配对）|
+| dpdispatcher| >=1.1.0  |
+| numpy       | >=1.26.4 |
+| pandas      | >=2.2.3  |
 | paramiko    | 5.0.0     |
-| PyYAML      | 6.0.2    |
-| pyxtal      | 1.0.4    |
-| phonopy     | 2.34.1   |
-| rdkit       | 2024.03.3|
+| PyYAML      | >=6.0.2  |
+| pyxtal      | >=1.0.4  |
+| phonopy     | >=2.34.1 |
+| rdkit       | >=2024.03.3|
 | pytest      | 9.0.3     |
 | pytest-cov  | 7.1.0     |
 
-> 核心 Python 环境不安装 DeepMD/Torch；它们只在 `mlp_python` 指向的 MLP 计算节点环境中使用。当前受支持的二进制组合是 DeepMD 3.2.0 + Torch 2.11.0。Python 依赖不包含 Gaussian、Multiwfn 或 VASP。完整 EE/CSP 工作流还要求这些程序在本机或相应计算节点上可用。
+> 核心 Python 环境不安装 DeepMD/Torch/Triton；它们只在 `mlp_python` 指向的 MLP 计算节点环境中使用。核心 `pyproject.toml`/`environment.yml` 中的上述版本是最低版本，`uv.lock` 仍提供可复现的精确解析结果。当前受支持的 Linux MLP 组合是 DeepMD 3.2.0 + Torch 2.11.0 + Triton 3.6.0，三者必须作为精确的运行时/ABI 配对一起验收。Python 依赖不包含 Gaussian、Multiwfn 或 VASP。完整 EE/CSP 工作流还要求这些程序在本机或相应计算节点上可用。
 
 MLP 工作节点可使用 `environment-mlp.yml` 创建独立环境；不要在核心调度环境中安装或锁定 GPU/CUDA 栈。
 
@@ -194,7 +195,7 @@ pytest tests/system/      # 系统测试
 
 ## 📚 文档
 
-- [完整使用指南](docs/usage.md) - 与 V2.3.5 源码一致的 EE/CSP 配置和运行说明
+- [完整使用指南](docs/usage.md) - 与 V2.3.6 源码一致的 EE/CSP 配置和运行说明
 - [三端生产交付指南](docs/delivery.md) - core/MLP/external 预检、锁文件、wrapper 与发布 manifest
 - [客户计算资源配置](docs/compute_profiles.md) - 远程 Slurm 与本地工作站 CPU/GPU 的离线配置
 - [本地工作站就绪检查](docs/local_workstation.md) - 有界 CSP 小试预算、MLP 回执、VASP/MPI 与 GPU UUID 门禁
@@ -208,6 +209,12 @@ pytest tests/system/      # 系统测试
 - [EE使用示例](docs/example_usage_EE.py) - EE模块使用示例
 
 ## 🔄 版本历史
+
+### V2.3.6 (2026-10-23)
+
+- 为新 MLP 计算节点加入 DeepMD/Torch/Triton 精确版本合同和计算节点真实力/应力预检。
+- DeepMD/DPA4 批量提交要求匹配解释器、模型哈希与运行时探针的验收记录；worker 启动时再次核对当前环境。
+- MLP 默认单 worker；按 POSCAR 保存原始异常，首次失败停止进程池和同批 Job，关闭默认重复提交并单独回收诊断日志。
 
 ### V2.3.5 (2026-09-03)
 
@@ -358,24 +365,25 @@ See [docs/TEST_REPORT.md](docs/TEST_REPORT.md) for detailed test report.
 | Component   | Min Version |
 |-------------|-------------|
 | Python      | 3.11        |
-| psutil      | 7.0.0       |
+| psutil      | >=7.0.0     |
 | Docker      | 20.10       |
-| ase         | 3.23.0      |
+| ase         | >=3.23.0    |
 | matplotlib  | 3.10        |
-| deepmd-kit  | 3.2.0 (MLP worker) |
-| torch       | 2.11.0 (MLP worker)|
-| dpdispatcher| 1.1.0          |
-| numpy       | 1.26.4      |
-| pandas      | 2.2.3       |
+| deepmd-kit  | 3.2.0 (MLP worker, exact pair) |
+| torch       | 2.11.0 (MLP worker, exact pair)|
+| triton      | 3.6.0 (Linux MLP worker, exact pair)|
+| dpdispatcher| >=1.1.0       |
+| numpy       | >=1.26.4     |
+| pandas      | >=2.2.3      |
 | paramiko    | 5.0.0          |
-| PyYAML      | 6.0.2       |
-| pyxtal      | 1.0.4       |
-| phonopy     | 2.34.1      |
-| rdkit       | 2024.03.3   |
+| PyYAML      | >=6.0.2     |
+| pyxtal      | >=1.0.4     |
+| phonopy     | >=2.34.1    |
+| rdkit       | >=2024.03.3 |
 | pytest      | 9.0.3          |
 | pytest-cov  | 7.1.0          |
 
-> The core environment does not install DeepMD/Torch. They run only in the MLP worker selected by `mlp_python`; the supported binary pair is DeepMD 3.2.0 + Torch 2.11.0.
+> The core environment does not install DeepMD/Torch/Triton. The versions in the core `pyproject.toml`/`environment.yml` are minimum floors, while `uv.lock` remains the reproducible exact resolution. They run only in the MLP worker selected by `mlp_python`; the supported Linux runtime is the exact DeepMD 3.2.0 + Torch 2.11.0 + Triton 3.6.0 ABI pair.
 
 Use `environment-mlp.yml` for an isolated MLP worker; do not install or lock the GPU/CUDA stack in the core orchestration environment.
 
@@ -442,7 +450,7 @@ pytest tests/system/      # System tests
 
 ## Documentation
 
-- [Complete Usage Guide](docs/usage.md) - EE/CSP configuration and execution matching V2.3.5
+- [Complete Usage Guide](docs/usage.md) - EE/CSP configuration and execution matching V2.3.6
 - [Docker Guide](DOCKER.md) - CPU/GPU containers and external-program requirements
 - [DPA4 Backend](DPA4_BACKEND.md) / [MatterSim Backend](MATTERSIM_BACKEND.md) - universal-element MLP configuration
 - [Test Report](docs/TEST_REPORT.md) - V2.3.0 historical test snapshot

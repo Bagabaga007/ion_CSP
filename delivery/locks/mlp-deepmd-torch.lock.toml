@@ -9,11 +9,12 @@ index_url = "https://pypi.org/simple"
 python = "3.12.x"
 deepmd-kit = "3.2.0"
 torch = "2.11.0"
+triton = "3.6.0"
 ase = "3.23.0"
 
 [cuda]
 policy = "runtime-receipt-required"
-boundary = "Torch and DeePMD are one ABI unit; do not upgrade Torch or change its CUDA wheel independently."
+boundary = "Torch, Triton and DeePMD are one runtime/ABI unit; do not upgrade any component or change the CUDA wheel independently."
 required_evidence = [
   "torch.version.cuda",
   "torch.cuda.is_available()",

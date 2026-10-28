@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ion_CSP"
-version = "2.3.5"
+version = "2.3.6"
 keywords = ["Ion_Crystal, Crystal_Structure_Prediction"]
 authors = [
     {name = "Ze Yang", email = "yangze1995007@163.com"}
@@ -18,18 +18,18 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "ase==3.23.0",
-    "scipy==1.15.2",
+    "ase>=3.23.0",
+    "scipy>=1.15.2",
     "dpdispatcher>=1.1,<2",
-    "numpy==1.26.4",
+    "numpy>=1.26.4",
     "networkx>=3.0",
-    "pandas==2.2.3",
+    "pandas>=2.2.3",
     "paramiko>=5,<6",
-    "psutil==7.0.0",
-    "pyxtal==1.0.4",
-    "PyYAML==6.0.2",
-    "phonopy==2.34.1",
-    "rdkit==2024.3.3",
+    "psutil>=7.0.0",
+    "pyxtal>=1.0.4",
+    "PyYAML>=6.0.2",
+    "phonopy>=2.34.1",
+    "rdkit>=2024.3.3",
     "cryptography>=50,<51",
     "filelock>=3.20.3,<4",
     "fonttools>=4.60.2,<5",
@@ -72,6 +72,7 @@ ion-csp-preflight = "ion_CSP.preflight:main"
 ion-csp-release-manifest = "ion_CSP.release_manifest:main"
 ion-csp-profile = "ion_CSP.compute_profile:main"
 ion-csp-local-check = "ion_CSP.local_readiness:main"
+ion-csp-verify-local-smoke = "ion_CSP.smoke_validation:main"
 
 [tool.pytest.ini_options]
 # 注意：不要把 --cov 放进 addopts，否则会破坏 VS Code/Trae 的测试发现与调试

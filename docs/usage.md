@@ -1,6 +1,6 @@
 # ion_CSP 使用指南
 
-本文档对应当前 2.3.5 源码。ion_CSP 是一套计算工作流编排软件，而不是单一的
+本文档对应当前 2.3.6 源码。ion_CSP 是一套计算工作流编排软件，而不是单一的
 晶体预测模型。它包含两条可以串联的工作流：
 
 ~~~text
@@ -279,10 +279,11 @@ gen_opt:
 
   # deepmd、dpa4、dpa4_ion_ft 或 mattersim
   mlp_backend: deepmd
-  mlp_python: python
+  mlp_python: /absolute/path/to/mlp-python
   mlp_model: model.pt
   mlp_device:
-  mlp_workers: 0
+  mlp_workers: 1
+  mlp_preflight_receipt: /absolute/path/to/mlp-receipt.json
 
   machine: /absolute/path/gpu_machine.yaml
   resources: /absolute/path/gpu_resources.yaml
@@ -315,7 +316,9 @@ vasp_processing:
 | mlp_python | MLP 计算节点上用于运行 mlp_opt.py 的 Python |
 | mlp_model | DPA4/MatterSim 模型名或文件；deepmd 使用内置 model.pt |
 | mlp_device | 例如 cuda；留空时由后端选择 |
-| mlp_workers | 0 表示自动；DPA4/MatterSim 通常设置 1 |
+| mlp_workers | 默认 1；GPU MLP 使用 1，CPU 并行须显式配置并校验资源 |
+| mlp_preflight_receipt | DeepMD/DPA4 必填；计算节点在同一模型与解释器下完成 `--probe-poscar` 后生成的 JSON 验收记录绝对路径 |
+| mlp_allow_unallocated_probe | 默认 false；仅专用本地工作站显式允许无调度器 probe receipt，SSH 集群任务不接受 |
 | n_screen | 送入 VASP 的候选结构数 |
 | sort_by | density 或 energy |
 | molecules_screen | 是否剔除离子结构发生变化的 MLP 结果 |
@@ -673,12 +676,23 @@ python docs/example_usage_CSP.py /absolute/path/to/combo_1
 - mattersim
 
 这些后端通常使用独立 Python 环境，并通过 mlp_python 指定计算节点上的解释器。
-默认 DeepMD 工作节点也必须使用独立环境；当前验证过的安全升级组合为 `deepmd-kit[torch]==3.2.0`，其官方 wheel 按 ABI 绑定 `torch==2.11.0`，不能在不重编译 DeepMD 的情况下单独提升到 Torch 2.13。可在计算节点创建环境：
+核心控制端的 `pyproject.toml` 和 `environment.yml` 对科学 Python 包使用最低版本约束；
+`uv.lock` 仍是可复现的精确核心解析结果，修改最低版本后必须重新解析并验证该锁文件。
+默认 DeepMD 工作节点也必须使用独立环境；受支持的组合为
+`deepmd-kit[torch]==3.2.0`、`torch==2.11.0`、`triton==3.6.0`，
+这三个包以及其 CUDA runtime 是精确的运行时/ABI 配对，不能单独提升其中一个组件。
+可在计算节点创建环境：
 
 ~~~bash
 conda env create -f environment-mlp.yml
-conda run -n ion-csp-mlp python -c "from deepmd.calculator import DP; print('DeepMD ready')"
+conda run -n ion-csp-mlp python -m pip check
 ~~~
+
+仅导入 DeepMD 不足以确认其可用于晶胞优化。首次部署或环境/模型变化后，必须在
+Slurm/PBS 等调度器分配的计算节点上，按 [部署指南](delivery.md#mlp-节点)
+使用 `--probe-poscar` 执行真实的力、应力和一步优化验收，将 JSON receipt 放到
+控制端，并将 `mlp_python` 和 `mlp_preflight_receipt` 配置为与该记录一致的绝对路径。
+DeepMD/DPA4 若缺少合格 receipt，会在复制大量 POSCAR 或提交 dpdispatcher 任务前失败。
 
 Torch 2.11 仍有一个只影响 `torch.jit.script` 的低风险告警
 `GHSA-rrmf-rvhw-rf47`；ion_CSP 的 MLP 运行器不调用该 API。MLP 模型必须来自
