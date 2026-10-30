@@ -1,18 +1,18 @@
 {
   "artifacts": [
     {
-      "path": "dist/internal-freeze-20261030-dae51f5/ion_csp-2.3.7-py3-none-any.whl",
+      "path": "dist/internal-freeze-20261030-dae51f5-clean/ion_csp-2.3.7-py3-none-any.whl",
       "required": true,
       "role": "wheel",
-      "sha256": "cfb4354ea5d03a4d4c2d1ed7fec15e601813d54bbf4a26a2b2d42f81c7ffd3e0",
-      "size_bytes": 50250599
+      "sha256": "be205ed77136cc8e20bb9ce783344ef76b437f67fe6afa5cf9bfb4c8edfe921e",
+      "size_bytes": 50246428
     },
     {
-      "path": "dist/internal-freeze-20261030-dae51f5/ion_csp-2.3.7.tar.gz",
+      "path": "dist/internal-freeze-20261030-dae51f5-clean/ion_csp-2.3.7.tar.gz",
       "required": true,
       "role": "sdist",
-      "sha256": "e0da16be4f0ae3690ad6cf2270fea5ffc545dfacea3f509f0dcab60c09eb55f0",
-      "size_bytes": 50580422
+      "sha256": "6464f6a30474aa31a26088ed6050f10448e01943d119a7002966bdbe629ffd09",
+      "size_bytes": 50577354
     }
   ],
   "config_contract": {
@@ -28,7 +28,7 @@
       "external"
     ]
   },
-  "generated_at": "2026-10-30T08:42:10.314762+00:00",
+  "generated_at": "2026-10-30T08:50:50.743388+00:00",
   "generated_by": {
     "python": "3.11.16",
     "schema_version": 1,
