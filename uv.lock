@@ -835,7 +835,7 @@ wheels = [
 
 [[package]]
 name = "ion-csp"
-version = "2.3.6"
+version = "2.3.7"
 source = { editable = "." }
 dependencies = [
     { name = "ase" },

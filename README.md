@@ -1,10 +1,10 @@
-# 基于分子/离子构型的晶体结构设计软件 V2.3.6
+# 基于分子/离子构型的晶体结构设计软件 V2.3.7
 
-[![Version](https://img.shields.io/badge/version-2.3.6-blue.svg)](https://github.com/Bagabaga007/ion_CSP)
+[![Version](https://img.shields.io/badge/version-2.3.7-blue.svg)](https://github.com/Bagabaga007/ion_CSP)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
-> 测试徽章和下方统计是 V2.3.0 的历史基线；V2.3.6 的修复和验证记录见 [CHANGELOG.md](CHANGELOG.md)。
+> 测试徽章和下方统计是 V2.3.0 的历史基线；V2.3.7 的修复和验证记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 项目概述
 
@@ -195,7 +195,7 @@ pytest tests/system/      # 系统测试
 
 ## 📚 文档
 
-- [完整使用指南](docs/usage.md) - 与 V2.3.6 源码一致的 EE/CSP 配置和运行说明
+- [完整使用指南](docs/usage.md) - 与 V2.3.7 源码一致的 EE/CSP 配置和运行说明
 - [三端生产交付指南](docs/delivery.md) - core/MLP/external 预检、锁文件、wrapper 与发布 manifest
 - [客户计算资源配置](docs/compute_profiles.md) - 远程 Slurm 与本地工作站 CPU/GPU 的离线配置
 - [本地工作站就绪检查](docs/local_workstation.md) - 有界 CSP 小试预算、MLP 回执、VASP/MPI 与 GPU UUID 门禁
@@ -209,6 +209,12 @@ pytest tests/system/      # 系统测试
 - [EE使用示例](docs/example_usage_EE.py) - EE模块使用示例
 
 ## 🔄 版本历史
+
+### V2.3.7 (2026-10-30)
+
+- 本地 LocalContext + Shell 的可选 VASP 限额诊断：各 MPI rank 在 exec 前记录有效 `RLIMIT_FSIZE`，并在清理前保留受限的输出文件路径与大小元数据。
+- 恢复原生 `SIGXFSZ`/`SIGPIPE` 信号语义；禁用远程上下文的诊断启动器，默认 VASP 命令不变。
+- 本版本仅完成源码/假 MPI 验收；真实 VASP 数值与触限文件仍需单独授权的运行回执。
 
 ### V2.3.6 (2026-10-23)
 
@@ -450,7 +456,7 @@ pytest tests/system/      # System tests
 
 ## Documentation
 
-- [Complete Usage Guide](docs/usage.md) - EE/CSP configuration and execution matching V2.3.6
+- [Complete Usage Guide](docs/usage.md) - EE/CSP configuration and execution matching V2.3.7
 - [Docker Guide](DOCKER.md) - CPU/GPU containers and external-program requirements
 - [DPA4 Backend](DPA4_BACKEND.md) / [MatterSim Backend](MATTERSIM_BACKEND.md) - universal-element MLP configuration
 - [Test Report](docs/TEST_REPORT.md) - V2.3.0 historical test snapshot

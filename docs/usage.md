@@ -1,6 +1,6 @@
 # ion_CSP 使用指南
 
-本文档对应当前 2.3.6 源码。ion_CSP 是一套计算工作流编排软件，而不是单一的
+本文档对应当前 2.3.7 源码。ion_CSP 是一套计算工作流编排软件，而不是单一的
 晶体预测模型。它包含两条可以串联的工作流：
 
 ~~~text
@@ -554,6 +554,23 @@ EDIFF=1e-4；fine 使用 IBRION=1/RMM-DIIS 精修，保留 EDIFF=1e-6。
 
 如需进行严格离子收敛诊断，可设置 ION_CSP_REQUIRE_IONIC_CONVERGENCE=1；生产候选
 筛选默认不设置该变量。ION_CSP_VASP_MAX_ATTEMPTS 可调整 exit 255 的重试次数。
+
+### 本地 VASP 文件限额诊断（2.3.7）
+
+2.3.7 新增仅在 `LocalContext + Shell` 且操作员显式设置
+`ION_CSP_CAPTURE_VASP_DIAGNOSTICS=1` 时启用的元数据诊断；已冻结的 2.3.6 wheel
+不含此功能，不能只改环境变量就声称已启用。默认 `mpirun … vasp_std` 命令保持不变。
+启用时，MPI 每个 rank 的启动器在同一进程 `exec vasp_std` 前记录其 soft/hard
+`RLIMIT_FSIZE`（字节），并恢复 Python 默认忽略的 `SIGPIPE`、`SIGXFZ`、
+`SIGXFSZ` 为原生默认处理。`mpirun` 返回后、dpdispatcher 清理前，各阶段写入
+`ION_CSP_VASP_LIMIT_DIAGNOSTIC.json`，只含限额、退出分类及已知 VASP 输出文件的
+阶段相对路径和字节数；不复制文件内容、POTCAR 或任意文件名。失败重试时标记随
+`failed_attempts/` 归档。
+
+`candidate_at_limit` 仅表示留存文件的大小与记录的 soft limit 相同，不能证明
+哪个写入文件描述符触发了 `SIGXFSZ`；若文件在扫描前已被删除，标记会给出
+`offender_unconfirmed`。使用本功能前须安装并验签 2.3.7 core wheel，并与平台 runner
+及 profile 的精确哈希配套；仅凭旧 2.3.6 wheel 不得重新提交科学任务。
 
 最终 POSCAR 从 Final_Ions_Check=true 的结构中按 Final_Density 选取最大值，并复制：
 

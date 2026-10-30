@@ -8,7 +8,42 @@ from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
 
 from ion_CSP.vasp_processing import VaspProcessing  # 替换为你的模块名
+from ion_CSP.vasp_processing import _require_local_diagnostic_dispatch
 from dpdispatcher.contexts.local_context import LocalContext
+
+
+def test_opt_in_vasp_diagnostics_require_local_shell_before_dispatch(
+    vasp_processor: VaspProcessing, monkeypatch
+):
+    monkeypatch.setenv("ION_CSP_CAPTURE_VASP_DIAGNOSTICS", "1")
+    remote = SimpleNamespace(
+        serialize=lambda: {"context_type": "SSHContext", "batch_type": "Shell"}
+    )
+    wrong_batch = SimpleNamespace(
+        serialize=lambda: {"context_type": "LocalContext", "batch_type": "Slurm"}
+    )
+    local = SimpleNamespace(
+        serialize=lambda: {"context_type": "LocalContext", "batch_type": "Shell"}
+    )
+    _require_local_diagnostic_dispatch(local)
+    for machine in (remote, wrong_batch):
+        with pytest.raises(ValueError, match="LocalContext \\+ Shell"):
+            _require_local_diagnostic_dispatch(machine)
+
+    with patch(
+        "ion_CSP.vasp_processing.machine_resources_prep",
+        return_value=(remote, object(), ""),
+    ), patch("ion_CSP.vasp_processing.Submission") as submission:
+        with pytest.raises(ValueError, match="LocalContext \\+ Shell"):
+            vasp_processor.dpdisp_vasp_optimization_tasks("machine.yaml", "resources.yaml")
+        submission.assert_not_called()
+
+        fine_dir = vasp_processor.vasp_optimized_dir / "candidate" / "fine"
+        fine_dir.mkdir(parents=True)
+        (fine_dir / "CONTCAR").write_text("fixture", encoding="utf-8")
+        with pytest.raises(ValueError, match="LocalContext \\+ Shell"):
+            vasp_processor.dpdisp_vasp_relaxation_tasks("machine.yaml", "resources.yaml")
+        submission.assert_not_called()
 
 
 def _mock_relaxed_atoms():
@@ -141,8 +176,10 @@ group_size: 1
 @patch("dpdispatcher.Submission.run_submission")
 @patch("dpdispatcher.Submission.__init__", return_value=None)
 @patch("dpdispatcher.Task.__init__", return_value=None)
+@pytest.mark.parametrize("diagnostics_enabled, expected_flag", [(False, "0"), (True, "1")])
 def test_dpdisp_vasp_optimization_skips_empty_node(
-    mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path
+    mock_task, mock_sub, mock_run, vasp_processor: VaspProcessing, tmp_path: Path,
+    monkeypatch, diagnostics_enabled: bool, expected_flag: str,
 ):
     """One screened structure on two configured nodes must create one task."""
     (vasp_processor.for_vasp_opt_dir / "CONTCAR_001").write_text("dummy")
@@ -155,6 +192,8 @@ def test_dpdisp_vasp_optimization_skips_empty_node(
     resources_path.write_text(
         "number_node: 2\ncpu_per_node: 8\ngpu_per_node: 0\ngroup_size: 1\n"
     )
+    if diagnostics_enabled:
+        monkeypatch.setenv("ION_CSP_CAPTURE_VASP_DIAGNOSTICS", "1")
 
     vasp_processor.dpdisp_vasp_optimization_tasks(
         machine_path=str(machine_path),
@@ -165,6 +204,9 @@ def test_dpdisp_vasp_optimization_skips_empty_node(
     mock_task.assert_called_once()
     assert mock_task.call_args.kwargs["task_work_path"] == "pop0"
     assert "CONTCAR_001" in mock_task.call_args.kwargs["forward_files"]
+    assert mock_task.call_args.kwargs["command"].endswith(
+        f"ION_CSP_CAPTURE_VASP_DIAGNOSTICS={expected_flag} ./sub_ori.sh"
+    )
     submitted_tasks = mock_sub.call_args.kwargs["task_list"]
     assert len(submitted_tasks) == 1
     mock_run.assert_called_once()
@@ -288,6 +330,17 @@ def test_local_dispatcher_can_download_nested_vasp_tree_without_parent_dirs(tmp_
     (remote_root / "pop0" / candidate / "CONTCAR").write_text("rough", encoding="utf-8")
     (remote_root / "pop0" / candidate / "fine" / "CONTCAR").write_text("fine", encoding="utf-8")
     (remote_task / "CONTCAR").write_text("final", encoding="utf-8")
+    diagnostic_marker = "ION_CSP_VASP_LIMIT_DIAGNOSTIC.json"
+    marker_locations = (
+        Path(diagnostic_marker),
+        Path("fine") / diagnostic_marker,
+        Path("fine") / "final" / diagnostic_marker,
+        Path("failed_attempts") / "attempt_1_exit_255" / diagnostic_marker,
+    )
+    for index, relative_marker in enumerate(marker_locations):
+        marker = remote_root / "pop0" / candidate / relative_marker
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(f"marker-{index}", encoding="utf-8")
     context = LocalContext(str(local_root), str(remote_root), {"symlink": False})
     context.local_root = str(local_root)
     context.remote_root = str(remote_root)
@@ -301,6 +354,9 @@ def test_local_dispatcher_can_download_nested_vasp_tree_without_parent_dirs(tmp_
     assert (local_task / candidate / "CONTCAR").read_text() == "rough"
     assert (local_task / candidate / "fine" / "CONTCAR").read_text() == "fine"
     assert (local_task / candidate / "fine" / "final" / "CONTCAR").read_text() == "final"
+    for index, relative_marker in enumerate(marker_locations):
+        returned_marker = local_task / candidate / relative_marker
+        assert returned_marker.read_text(encoding="utf-8") == f"marker-{index}"
 
 
 @patch("dpdispatcher.Submission.run_submission")
@@ -1149,6 +1205,9 @@ group_size: 1
             resources_path=str(resources_path),
             nodes=1,
         )
+    assert mock_task.call_args.kwargs["command"].endswith(
+        "ION_CSP_CAPTURE_VASP_DIAGNOSTICS=0 ./sub_ori.sh"
+    )
 
     # 验证 data 目录被删除
     assert not data_dir.exists()
@@ -2134,7 +2193,7 @@ Direct
 
 
 @patch("dpdispatcher.Machine.load_from_yaml")
-@patch("dpdispatcher.Task")
+@patch("ion_CSP.vasp_processing.Task")
 @patch("dpdispatcher.Submission.__init__", return_value=None)
 @patch("dpdispatcher.Submission.run_submission")
 def test_dpdisp_vasp_relaxation_tasks_ssh_context(
@@ -2187,6 +2246,9 @@ group_size: 1
         machine_path=str(machine_path),
         resources_path=str(resources_path),
         nodes=1
+    )
+    assert mock_task.call_args.kwargs["command"].endswith(
+        "ION_CSP_CAPTURE_VASP_DIAGNOSTICS=0 ./sub_supple.sh"
     )
 
     # Verify Machine.load_from_yaml was called

@@ -55,7 +55,7 @@ archive_failed_vasp_attempt() {
     local name
 
     mkdir -p "$archive_dir"
-    for name in CONTCAR OUTCAR OSZICAR XDATCAR vasprun.xml vasp.log EIGENVAL DOSCAR IBZKPT PCDAT REPORT CHG CHGCAR WAVECAR ION_CSP_STAGE_STATUS; do
+    for name in CONTCAR OUTCAR OSZICAR XDATCAR vasprun.xml vasp.log EIGENVAL DOSCAR IBZKPT PCDAT REPORT CHG CHGCAR WAVECAR ION_CSP_STAGE_STATUS ION_CSP_VASP_LIMIT_DIAGNOSTIC.json; do
         if [[ -e "${stage_dir}/${name}" ]]; then
             mv "${stage_dir}/${name}" "${archive_dir}/${name}"
         fi
@@ -67,12 +67,27 @@ run_vasp_command() {
     local stage="$2"
     local attempt
     local exit_code
+    local diagnostics_token
 
     for ((attempt=1; attempt<=vasp_max_attempts; attempt++)); do
         exit_code=0
         (
             cd "$stage_dir" || exit 125
-            mpirun -n "$DPDISPATCHER_CPU_PER_NODE" vasp_std > vasp.log 2>&1
+            if [[ "${ION_CSP_CAPTURE_VASP_DIAGNOSTICS:-}" == "1" ]]; then
+                diagnostics_token="$(python -c 'import secrets; print(secrets.token_hex(16))' 2>/dev/null || true)"
+                if ! [[ "$diagnostics_token" =~ ^[a-f0-9]{32}$ ]]; then
+                    diagnostics_token=""
+                fi
+                ION_CSP_VASP_DIAGNOSTIC_TOKEN="$diagnostics_token" \
+                    mpirun -n "$DPDISPATCHER_CPU_PER_NODE" python -m ion_CSP.vasp_launch_diagnostics exec > vasp.log 2>&1
+                exit_code=$?
+                if ! python -m ion_CSP.vasp_launch_diagnostics record --stage "$stage" --exit-code "$exit_code" --token "$diagnostics_token" >/dev/null 2>&1; then
+                    printf 'ion_CSP: VASP limit diagnostic marker could not be recorded.\n' >&2
+                fi
+                exit "$exit_code"
+            else
+                mpirun -n "$DPDISPATCHER_CPU_PER_NODE" vasp_std > vasp.log 2>&1
+            fi
         ) || exit_code=$?
 
         if (( exit_code != 255 || attempt == vasp_max_attempts )); then

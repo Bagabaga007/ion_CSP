@@ -2,6 +2,12 @@
 
 ## Latest Changes
 
+### V2.3.7 (2026-10-30)
+
+- Add opt-in, LocalContext + Shell-only VASP file-limit metadata capture: each MPI rank records its exact pre-exec soft/hard `RLIMIT_FSIZE`, and each VASP stage records bounded allowlisted output path/size metadata before dispatcher cleanup.
+- Preserve the direct VASP command by default, restore native `SIGXFSZ`/`SIGPIPE` handling in the opted-in launcher, and reject remote/scheduler diagnostic dispatch before task submission.
+- Keep `candidate_at_limit` as a size-based candidate rather than proof of the offending write descriptor. No new scientific run is claimed for this source release.
+
 ### V2.3.6 (2026-10-23)
 
 - Pin the Linux MLP runtime to DeepMD 3.2.0, Torch 2.11.0 and Triton 3.6.0; reject incompatible Python/ASE/runtime versions before bulk optimization.

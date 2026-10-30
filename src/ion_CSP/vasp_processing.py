@@ -35,6 +35,23 @@ _VASP_IONIC_CONVERGENCE_MARKER = (
 )
 
 
+def _require_local_diagnostic_dispatch(machine) -> None:
+    """Fail before dispatch if the opt-in rank wrapper would run remotely."""
+    if os.environ.get("ION_CSP_CAPTURE_VASP_DIAGNOSTICS") != "1":
+        return
+    try:
+        description = machine.serialize()
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("VASP diagnostics require LocalContext + Shell") from None
+    if (
+        type(description) is not dict
+        or description.get("context_type") != "LocalContext"
+        or not isinstance(description.get("batch_type"), str)
+        or description["batch_type"].lower() != "shell"
+    ):
+        raise ValueError("VASP diagnostics require LocalContext + Shell")
+
+
 class VaspProcessing:
 
     def __init__(self, work_dir: Path):
@@ -118,6 +135,8 @@ class VaspProcessing:
         machine, resources, parent = machine_resources_prep(
             machine_path=machine_path, resources_path=resources_path
         )
+        _require_local_diagnostic_dispatch(machine)
+        diagnostic_flag = "1" if os.environ.get("ION_CSP_CAPTURE_VASP_DIAGNOSTICS") == "1" else "0"
 
         # 获取文件夹中所有以prefix_name开头的文件，在此实例中为CONTCAR_
         mlp_contcar_files = sorted(
@@ -172,7 +191,12 @@ class VaspProcessing:
                 shutil.copyfile(str(contcar), str(dst))
 
             remote_task_dir = f"{parent}pop{pop}"
-            command = "chmod +x sub_ori.sh && ./sub_ori.sh"
+            # Override resource envs/source_list and remote shell defaults with
+            # the context-validated decision made by this submitter.
+            command = (
+                "chmod +x sub_ori.sh && "
+                f"ION_CSP_CAPTURE_VASP_DIAGNOSTICS={diagnostic_flag} ./sub_ori.sh"
+            )
             task = Task(
                 command=command,
                 task_work_path=remote_task_dir,
@@ -277,6 +301,8 @@ class VaspProcessing:
         machine, resources, parent = machine_resources_prep(
             machine_path=machine_path, resources_path=resources_path
         )
+        _require_local_diagnostic_dispatch(machine)
+        diagnostic_flag = "1" if os.environ.get("ION_CSP_CAPTURE_VASP_DIAGNOSTICS") == "1" else "0"
         fine_contcars = [folder / "fine" / "CONTCAR" for folder in vasp_optimized_folders]
         potcar_files = self._potcar_files_for_structures(fine_contcars)
         # 创建一个嵌套列表来存储每个节点的任务并将文件平均依次分配给每个节点
@@ -317,7 +343,10 @@ class VaspProcessing:
                 backward_files.append(vasp_dir_name)
 
             remote_task_dir = f"{parent}pop{pop}"
-            command = "chmod +x sub_supple.sh && ./sub_supple.sh"
+            command = (
+                "chmod +x sub_supple.sh && "
+                f"ION_CSP_CAPTURE_VASP_DIAGNOSTICS={diagnostic_flag} ./sub_supple.sh"
+            )
             task = Task(
                 command=command,
                 task_work_path=remote_task_dir,

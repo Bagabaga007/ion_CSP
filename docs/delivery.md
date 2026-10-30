@@ -237,6 +237,7 @@ sdist 会排除 `.claude/`、`.github/`、`.vscode/`、`docs/history/` 和
 生产发布至少满足：
 
 1. 完整 pytest 回归通过；
+   本地 VASP `SIGXFSZ` 原生回归需要 Linux C 编译器 `cc`，该验收项不可静默跳过；
 2. wheel/sdist 构建成功，manifest verify 返回 0；
 3. core、MLP、Gaussian、VASP 的实际目标节点 receipt 均返回 `ok: true`；
 4. receipt 使用的模型、解释器、PATH 与 dpdispatcher machine/resources 指向同一环境；
