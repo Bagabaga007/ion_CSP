@@ -50,8 +50,9 @@ OUTPUT_BASENAMES = (
 )
 KNOWN_INPUT_BASENAMES = frozenset({"POSCAR", "INCAR", "POTCAR", "KPOINTS"})
 _RANK_NAME_RE = re.compile(
-    r"^r-([0-9a-f]{32})-(u|[0-9]{1,8})-(inf|unknown|[0-9]{1,32})-"
-    r"(inf|unknown|[0-9]{1,32})-([0-9a-f]{32})\.rec$"
+    r"^r-([0-9a-f]{32})-(u|[0-9]{1,8})-(?:p([1-9][0-9]{0,9})-)?"
+    r"(inf|unknown|[0-9]{1,32})-(inf|unknown|[0-9]{1,32})-"
+    r"([0-9a-f]{32})\.rec$"
 )
 _SESSION_TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 
@@ -106,8 +107,16 @@ def _record_rank_limit(token: str, limits: tuple[int, int]) -> None:
     """
     soft_limit, hard_limit = limits
     rank = _rank_token()
+    # Trace-only PID mapping keeps the legacy empty-filename contract intact
+    # for ordinary 2.3.7 diagnostics while allowing a failed syscall PID to
+    # be checked against the exact pre-exec VASP rank in a future candidate.
+    pid_segment = (
+        f"p{os.getpid()}-"
+        if os.environ.get("ION_CSP_CAPTURE_FAILED_WRITE_TRACE") == "1"
+        else ""
+    )
     record_name = (
-        f"r-{token}-{rank}-{_limit_token(soft_limit)}-{_limit_token(hard_limit)}-"
+        f"r-{token}-{rank}-{pid_segment}{_limit_token(soft_limit)}-{_limit_token(hard_limit)}-"
         f"{secrets.token_hex(16)}.rec"
     )
     stage_fd = os.open(".", _dir_flags())
@@ -178,14 +187,17 @@ def _rank_entry_from_name(name: str, token: str) -> dict[str, Any] | None:
     match = _RANK_NAME_RE.fullmatch(name)
     if match is None:
         return None
-    record_token, rank_token, soft_token, hard_token, _nonce = match.groups()
+    record_token, rank_token, pid_token, soft_token, hard_token, _nonce = match.groups()
     if record_token != token:
         return None
-    return {
+    record = {
         "rank": int(rank_token) if rank_token != "u" else None,
         "soft_bytes": _decode_limit(soft_token),
         "hard_bytes": _decode_limit(hard_token),
     }
+    if pid_token is not None:
+        record["pid"] = int(pid_token)
+    return record
 
 
 def _collect_rank_limits(

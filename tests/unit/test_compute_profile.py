@@ -441,6 +441,42 @@ def test_local_cpu_mode_needs_no_nvidia_smi_and_has_no_scheduler_flags(tmp_path:
     assert "queue_name" not in rendered
 
 
+def test_failed_write_trace_profile_accepts_only_pinned_local_vasp(tmp_path: Path):
+    machine = _machine(tmp_path / "machine.yaml", context="LocalContext", batch="Shell")
+    digest = "a" * 64
+    resources = _resources(tmp_path / "resources.yaml", gpu=0, extra={
+        "envs": {"ION_CSP_CAPTURE_FAILED_WRITE_TRACE": "1", "ION_CSP_STRACE_SHA256": digest},
+    })
+    profile = _profile(tmp_path / "profile.yaml", mode="local", scheduler="none",
+                       stages={"vasp_processing": _stage("cpu", machine, resources)})
+    plan = load_profile(profile)
+    assert plan.stages[0].resources["envs"]["ION_CSP_STRACE_SHA256"] == digest
+
+
+@pytest.mark.parametrize("stage,mode,trace,hash_value", [
+    ("gen_opt", "local", "1", "a" * 64),
+    ("vasp_processing", "remote_slurm", "1", "a" * 64),
+    ("vasp_processing", "local", "1", "bad-hash"),
+    ("vasp_processing", "local", "0", "a" * 64),
+    ("vasp_processing", "local", "1", None),
+])
+def test_failed_write_trace_profile_rejects_unsafe_context_or_pin(
+    tmp_path: Path, stage: str, mode: str, trace: str, hash_value: str | None,
+):
+    machine = _machine(tmp_path / "machine.yaml",
+                       context="LocalContext" if mode == "local" else "SSHContext",
+                       batch="Shell" if mode == "local" else "Slurm")
+    envs = {"ION_CSP_CAPTURE_FAILED_WRITE_TRACE": trace}
+    if hash_value is not None:
+        envs["ION_CSP_STRACE_SHA256"] = hash_value
+    resources = _resources(tmp_path / "resources.yaml", gpu=0, extra={"envs": envs})
+    profile = _profile(tmp_path / "profile.yaml", mode=mode,
+                       scheduler="none" if mode == "local" else "slurm",
+                       stages={stage: _stage("cpu", machine, resources)})
+    with pytest.raises(ProfileError):
+        load_profile(profile)
+
+
 def test_local_gpu_mode_requires_nvidia_smi_but_never_executes_it(tmp_path: Path, monkeypatch):
     machine = _machine(tmp_path / "machine.yaml", context="LocalContext", batch="Shell")
     resources = _resources(tmp_path / "resources.yaml", gpu=1)

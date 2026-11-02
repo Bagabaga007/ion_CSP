@@ -352,6 +352,77 @@ def test_rank_limit_scanner_rejects_stale_symlink_and_hardlink_records(
     assert scan_truncated is False
 
 
+def test_trace_only_rank_record_binds_pre_exec_pid_without_changing_legacy_scan(
+    tmp_path: Path, monkeypatch,
+):
+    token = "a" * 32
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ION_CSP_CAPTURE_FAILED_WRITE_TRACE", "1")
+    monkeypatch.setenv("PMI_RANK", "2")
+    vasp_launch_diagnostics._record_rank_limit(token, (2048, 4096))
+    rank_names = [path.name for path in (tmp_path / ".ion_csp_vasp_limit_ranks").iterdir()]
+    assert len(rank_names) == 1
+    assert f"-p{os.getpid()}-" in rank_names[0]
+    stage_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        records, omitted, truncated = vasp_launch_diagnostics._collect_rank_limits(
+            stage_fd, token,
+        )
+    finally:
+        os.close(stage_fd)
+    assert records == [{"rank": 2, "soft_bytes": 2048, "hard_bytes": 4096, "pid": os.getpid()}]
+    assert omitted == 0 and truncated is False
+
+
+def test_trace_opt_in_denies_unpinned_strace_before_mpi_launch(tmp_path: Path):
+    _write_inputs(tmp_path)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    marker = tmp_path / "unexpected_mpi_launch"
+    fake_mpi = fake_bin / "mpirun"
+    fake_mpi.write_text(f"#!/bin/sh\ntouch {marker}\nexit 99\n", encoding="utf-8")
+    fake_mpi.chmod(0o755)
+    env = dict(os.environ)
+    env.update({
+        "PATH": f"{fake_bin}:{env['PATH']}",
+        "PYTHONPATH": str(SCRIPT.parents[2]),
+        "DPDISPATCHER_CPU_PER_NODE": "4",
+        "ION_CSP_CAPTURE_VASP_DIAGNOSTICS": "1",
+        "ION_CSP_CAPTURE_FAILED_WRITE_TRACE": "1",
+        "ION_CSP_VASP_MAX_ATTEMPTS": "1",
+    })
+    env.pop("ION_CSP_STRACE_SHA256", None)
+    subprocess.run(["bash", str(SCRIPT)], cwd=tmp_path, env=env,
+                   capture_output=True, text=True, check=False)
+    assert not marker.exists()
+    assert "failed-write diagnostic launch gate denied" in (
+        tmp_path / "sample" / "vasp.log"
+    ).read_text(encoding="utf-8")
+    assert not (tmp_path / "sample" / ".ion_csp_failed_write.strace").exists()
+
+
+def test_trace_opt_in_cannot_fall_back_to_untraced_vasp(tmp_path: Path):
+    _write_inputs(tmp_path)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    marker = tmp_path / "unexpected_mpi_launch"
+    fake_mpi = fake_bin / "mpirun"
+    fake_mpi.write_text(f"#!/bin/sh\ntouch {marker}\nexit 99\n", encoding="utf-8")
+    fake_mpi.chmod(0o755)
+    env = dict(os.environ)
+    env.update({
+        "PATH": f"{fake_bin}:{env['PATH']}",
+        "DPDISPATCHER_CPU_PER_NODE": "4",
+        "ION_CSP_CAPTURE_VASP_DIAGNOSTICS": "0",
+        "ION_CSP_CAPTURE_FAILED_WRITE_TRACE": "1",
+    })
+    result = subprocess.run(["bash", str(SCRIPT)], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert "no VASP launch occurred" in result.stderr
+    assert not marker.exists()
+
+
 def test_sub_ori_archives_diagnostic_marker_for_retryable_exit_255(tmp_path: Path):
     _write_inputs(tmp_path)
     counter = tmp_path / "diagnostic_attempt_count"

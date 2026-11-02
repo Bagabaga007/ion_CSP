@@ -29,6 +29,14 @@ if ! [[ "$vasp_max_attempts" =~ ^[1-9][0-9]*$ ]]; then
     echo "ION_CSP_VASP_MAX_ATTEMPTS must be a positive integer." >&2
     exit 1
 fi
+case "${ION_CSP_CAPTURE_FAILED_WRITE_TRACE:-0}" in
+    0|1) ;;
+    *) echo "ION_CSP_CAPTURE_FAILED_WRITE_TRACE must be 0 or 1." >&2; exit 1 ;;
+esac
+if [[ "${ION_CSP_CAPTURE_FAILED_WRITE_TRACE:-0}" == "1" && "${ION_CSP_CAPTURE_VASP_DIAGNOSTICS:-0}" != "1" ]]; then
+    echo "Failed-write tracing requires VASP rank diagnostics; no VASP launch occurred." >&2
+    exit 1
+fi
 case "${require_ionic_convergence,,}" in
     0|1|false|true|no|yes) ;;
     *)
@@ -63,7 +71,7 @@ archive_failed_vasp_attempt() {
     local name
 
     mkdir -p "$archive_dir"
-    for name in CONTCAR OUTCAR OSZICAR XDATCAR vasprun.xml vasp.log EIGENVAL DOSCAR IBZKPT PCDAT REPORT CHG CHGCAR WAVECAR ION_CSP_STAGE_STATUS ION_CSP_VASP_LIMIT_DIAGNOSTIC.json; do
+    for name in CONTCAR OUTCAR OSZICAR XDATCAR vasprun.xml vasp.log EIGENVAL DOSCAR IBZKPT PCDAT REPORT CHG CHGCAR WAVECAR ION_CSP_STAGE_STATUS ION_CSP_VASP_LIMIT_DIAGNOSTIC.json ION_CSP_VASP_FAILED_WRITE_TRACE.json; do
         if [[ -e "${stage_dir}/${name}" ]]; then
             mv "${stage_dir}/${name}" "${archive_dir}/${name}"
         fi
@@ -86,8 +94,13 @@ run_vasp_command() {
                 if ! [[ "$diagnostics_token" =~ ^[a-f0-9]{32}$ ]]; then
                     diagnostics_token=""
                 fi
-                ION_CSP_VASP_DIAGNOSTIC_TOKEN="$diagnostics_token" \
-                    mpirun -n "$DPDISPATCHER_CPU_PER_NODE" python -m ion_CSP.vasp_launch_diagnostics exec > vasp.log 2>&1
+                if [[ "${ION_CSP_CAPTURE_FAILED_WRITE_TRACE:-0}" == "1" ]]; then
+                    ION_CSP_VASP_DIAGNOSTIC_TOKEN="$diagnostics_token" \
+                        python -m ion_CSP.failed_write_trace run --token "$diagnostics_token" --ranks "$DPDISPATCHER_CPU_PER_NODE" > vasp.log 2>&1
+                else
+                    ION_CSP_VASP_DIAGNOSTIC_TOKEN="$diagnostics_token" \
+                        mpirun -n "$DPDISPATCHER_CPU_PER_NODE" python -m ion_CSP.vasp_launch_diagnostics exec > vasp.log 2>&1
+                fi
                 exit_code=$?
                 if ! python -m ion_CSP.vasp_launch_diagnostics record --stage "$stage" --exit-code "$exit_code" --token "$diagnostics_token" >/dev/null 2>&1; then
                     printf 'ion_CSP: VASP limit diagnostic marker could not be recorded.\n' >&2

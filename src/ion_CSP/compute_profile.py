@@ -66,6 +66,8 @@ SAFE_ENV_NAMES = {
     "GAUSS_SCRDIR",
     "TMPDIR",
     "PYTHONPATH",
+    "ION_CSP_CAPTURE_FAILED_WRITE_TRACE",
+    "ION_CSP_STRACE_SHA256",
 }
 SAFE_SLURM_FLAGS = {
     "--account",
@@ -307,7 +309,8 @@ def _normalize_custom_flags(value: Any, *, mode: str, queue_name: str | None) ->
     return flags
 
 
-def _clean_resources(raw: dict[str, Any], *, resource_class: str, mode: str) -> dict[str, Any]:
+def _clean_resources(raw: dict[str, Any], *, resource_class: str, mode: str,
+                     stage_name: str) -> dict[str, Any]:
     if set(raw) - SAFE_RESOURCE_KEYS:
         raise ProfileError("resources file contains unsupported or unsafe fields")
     number_node = _strict_int(
@@ -420,6 +423,13 @@ def _clean_resources(raw: dict[str, Any], *, resource_class: str, mode: str) -> 
             ):
                 raise ProfileError("resources.envs contains an unsupported or unsafe value")
             cleaned_envs[key] = value
+        trace_keys = {"ION_CSP_CAPTURE_FAILED_WRITE_TRACE", "ION_CSP_STRACE_SHA256"}
+        if trace_keys & cleaned_envs.keys():
+            if (mode != "local" or stage_name != "vasp_processing"
+                    or cleaned_envs.get("ION_CSP_CAPTURE_FAILED_WRITE_TRACE") != "1"
+                    or not re.fullmatch(r"[0-9a-f]{64}",
+                                        cleaned_envs.get("ION_CSP_STRACE_SHA256", ""))):
+                raise ProfileError("failed-write trace requires a local VASP stage and pinned strace")
         output["envs"] = cleaned_envs
 
     flags = _normalize_custom_flags(
@@ -523,7 +533,8 @@ def load_profile(
         resources_path = _absolute_file(stage_mapping["resources"], role="resources")
         machine = _read_machine(machine_path, mode=mode, scheduler=scheduler)
         raw_resources = _mapping(_parse_document(resources_path))
-        resources = _clean_resources(raw_resources, resource_class=resource_class, mode=mode)
+        resources = _clean_resources(raw_resources, resource_class=resource_class,
+                                     mode=mode, stage_name=name)
         if mode == "local" and resource_class == "gpu" and probe("nvidia-smi") is None:
             raise ProfileError("local GPU mode requires nvidia-smi to be available on PATH")
         stages.append(
