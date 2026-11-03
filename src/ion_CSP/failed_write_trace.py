@@ -25,7 +25,7 @@ STRACE = "/usr/bin/strace"
 RAW_TRACE_NAME = ".ion_csp_failed_write.strace"
 SUMMARY_NAME = "ION_CSP_VASP_FAILED_WRITE_TRACE.json"
 RANK_DIRECTORY = ".ion_csp_vasp_limit_ranks"
-MAX_RAW_BYTES = 8 * 1024 * 1024  # soft polling threshold, not a hard cap
+MAX_RAW_BYTES = 8 * 1024 * 1024  # hard parser cap; soft supervisor polling threshold
 WATCH_INTERVAL_SECONDS = 0.1
 MAX_SUMMARY_BYTES = 16 * 1024
 MAX_TRACE_LINE_BYTES = 16 * 1024
@@ -209,11 +209,33 @@ def parse_trace(
     if data and not data.endswith(b"\n"):
         truncated = True
     mapping = pid_to_rank or {}
-    events: list[dict[str, Any]] = []
+    # The trace can contain many routine ENOSPC/EIO failures before the
+    # EFBIG/SIGXFSZ evidence of interest.  Count every recognized failure, but
+    # retain only bounded EFBIG candidates and SIGXFSZ PIDs.
+    candidates: dict[tuple[Any, ...], dict[str, Any]] = {}
+    candidate_duplicates: dict[tuple[Any, ...], int] = {}
+    signal_pids: set[int] = set()
+    failed_writes_observed = 0
+    efbig_observed = 0
+    sigxfsz_observed = 0
+    efbig_omitted = 0
+    signal_omitted = 0
+    efbig_deduplicated = 0
+    signal_deduplicated = 0
     overlong = False
     malformed = False
-    events_omitted = False
-    for raw_line in data.splitlines():
+    relevant_overflow = False
+    # splitlines() also treats several non-newline bytes as line boundaries.
+    # strace emits LF records, so only complete LF-terminated records count.
+    start = 0
+    while True:
+        end = data.find(b"\n", start)
+        if end < 0:
+            break
+        raw_line = data[start:end]
+        if raw_line.endswith(b"\r"):
+            raw_line = raw_line[:-1]
+        start = end + 1
         if len(raw_line) > MAX_TRACE_LINE_BYTES:
             overlong = True
             continue
@@ -228,11 +250,17 @@ def parse_trace(
         timestamp = prefix.group("time")
         body = prefix.group("body")
         if body.startswith("--- SIGXFSZ"):
-            if pid is not None:
-                if len(events) < MAX_EVENTS:
-                    events.append({"kind": "signal", "pid": pid, "timestamp": timestamp})
-                else:
-                    events_omitted = True
+            sigxfsz_observed += 1
+            if pid is None:
+                signal_omitted += 1
+                malformed = True
+            elif pid in signal_pids:
+                signal_deduplicated += 1
+            elif len(signal_pids) < MAX_EVENTS:
+                signal_pids.add(pid)
+            else:
+                signal_omitted += 1
+                relevant_overflow = True
             continue
         parsed = _SYS_RE.match(body)
         if not parsed or parsed.group("name") not in _TARGET_SYSCALLS:
@@ -243,47 +271,77 @@ def parse_trace(
         if not errno_match:
             continue
         name, args, err = parsed.group("name"), parsed.group("args"), errno_match.group("errno")
-        if len(events) >= MAX_EVENTS:
-            events_omitted = True
-            continue
+        failed_writes_observed += 1
         if pid is None:
             malformed = True
+            if err == "EFBIG":
+                efbig_observed += 1
+                efbig_omitted += 1
             continue
+        if err != "EFBIG":
+            continue
+        efbig_observed += 1
         fd_path = _first_fd_path(args) if name not in {"truncate"} else None
         safe_path, path_state = _safe_path(fd_path, Path(stage_dir)) if fd_path is not None else (None, "fd_path_unavailable")
-        events.append({
+        fd_match = re.match(r"\s*([0-9]{1,10})(?:<|,)", args)
+        fd = int(fd_match.group(1)) if fd_match else None
+        row = {
             "kind": "failed_write", "pid": pid, "timestamp": timestamp,
             "syscall": name, "errno": err,
-            "fd": int(re.match(r"\s*([0-9]{1,10})(?:<|,)", args).group(1))
-            if re.match(r"\s*([0-9]{1,10})(?:<|,)", args) else None,
+            "fd": fd,
             "requested_bytes": _requested_bytes(name, args),
             "requested_units": "iovecs" if name in {"writev", "pwritev", "pwritev2"} else "bytes",
             "path": safe_path, "path_state": path_state,
             "size_state": "size_unavailable",
-        })
-    failures = [e for e in events if e["kind"] == "failed_write" and e["errno"] == "EFBIG"]
-    signals = [e for e in events if e["kind"] == "signal"]
-    confirmed: list[dict[str, Any]] = []
-    candidates: list[dict[str, Any]] = []
-    for event in failures:
-        same_pid_signals = [s for s in signals if s["pid"] == event["pid"]]
-        row = {k: event[k] for k in ("pid", "timestamp", "syscall", "errno", "fd", "requested_bytes", "requested_units", "path", "path_state", "size_state")}
-        rank = mapping.get(event["pid"])
+        }
+        # Keep paths outside the stage private, but distinguish them internally
+        # so two different unsafe paths cannot collapse into one candidate.
+        path_fingerprint = (
+            hashlib.sha256(fd_path.encode("utf-8", "replace")).digest()
+            if fd_path is not None and path_state != "stage_relative" else None
+        )
+        key = (pid, name, fd, safe_path, path_state, path_fingerprint)
+        if key in candidates:
+            candidate_duplicates[key] += 1
+            efbig_deduplicated += 1
+        elif len(candidates) < MAX_EVENTS:
+            candidates[key] = row
+            candidate_duplicates[key] = 0
+        else:
+            efbig_omitted += 1
+            relevant_overflow = True
+
+    candidate_rows: list[dict[str, Any]] = []
+    candidate_keys = list(candidates)
+    for event in candidates.values():
+        row = dict(event)
+        row["sigxfsz_seen"] = row["pid"] in signal_pids
+        rank = mapping.get(row["pid"])
         if rank is not None:
             row["rank"] = rank
-        if same_pid_signals:
-            candidates.append(row)
-        if (same_pid_signals and rank in {0, 1, 2, 3} and event["path"] is not None
-                and event["path_state"] == "stage_relative"):
-            confirmed.append(row)
-    # A second EFBIG for an unresolvable/outside FD is still ambiguity; it
-    # cannot be ignored merely because only one candidate has a safe path.
-    unique = {(e["pid"], e["syscall"], e["fd"], e["path"], e["path_state"])
-              for e in candidates}
+        candidate_rows.append(row)
+    signal_rows = sorted(signal_pids)
+    # A second EFBIG is relevant even when it has no safe path or matching
+    # signal.  Ignoring it could falsely certify a different file descriptor.
     mapping_valid = set(mapping.values()) == {0, 1, 2, 3} and len(mapping) == 4
-    if truncated or overlong or malformed or events_omitted:
+    confirmed = (
+        len(candidate_rows) == 1
+        and candidate_rows[0]["sigxfsz_seen"]
+        and candidate_rows[0].get("rank") in {0, 1, 2, 3}
+        and candidate_rows[0]["path"] is not None
+        and candidate_rows[0]["path_state"] == "stage_relative"
+    )
+    events_observed = efbig_observed + sigxfsz_observed
+    events_retained = len(candidate_rows) + len(signal_rows)
+    events_omitted = efbig_omitted + signal_omitted
+    events_deduplicated = efbig_deduplicated + signal_deduplicated
+    parse_ambiguous = bool(
+        truncated or overlong or malformed or relevant_overflow or events_omitted
+        or len(candidate_rows) > 1
+    )
+    if truncated or overlong or malformed or relevant_overflow or events_omitted:
         status = "offender_unconfirmed"
-    elif mapping_valid and len(unique) == 1 and confirmed:
+    elif mapping_valid and confirmed:
         status = "failed_fd_path_confirmed"
     else:
         status = "offender_unconfirmed"
@@ -292,18 +350,69 @@ def parse_trace(
         "status": status,
         "trace_truncated": bool(truncated),
         "trace_overlong_line": bool(overlong),
-        "trace_parse_ambiguous": bool(malformed or events_omitted or len(unique) > 1),
-        "trace_events_omitted": events_omitted,
+        "trace_parse_ambiguous": parse_ambiguous,
+        "trace_events_overflow": bool(relevant_overflow),
+        "trace_events_observed": events_observed,
+        "trace_events_retained": events_retained,
+        "trace_events_omitted": bool(events_omitted),
+        "trace_events_omitted_count": events_omitted,
+        "trace_events_deduplicated": events_deduplicated,
+        "trace_failed_writes_observed": failed_writes_observed,
+        "trace_efbig_observed": efbig_observed,
+        "trace_sigxfsz_observed": sigxfsz_observed,
         "rank_mapping": "complete" if mapping_valid else "incomplete_or_invalid",
-        "events": confirmed[:MAX_EVENTS] if status == "failed_fd_path_confirmed" else candidates[:MAX_EVENTS],
-        "event_count": len(events),
+        "events": candidate_rows,
+        "signal_pids": signal_rows,
+        "event_count": events_retained,
     }
     encoded = json.dumps(summary, separators=(",", ":"), ensure_ascii=True).encode("ascii")
-    if len(encoded) > MAX_SUMMARY_BYTES:
-        summary["events"] = []
-        summary["status"] = "offender_unconfirmed"
+    # Keep the most useful bounded candidate rows while maintaining exact
+    # observed/retained/omitted accounting if long sanitized paths fill the
+    # public summary budget.
+    while len(encoded) > MAX_SUMMARY_BYTES and summary["events"]:
+        removed_key = candidate_keys[len(summary["events"]) - 1]
+        removed = summary["events"].pop()
+        duplicates = candidate_duplicates[removed_key]
+        efbig_deduplicated -= duplicates
+        efbig_omitted += 1 + duplicates
+        events_retained -= 1
+        events_omitted += 1 + duplicates
+        events_deduplicated -= duplicates
+        summary["trace_events_retained"] = events_retained
+        summary["trace_events_omitted"] = bool(events_omitted)
+        summary["trace_events_omitted_count"] = events_omitted
+        summary["trace_events_deduplicated"] = events_deduplicated
+        summary["event_count"] = events_retained
         summary["trace_parse_ambiguous"] = True
+        summary["trace_events_overflow"] = True
+        summary["status"] = "offender_unconfirmed"
         summary["summary_truncated"] = True
+        encoded = json.dumps(summary, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    if len(encoded) > MAX_SUMMARY_BYTES:
+        # The fixed metadata and capped PID list should fit.  If a future field
+        # unexpectedly breaks that invariant, fail closed with a compact row.
+        summary = {
+            "schema": "ion-csp-failed-write-trace-v1",
+            "status": "offender_unconfirmed",
+            "trace_truncated": bool(truncated),
+            "trace_overlong_line": bool(overlong),
+            "trace_parse_ambiguous": True,
+            "trace_events_overflow": True,
+            "trace_events_observed": events_observed,
+            "trace_events_retained": 0,
+            "trace_events_omitted": bool(events_observed),
+            "trace_events_omitted_count": events_observed,
+            "trace_events_deduplicated": 0,
+            "trace_failed_writes_observed": failed_writes_observed,
+            "trace_efbig_observed": efbig_observed,
+            "trace_sigxfsz_observed": sigxfsz_observed,
+            "rank_mapping": "complete" if mapping_valid else "incomplete_or_invalid",
+            "events": [],
+            "signal_pids": [],
+            "event_count": 0,
+            "summary_truncated": True,
+        }
+        encoded = json.dumps(summary, separators=(",", ":"), ensure_ascii=True).encode("ascii")
     return summary
 
 

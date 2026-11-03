@@ -9,6 +9,7 @@ import csv
 import json
 import shutil
 import logging
+import stat
 import numpy as np
 from pathlib import Path
 import importlib.resources
@@ -33,6 +34,53 @@ _VASP_NORMAL_END_MARKER = "general timing and accounting informations for this j
 _VASP_IONIC_CONVERGENCE_MARKER = (
     "reached required accuracy - stopping structural energy minimisation"
 )
+_VASP_STAGE_STATUS_MAX_BYTES = 16 * 1024
+
+
+def _read_vasp_stage_status(status_path: Path):
+    """Read a small, regular, non-symlink stage marker.
+
+    Returns ``(fields, error)``. A missing marker has neither fields nor an
+    error; malformed or unsafe markers return an error and are never trusted.
+    """
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        return None, "O_NOFOLLOW is unavailable"
+
+    flags = os.O_RDONLY | nofollow
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    descriptor = None
+    try:
+        descriptor = os.open(status_path, flags)
+        status_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(status_stat.st_mode):
+            return None, "VASP stage status is not a regular file"
+        if status_stat.st_size > _VASP_STAGE_STATUS_MAX_BYTES:
+            return None, "VASP stage status exceeds the size limit"
+        with os.fdopen(descriptor, "rb") as status_file:
+            descriptor = None
+            status_bytes = status_file.read(_VASP_STAGE_STATUS_MAX_BYTES + 1)
+    except FileNotFoundError:
+        return None, None
+    except OSError as exc:
+        return None, f"cannot safely read VASP stage status: {exc}"
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+    if len(status_bytes) > _VASP_STAGE_STATUS_MAX_BYTES:
+        return None, "VASP stage status exceeds the size limit"
+    status_text = status_bytes.decode("utf-8", errors="replace")
+    fields = {
+        key.strip(): value.strip()
+        for line in status_text.splitlines()
+        if "=" in line
+        for key, value in (line.split("=", 1),)
+    }
+    return fields, None
 
 
 def _require_local_diagnostic_dispatch(machine) -> None:
@@ -116,6 +164,17 @@ class VaspProcessing:
             encoding="utf-8",
         )
         tmp_path.replace(summary_path)
+
+
+    @staticmethod
+    def _stage_name_for_outcar(outcar_path: Path) -> str:
+        """Derive the VASP stage from the returned directory layout."""
+        parent = outcar_path.parent
+        if parent.name == "final" and parent.parent.name == "fine":
+            return "final"
+        if parent.name == "fine":
+            return "fine"
+        return "rough"
 
 
     def dpdisp_vasp_optimization_tasks(
@@ -452,10 +511,18 @@ class VaspProcessing:
 
         status_path = outcar_path.parent / "ION_CSP_STAGE_STATUS"
         try:
-            status_stat = status_path.stat()
-            status_signature = (status_stat.st_size, status_stat.st_mtime_ns)
-        except OSError:
+            status_stat = status_path.lstat()
+            status_signature = (
+                status_stat.st_dev,
+                status_stat.st_ino,
+                status_stat.st_mode,
+                status_stat.st_size,
+                status_stat.st_mtime_ns,
+            )
+        except FileNotFoundError:
             status_signature = None
+        except OSError as exc:
+            status_signature = ("stat_error", exc.errno)
 
         require_ionic_convergence = (
             os.environ.get("ION_CSP_REQUIRE_IONIC_CONVERGENCE", "0")
@@ -478,17 +545,24 @@ class VaspProcessing:
         # recorded upstream failure instead of replacing it with a less useful
         # file-not-found message.
         status_fields = {}
-        if status_signature is not None:
-            try:
-                status_fields = dict(
-                    line.split("=", 1)
-                    for line in status_path.read_text(
-                        encoding="utf-8", errors="replace"
-                    ).splitlines()
-                    if "=" in line
+        read_status_fields, status_error = _read_vasp_stage_status(status_path)
+        if status_error:
+            result = (False, status_error)
+            self._vasp_validation_cache[cache_key] = result
+            return result
+        if status_signature is not None and read_status_fields is None:
+            result = (False, "VASP stage status disappeared while being read")
+            self._vasp_validation_cache[cache_key] = result
+            return result
+        if read_status_fields is not None:
+            status_fields = read_status_fields
+            recorded_stage = status_fields.get("stage", "").strip().lower()
+            expected_stage = self._stage_name_for_outcar(outcar_path)
+            if recorded_stage != expected_stage:
+                result = (
+                    False,
+                    "VASP stage status stage does not match its output directory",
                 )
-            except OSError as exc:
-                result = (False, f"cannot read VASP stage status: {exc}")
                 self._vasp_validation_cache[cache_key] = result
                 return result
             stage_status = status_fields.get("status", "").strip().upper()
@@ -501,7 +575,11 @@ class VaspProcessing:
                 self._vasp_validation_cache[cache_key] = result
                 return result
 
-        stage_name = status_fields.get("stage", "").strip().lower()
+        stage_name = (
+            self._stage_name_for_outcar(outcar_path)
+            if status_fields
+            else ""
+        )
         intermediate_stage = stage_name in {"rough", "fine"}
         if intermediate_stage:
             # Rough/fine are preconditioning only. If a usable last frame was
@@ -699,6 +777,60 @@ class VaspProcessing:
             "final_ions_check": final_ions_check,
             "final_atoms": final_atoms,
         }
+
+
+    def _earliest_stage_failure(self, folder: Path, target_stage: str):
+        """Return the earliest recorded failure up to the requested stage.
+
+        A downstream OUTCAR can be absent because an earlier stage failed and
+        the launcher never ran the downstream stage. Read only the compact
+        ``ION_CSP_STAGE_STATUS`` records, in execution order, so the failure
+        report can preserve that root cause without interpreting VASP output.
+        """
+        stage_dirs = (
+            ("rough", folder),
+            ("fine", folder / "fine"),
+            ("final", folder / "fine" / "final"),
+        )
+        allowed_stages = {"rough": 0, "fine": 1, "final": 2}
+        target_index = allowed_stages[target_stage]
+
+        for index, (path_stage, stage_dir) in enumerate(stage_dirs):
+            if index > target_index:
+                break
+            status_path = stage_dir / "ION_CSP_STAGE_STATUS"
+            fields, status_error = _read_vasp_stage_status(status_path)
+            if status_error or fields is None:
+                continue
+            # The directory layout is authoritative. A copied or malformed
+            # marker must not claim to describe a different execution stage.
+            if fields.get("stage", "").lower() != path_stage:
+                continue
+            status = fields.get("status", "").upper()
+            if not status or status == "SUCCESS":
+                continue
+
+            reason = fields.get("reason", "") or f"status_{status.lower()}"
+            # Some launchers record a downstream skip as e.g.
+            # ``fine_stage_not_successful``. If the upstream status record was
+            # not returned, retain the explicitly named stage as the root.
+            named_upstream = next(
+                (
+                    stage
+                    for stage, _ in stage_dirs[:index]
+                    if reason == f"{stage}_stage_not_successful"
+                ),
+                None,
+            )
+            root_stage = named_upstream or path_stage
+            return {
+                "earliest_failed_stage": root_stage,
+                "root_reason": reason,
+                "exit_code": fields.get("exit_code", "") if not named_upstream else "",
+                "signal": fields.get("signal", "") if not named_upstream else "",
+            }
+
+        return None
 
 
     def _atom_vdw_radius(self, symbol: str) -> float:
@@ -912,15 +1044,37 @@ class VaspProcessing:
             target_valid = props[f"{target_stage}_output_valid"]
             target_atoms = props[f"{target_stage}_atoms"]
             if not target_valid or target_atoms is None:
-                reason = (
+                target_reason = (
                     props[f"{target_stage}_failure_reason"]
                     or "OUTCAR parse failed"
                 )
+                stage_failure = self._earliest_stage_failure(folder, target_stage)
+                if stage_failure is None:
+                    stage_failure = {
+                        "earliest_failed_stage": target_stage,
+                        "root_reason": target_reason,
+                        "exit_code": "",
+                        "signal": "",
+                    }
+                earliest_failed_stage = stage_failure["earliest_failed_stage"]
+                root_reason = stage_failure["root_reason"]
+                if earliest_failed_stage != target_stage:
+                    reason = (
+                        f"upstream_failure: {earliest_failed_stage} stage failed: "
+                        f"{root_reason}"
+                    )
+                else:
+                    reason = target_reason
                 failed_rows.append(
                     {
                         "Number": props["number"],
                         "Stage": target_stage,
                         "Reason": reason,
+                        "Earliest_Failed_Stage": earliest_failed_stage,
+                        "Root_Reason": root_reason,
+                        "Exit_Code": stage_failure["exit_code"],
+                        "Signal": stage_failure["signal"],
+                        "Target_Reason": target_reason,
                     }
                 )
                 logging.warning(
@@ -965,7 +1119,17 @@ class VaspProcessing:
         failures_path = self.base_dir / "vasp_failures.csv"
         with failures_path.open("w", newline="", encoding="utf-8") as failure_file:
             writer = csv.DictWriter(
-                failure_file, fieldnames=["Number", "Stage", "Reason"]
+                failure_file,
+                fieldnames=[
+                    "Number",
+                    "Stage",
+                    "Reason",
+                    "Earliest_Failed_Stage",
+                    "Root_Reason",
+                    "Exit_Code",
+                    "Signal",
+                    "Target_Reason",
+                ],
             )
             writer.writeheader()
             writer.writerows(failed_rows)

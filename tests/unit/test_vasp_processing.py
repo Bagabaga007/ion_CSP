@@ -505,8 +505,92 @@ def test_read_vaspout_save_csv_allows_explicit_no_final_candidates(
         "Number,MLP_Energy,Rough_Energy,Fine_Energy,Final_Energy"
     )
     assert failures_path.read_text(encoding="utf-8").splitlines() == [
-        "Number,Stage,Reason"
+        "Number,Stage,Reason,Earliest_Failed_Stage,Root_Reason,Exit_Code,Signal,Target_Reason"
     ]
+
+
+def test_failure_csv_reports_earliest_rough_failure_when_fine_never_started(
+    vasp_processor: VaspProcessing,
+):
+    """An absent Fine OUTCAR must not hide a recorded Rough-stage failure."""
+    candidate = vasp_processor.vasp_optimized_dir / "1.474_2"
+    candidate.mkdir()
+    (candidate / "ION_CSP_STAGE_STATUS").write_text(
+        "stage=rough\n"
+        "status=FAILURE\n"
+        "reason=missing_or_empty_OUTCAR_or_CONTCAR\n"
+        "exit_code=255\n",
+        encoding="utf-8",
+    )
+
+    assert not (candidate / "OUTCAR").exists()
+    assert not (candidate / "fine" / "OUTCAR").exists()
+    valid_count = vasp_processor.read_vaspout_save_csv(
+        molecules_prior=False, relaxation=False, allow_empty=True
+    )
+
+    import csv
+
+    failures_path = vasp_processor.base_dir / "vasp_failures.csv"
+    with failures_path.open("r", encoding="utf-8", newline="") as failure_file:
+        row = next(csv.DictReader(failure_file))
+
+    assert valid_count == 0
+    assert row["Stage"] == "fine"  # compatibility: the requested result stage
+    assert row["Earliest_Failed_Stage"] == "rough"
+    assert row["Root_Reason"] == "missing_or_empty_OUTCAR_or_CONTCAR"
+    assert row["Exit_Code"] == "255"
+    assert row["Signal"] == ""
+    assert "cannot read OUTCAR:" in row["Target_Reason"]
+    assert row["Reason"] == (
+        "upstream_failure: rough stage failed: "
+        "missing_or_empty_OUTCAR_or_CONTCAR"
+    )
+
+
+@pytest.mark.parametrize(
+    "marker_kind", ["symlink", "oversize", "directory", "mismatched_stage"]
+)
+def test_earliest_stage_failure_ignores_untrusted_status_markers(
+    vasp_processor: VaspProcessing,
+    tmp_path: Path,
+    marker_kind: str,
+):
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    status_path = candidate / "ION_CSP_STAGE_STATUS"
+    valid_marker = (
+        "stage=rough\n"
+        "status=FAILURE\n"
+        "reason=missing_or_empty_OUTCAR_or_CONTCAR\n"
+        "exit_code=255\n"
+    )
+
+    if marker_kind == "symlink":
+        external_marker = tmp_path / "outside-status"
+        external_marker.write_text(valid_marker, encoding="utf-8")
+        try:
+            status_path.symlink_to(external_marker)
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symlinks are unavailable: {exc}")
+    elif marker_kind == "directory":
+        status_path.mkdir()
+    elif marker_kind == "oversize":
+        status_path.write_text(
+            valid_marker + ("x" * (16 * 1024)), encoding="utf-8"
+        )
+    else:
+        status_path.write_text(
+            valid_marker.replace("stage=rough", "stage=fine"),
+            encoding="utf-8",
+        )
+
+    assert vasp_processor._earliest_stage_failure(candidate, "fine") is None
+    outcar = candidate / "OUTCAR"
+    outcar.write_text("valid abbreviated OUTCAR\n", encoding="utf-8")
+    valid, reason = vasp_processor._validate_vasp_outcar(outcar)
+    assert valid is False
+    assert reason
 
 
 # ==================== 测试 _read_mlp_properties ====================
@@ -698,8 +782,8 @@ def test_validate_real_vasp_outcar(
 def test_intermediate_stage_accepts_fatal_outcar_for_restart(
     vasp_processor: VaspProcessing, tmp_path: Path
 ):
-    stage = tmp_path / "sample"
-    stage.mkdir()
+    stage = tmp_path / "sample" / "fine"
+    stage.mkdir(parents=True)
     outcar = stage / "OUTCAR"
     outcar.write_text(
         " vasp.6.3.0\nZBRENT: fatal error in bracketing\n",
@@ -742,7 +826,9 @@ def test_strict_ionic_gate_can_be_enabled_for_final_diagnostics(
 def test_stage_failure_status_overrides_converged_outcar(
     vasp_processor: VaspProcessing, tmp_path: Path
 ):
-    outcar = tmp_path / "OUTCAR"
+    fine_dir = tmp_path / "fine"
+    fine_dir.mkdir()
+    outcar = fine_dir / "OUTCAR"
     outcar.write_text(
         " vasp.6.3.0\n"
         " executed on Linux\n"
@@ -752,7 +838,7 @@ def test_stage_failure_status_overrides_converged_outcar(
     )
     assert vasp_processor._validate_vasp_outcar(outcar) == (True, None)
 
-    (tmp_path / "ION_CSP_STAGE_STATUS").write_text(
+    (fine_dir / "ION_CSP_STAGE_STATUS").write_text(
         "stage=fine\nstatus=FAILURE\nreason=pressure_not_converged\n",
         encoding="utf-8",
     )
@@ -765,12 +851,14 @@ def test_stage_failure_status_overrides_converged_outcar(
 def test_stage_failure_status_explains_intentionally_missing_outcar(
     vasp_processor: VaspProcessing, tmp_path: Path
 ):
-    (tmp_path / "ION_CSP_STAGE_STATUS").write_text(
+    fine_dir = tmp_path / "fine"
+    fine_dir.mkdir()
+    (fine_dir / "ION_CSP_STAGE_STATUS").write_text(
         "stage=fine\nstatus=FAILURE\nreason=rough_stage_not_successful\n",
         encoding="utf-8",
     )
 
-    valid, reason = vasp_processor._validate_vasp_outcar(tmp_path / "OUTCAR")
+    valid, reason = vasp_processor._validate_vasp_outcar(fine_dir / "OUTCAR")
 
     assert valid is False
     assert "rough_stage_not_successful" in reason
@@ -1436,7 +1524,16 @@ Direct
     with failures_file.open("r", encoding="utf-8") as f:
         failures = list(csv.DictReader(f))
     assert failures == [
-        {"Number": "001", "Stage": "fine", "Reason": "OUTCAR parse failed"}
+        {
+            "Number": "001",
+            "Stage": "fine",
+            "Reason": "OUTCAR parse failed",
+            "Earliest_Failed_Stage": "fine",
+            "Root_Reason": "OUTCAR parse failed",
+            "Exit_Code": "",
+            "Signal": "",
+            "Target_Reason": "OUTCAR parse failed",
+        }
     ]
 
 

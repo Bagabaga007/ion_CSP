@@ -1,5 +1,5 @@
 __author__ = "Ze Yang"
 __contact__ = "yangze1995007@163.com"
 __license__ = "MIT"
-__version__ = "2.3.8"
+__version__ = "2.3.9"
 __date__ = "2026-10-30"

@@ -29,6 +29,12 @@ def _trace(path="/scratch/task/OUTCAR", pid=1001):
     )
 
 
+def _failed_write(path, errno, pid=1001, timestamp="1793590000.001"):
+    return (
+        f'{pid} {timestamp} write(9<{path}>, ""..., 1) = -1 {errno} (synthetic failure)\n'
+    )
+
+
 def test_failed_write_with_deleted_path_is_confirmed_but_reports_size_unavailable(tmp_path):
     trace = _trace(f"{tmp_path}/OUTCAR (deleted)")
     summary = parse_trace(trace, stage_dir=tmp_path, pid_to_rank=_mapping())
@@ -47,6 +53,7 @@ def test_multiple_failed_fd_paths_are_ambiguous(tmp_path):
     summary = parse_trace(trace, stage_dir=tmp_path, pid_to_rank=_mapping())
     assert summary["status"] == "offender_unconfirmed"
     assert summary["trace_parse_ambiguous"]
+    assert {row["path"] for row in summary["events"]} == {"OUTCAR", "vasprun.xml"}
 
 
 def test_unresolved_second_failed_fd_prevents_false_confirmation(tmp_path):
@@ -77,6 +84,16 @@ def test_truncated_and_overlong_trace_fail_closed(tmp_path):
     too_large = parse_trace(b"x" * (MAX_RAW_BYTES + 1), stage_dir=tmp_path, pid_to_rank=_mapping())
     assert too_large["status"] == "offender_unconfirmed"
     assert too_large["trace_truncated"]
+
+
+def test_incomplete_final_line_is_not_parsed(tmp_path):
+    partial = f'1001 1793590001.0 write(9<{tmp_path}/SECOND>, ""..., 1) = -1 EFBIG'
+    summary = parse_trace(_trace(f"{tmp_path}/OUTCAR") + partial,
+                          stage_dir=tmp_path, pid_to_rank=_mapping())
+    assert summary["status"] == "offender_unconfirmed"
+    assert summary["trace_truncated"]
+    assert summary["trace_efbig_observed"] == 1
+    assert [row["path"] for row in summary["events"]] == ["OUTCAR"]
 
 
 def test_outside_path_is_not_exposed_or_confirmed(tmp_path):
@@ -122,12 +139,90 @@ def test_summary_never_serializes_raw_trace_or_exceeds_limit(tmp_path):
     assert b'"path":"OUTCAR"' in serialized
 
 
-def test_event_limit_cannot_hide_a_second_failed_file(tmp_path):
+def test_unrelated_failures_do_not_evict_later_efbig_target(tmp_path):
+    noise = "".join(
+        _failed_write(f"/scratch/noise-{index}", ("ENOSPC", "EIO", "EDQUOT")[index % 3],
+                      timestamp=f"1793590000.{index:03d}")
+        for index in range(160)
+    )
+    summary = parse_trace(noise + _trace(f"{tmp_path}/OUTCAR"),
+                          stage_dir=tmp_path, pid_to_rank=_mapping())
+    assert summary["status"] == "failed_fd_path_confirmed"
+    assert summary["events"][0]["path"] == "OUTCAR"
+    assert summary["trace_failed_writes_observed"] == 161
+    assert summary["trace_efbig_observed"] == 1
+    assert summary["trace_sigxfsz_observed"] == 1
+    assert summary["trace_events_observed"] == 2
+    assert summary["trace_events_retained"] == 2
+    assert summary["event_count"] == 2
+    assert summary["trace_events_omitted"] is False
+    assert summary["trace_events_omitted_count"] == 0
+    assert summary["trace_events_deduplicated"] == 0
+
+
+def test_repeated_candidates_are_deduplicated_and_competing_target_is_visible(tmp_path):
     trace = _trace(f"{tmp_path}/OUTCAR") * 64 + _trace(f"{tmp_path}/OTHER")
     summary = parse_trace(trace, stage_dir=tmp_path, pid_to_rank=_mapping())
     assert summary["status"] == "offender_unconfirmed"
-    assert summary["trace_events_omitted"]
     assert summary["trace_parse_ambiguous"]
+    assert summary["trace_failed_writes_observed"] == 65
+    assert summary["trace_efbig_observed"] == 65
+    assert summary["trace_sigxfsz_observed"] == 65
+    assert summary["trace_events_observed"] == 130
+    assert summary["trace_events_retained"] == 3
+    assert summary["event_count"] == 3
+    assert summary["trace_events_omitted"] is False
+    assert summary["trace_events_omitted_count"] == 0
+    assert summary["trace_events_deduplicated"] == 127
+    assert {row["path"] for row in summary["events"]} == {"OUTCAR", "OTHER"}
+    assert len(encode_summary(summary)) <= MAX_SUMMARY_BYTES
+
+
+def test_relevant_candidate_overflow_is_counted_and_fails_closed(tmp_path, monkeypatch):
+    import ion_CSP.failed_write_trace as trace_module
+
+    monkeypatch.setattr(trace_module, "MAX_EVENTS", 2)
+    trace = "".join(
+        _trace(f"{tmp_path}/candidate-{index}.bin")
+        for index in range(3)
+    )
+    summary = parse_trace(trace, stage_dir=tmp_path, pid_to_rank=_mapping())
+    assert summary["status"] == "offender_unconfirmed"
+    assert summary["trace_events_overflow"]
+    assert summary["trace_parse_ambiguous"]
+    assert len(summary["events"]) == 2
+    assert summary["trace_events_observed"] == 6
+    assert summary["trace_events_retained"] == 3
+    assert summary["event_count"] == 3
+    assert summary["trace_events_omitted"] is True
+    assert summary["trace_events_omitted_count"] == 1
+    assert summary["trace_events_deduplicated"] == 2
+    assert summary["trace_events_observed"] == (
+        summary["trace_events_retained"]
+        + summary["trace_events_omitted_count"]
+        + summary["trace_events_deduplicated"]
+    )
+
+
+def test_summary_cap_drops_only_bounded_evidence_and_updates_counts(tmp_path):
+    paths = [tmp_path / ("p" + str(index) + "x" * 880) for index in range(24)]
+    trace = "".join(_trace(str(path)) for path in paths)
+    summary = parse_trace(trace, stage_dir=tmp_path, pid_to_rank=_mapping())
+    serialized = encode_summary(summary)
+    assert len(serialized) <= MAX_SUMMARY_BYTES
+    assert summary["status"] == "offender_unconfirmed"
+    assert summary["summary_truncated"]
+    assert summary["trace_events_overflow"]
+    assert 0 < len(summary["events"]) < len(paths)
+    assert summary["trace_events_retained"] == len(summary["events"]) + len(summary["signal_pids"])
+    assert summary["event_count"] == summary["trace_events_retained"]
+    assert summary["trace_events_omitted"] is True
+    assert summary["trace_events_omitted_count"] == len(paths) - len(summary["events"])
+    assert summary["trace_events_observed"] == (
+        summary["trace_events_retained"]
+        + summary["trace_events_omitted_count"]
+        + summary["trace_events_deduplicated"]
+    )
 
 
 def test_huge_numeric_pid_is_ambiguous_not_a_parser_exception(tmp_path):
